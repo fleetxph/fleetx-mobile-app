@@ -19,7 +19,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.fleetx.app"
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -41,6 +42,11 @@
     ],
     "experiments": {
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "ef0ea81f-c0e8-490e-9f80-a7c56bc2d668"
+      }
     }
   }
 }
