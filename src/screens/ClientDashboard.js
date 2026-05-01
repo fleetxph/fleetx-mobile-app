@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  Pressable,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -12,6 +13,7 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getClientProfile, getNotifications, getVehicles } from "../api/clientApi";
+import NotificationIcon from "../components/NotificationIcon";
 import { styles } from "../styles/clientDashboardStyle";
 import { getProfileImageUrl, getVehicleImageUrl } from "../utils/imageUrl";
 
@@ -22,6 +24,25 @@ const vehicleTypes = [
   { key: "pickup", label: "Pickup" },
   { key: "mpv", label: "MPV" },
 ];
+
+const getUnreadCountFromResponse = (notificationRes) => {
+  const explicitCount = Number(
+    notificationRes?.unreadCount ?? notificationRes?.count ?? Number.NaN
+  );
+  if (Number.isFinite(explicitCount) && explicitCount >= 0) {
+    return explicitCount;
+  }
+
+  const notifications = Array.isArray(notificationRes?.notifications)
+    ? notificationRes.notifications
+    : Array.isArray(notificationRes?.items)
+    ? notificationRes.items
+    : [];
+
+  return notifications.filter(
+    (item) => !item?.read && !item?.isRead && !item?.readAt
+  ).length;
+};
 
 export default function ClientDashboard({ navigation }) {
   const { width } = useWindowDimensions();
@@ -61,11 +82,20 @@ export default function ClientDashboard({ navigation }) {
     try {
       setVehiclesLoading(true);
       await loadCachedProfile();
-      const [profileRes, vehicleRes, notificationRes] = await Promise.all([
-        getClientProfile().catch(() => null),
+      const [profileResult, vehicleResult, notificationResult] = await Promise.allSettled([
+        getClientProfile(),
         getVehicles(),
-        getNotifications(50).catch(() => ({ unreadCount: 0, notifications: [] })),
+        getNotifications(50),
       ]);
+
+      const profileRes =
+        profileResult.status === "fulfilled" ? profileResult.value : null;
+      const vehicleRes =
+        vehicleResult.status === "fulfilled" ? vehicleResult.value : [];
+      const notificationRes =
+        notificationResult.status === "fulfilled"
+          ? notificationResult.value
+          : { unreadCount: 0, notifications: [] };
 
       const profileUser = profileRes?.user || null;
       if (profileUser) {
@@ -93,15 +123,12 @@ export default function ClientDashboard({ navigation }) {
       );
       setDashboardVehicles(backendVehicles);
       setFeaturedVehicles(backendVehicles.slice(0, 8));
-      const notifications = notificationRes?.notifications || notificationRes?.items || [];
-      const nextUnreadCount =
-        Number(notificationRes?.unreadCount ?? notificationRes?.count ?? NaN) ||
-        notifications.filter((item) => !item?.read && !item?.isRead && !item?.readAt).length;
-      setUnreadCount(nextUnreadCount);
+      setUnreadCount(getUnreadCountFromResponse(notificationRes));
     } catch (err) {
       console.log("Load dashboard data error:", err?.response?.data || err.message);
       setDashboardVehicles([]);
       setFeaturedVehicles([]);
+      setUnreadCount(0);
     } finally {
       setVehiclesLoading(false);
     }
@@ -159,24 +186,13 @@ export default function ClientDashboard({ navigation }) {
           />
 
           <View style={styles.headerRight}>
-            <TouchableOpacity
-              style={styles.iconButton}
-              activeOpacity={0.85}
+            <NotificationIcon
+              unreadCount={unreadCount}
               onPress={() => navigation.navigate("Notifications")}
-            >
-              <Text style={styles.iconButtonSymbol}>Bell</Text>
-              {unreadCount > 0 ? (
-                <View style={styles.notificationDot}>
-                  <Text style={styles.notificationDotText}>
-                    {unreadCount > 9 ? "9+" : unreadCount}
-                  </Text>
-                </View>
-              ) : null}
-            </TouchableOpacity>
+            />
 
-            <TouchableOpacity
+            <Pressable
               style={styles.avatarButton}
-              activeOpacity={0.85}
               onPress={() => navigation.navigate("Profile")}
             >
               {profileImage && !failedImages.profile ? (
@@ -190,7 +206,7 @@ export default function ClientDashboard({ navigation }) {
                   <Text style={styles.avatarFallbackText}>{firstName.charAt(0).toUpperCase()}</Text>
                 </View>
               )}
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </View>
 

@@ -33,61 +33,31 @@ export const styles = StyleSheet.create({
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-  },
-
-  iconButton: {
-    minWidth: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#ffffff",
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-  },
-
-  iconButtonSymbol: {
-    fontSize: 10,
-    fontWeight: "900",
-    color: "#0B132B",
-  },
-
-  notificationDot: {
-    position: "absolute",
-    top: 4,
-    right: 2,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: "#f97316",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 4,
-  },
-
-  notificationDotText: {
-    color: "#ffffff",
-    fontSize: 9,
-    fontWeight: "900",
+    gap: 12,
   },
 
   avatarButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     overflow: "hidden",
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
   },
 
   avatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
   },
 
   avatarFallback: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: "#0B132B",
     alignItems: "center",
     justifyContent: "center",
