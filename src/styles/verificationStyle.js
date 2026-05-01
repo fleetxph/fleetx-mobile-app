@@ -1,0 +1,378 @@
+import { StyleSheet } from "react-native";
+
+export const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#f8fafc",
+  },
+  container: {
+    flex: 1,
+    backgroundColor: "#f8fafc",
+  },
+  contentContainer: {
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 36,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 18,
+    gap: 12,
+  },
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  headerTextWrap: {
+    flex: 1,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: "900",
+    color: "#0f172a",
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#64748b",
+  },
+  card: {
+    backgroundColor: "#ffffff",
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  cardTitle: {
+    fontSize: 17,
+    fontWeight: "900",
+    color: "#111827",
+    marginBottom: 6,
+  },
+  cardSubtitle: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#64748b",
+    marginBottom: 14,
+  },
+  statusTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+    marginBottom: 14,
+  },
+  badge: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  badgeNeutral: {
+    backgroundColor: "#e2e8f0",
+  },
+  badgeWarning: {
+    backgroundColor: "#ffedd5",
+  },
+  badgeInfo: {
+    backgroundColor: "#dbeafe",
+  },
+  badgeSuccess: {
+    backgroundColor: "#dcfce7",
+  },
+  badgeDanger: {
+    backgroundColor: "#fee2e2",
+  },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  badgeTextNeutral: {
+    color: "#475569",
+  },
+  badgeTextWarning: {
+    color: "#c2410c",
+  },
+  badgeTextInfo: {
+    color: "#1d4ed8",
+  },
+  badgeTextSuccess: {
+    color: "#15803d",
+  },
+  badgeTextDanger: {
+    color: "#b91c1c",
+  },
+  summaryGrid: {
+    gap: 12,
+  },
+  summaryRow: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 16,
+    padding: 14,
+    backgroundColor: "#f8fafc",
+  },
+  summaryLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#64748b",
+    marginBottom: 6,
+  },
+  summaryValue: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800",
+    color: "#0f172a",
+  },
+  eligibilityRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  eligibilityCard: {
+    flex: 1,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    padding: 16,
+    backgroundColor: "#f8fafc",
+  },
+  eligibilityCardActive: {
+    borderColor: "#fdba74",
+    backgroundColor: "#fff7ed",
+  },
+  eligibilityLabel: {
+    fontSize: 13,
+    color: "#64748b",
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  eligibilityValue: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: "#111827",
+  },
+  checklistRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingVertical: 10,
+  },
+  checklistLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+  },
+  checklistTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  checklistSubtitle: {
+    fontSize: 12,
+    color: "#64748b",
+    marginTop: 2,
+  },
+  segmentRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 16,
+  },
+  segmentButton: {
+    flex: 1,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    backgroundColor: "#ffffff",
+  },
+  segmentButtonActive: {
+    borderColor: "#f97316",
+    backgroundColor: "#fff7ed",
+  },
+  segmentTitle: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  segmentText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#64748b",
+  },
+  segmentTextActive: {
+    color: "#9a3412",
+  },
+  sectionHeader: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: "#111827",
+    marginBottom: 10,
+  },
+  uploadGroup: {
+    marginBottom: 16,
+  },
+  uploadGroupTitle: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  uploadGroupSubtitle: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#64748b",
+    marginBottom: 12,
+  },
+  uploadGrid: {
+    gap: 12,
+  },
+  uploadCard: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 18,
+    backgroundColor: "#ffffff",
+    overflow: "hidden",
+  },
+  uploadPreview: {
+    width: "100%",
+    height: 170,
+    backgroundColor: "#f1f5f9",
+  },
+  uploadPlaceholder: {
+    width: "100%",
+    height: 170,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f8fafc",
+    paddingHorizontal: 18,
+  },
+  uploadPlaceholderText: {
+    fontSize: 13,
+    color: "#64748b",
+    fontWeight: "700",
+    marginTop: 10,
+    textAlign: "center",
+  },
+  uploadBody: {
+    padding: 14,
+  },
+  uploadTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+    marginBottom: 10,
+  },
+  uploadTitle: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  uploadHint: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#64748b",
+  },
+  uploadActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  uploadActionButton: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  uploadPrimary: {
+    backgroundColor: "#f97316",
+  },
+  uploadSecondary: {
+    backgroundColor: "#fff7ed",
+    borderWidth: 1,
+    borderColor: "#fdba74",
+  },
+  uploadDanger: {
+    backgroundColor: "#fff1f2",
+    borderWidth: 1,
+    borderColor: "#fecdd3",
+  },
+  uploadPrimaryText: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  uploadSecondaryText: {
+    color: "#c2410c",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  uploadDangerText: {
+    color: "#be123c",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  noticeCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "#fff7ed",
+    borderWidth: 1,
+    borderColor: "#fed7aa",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
+  },
+  noticeText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#9a3412",
+  },
+  errorText: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#dc2626",
+    fontWeight: "700",
+    marginBottom: 12,
+  },
+  submitButton: {
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: "#f97316",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  submitButtonDisabled: {
+    opacity: 0.6,
+  },
+  submitButtonText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  refreshText: {
+    fontSize: 13,
+    color: "#f97316",
+    fontWeight: "800",
+  },
+});

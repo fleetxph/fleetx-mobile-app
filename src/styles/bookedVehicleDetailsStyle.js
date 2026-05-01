@@ -1,0 +1,245 @@
+import { Platform, StyleSheet } from "react-native";
+
+const shadow = Platform.select({
+  ios: {
+    shadowColor: "#0B132B",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+  },
+  android: {
+    elevation: 5,
+  },
+  default: {
+    shadowColor: "#0B132B",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+  },
+});
+
+export const styles = StyleSheet.create({
+  safe: {
+    flex: 1,
+    backgroundColor: "#F5F6F8",
+  },
+  screen: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+  content: {
+    paddingBottom: 34,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  title: {
+    color: "#0B132B",
+    fontSize: 21,
+    fontWeight: "900",
+  },
+  subtitle: {
+    color: "#6B7280",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  imageCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 26,
+    overflow: "hidden",
+    marginBottom: 14,
+    ...shadow,
+  },
+  vehicleImage: {
+    width: "100%",
+    height: 220,
+    backgroundColor: "#E5E7EB",
+  },
+
+  vehicleImageFallback: {
+    width: "100%",
+    height: 220,
+    backgroundColor: "#0B132B",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  vehicleImageFallbackText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  imageFooter: {
+    padding: 16,
+  },
+  vehicleName: {
+    color: "#111827",
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  vehicleMeta: {
+    color: "#6B7280",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 5,
+  },
+  statusPanel: {
+    borderRadius: 22,
+    padding: 16,
+    backgroundColor: "#0B132B",
+    marginBottom: 14,
+    ...shadow,
+  },
+  statusTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  statusTitle: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  statusText: {
+    color: "#CBD5E1",
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "700",
+    marginTop: 8,
+  },
+  badge: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  badge_progress: {
+    backgroundColor: "#DBEAFE",
+  },
+  badge_payment: {
+    backgroundColor: "#FFEDD5",
+  },
+  badge_review: {
+    backgroundColor: "#FEF3C7",
+  },
+  badge_confirmed: {
+    backgroundColor: "#DCFCE7",
+  },
+  badge_completed: {
+    backgroundColor: "#F3E8FF",
+  },
+  badge_cancelled: {
+    backgroundColor: "#FEE2E2",
+  },
+  badgeText: {
+    color: "#111827",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    padding: 16,
+    marginBottom: 14,
+    ...shadow,
+  },
+  sectionTitle: {
+    color: "#111827",
+    fontSize: 15,
+    fontWeight: "900",
+    marginBottom: 12,
+  },
+  detailGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  detailItem: {
+    width: "48%",
+    borderRadius: 16,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    padding: 12,
+  },
+  detailLabel: {
+    color: "#6B7280",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  detailValue: {
+    color: "#111827",
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 5,
+  },
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 14,
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+  },
+  rowLast: {
+    borderBottomWidth: 0,
+  },
+  label: {
+    flex: 0.45,
+    color: "#6B7280",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  value: {
+    flex: 0.55,
+    color: "#111827",
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "right",
+  },
+  primaryButton: {
+    minHeight: 52,
+    borderRadius: 18,
+    backgroundColor: "#0B132B",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 10,
+  },
+  secondaryButton: {
+    minHeight: 50,
+    borderRadius: 18,
+    backgroundColor: "#FFF4E8",
+    borderWidth: 1,
+    borderColor: "#FED7AA",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 10,
+  },
+  primaryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  secondaryButtonText: {
+    color: "#C2410C",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+});
