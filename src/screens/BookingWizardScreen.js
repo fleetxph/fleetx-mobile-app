@@ -77,6 +77,29 @@ function formatPeso(value) {
   return `PHP ${Number(value || 0).toLocaleString()}`;
 }
 
+function getVehicleSeatCapacity(vehicle) {
+  const rawSeats = Number(
+    vehicle?.seater ?? vehicle?.seats ?? vehicle?.seatCapacity ?? vehicle?.capacity ?? 0
+  );
+
+  return rawSeats > 0 ? rawSeats : 12;
+}
+
+function getVehicleDailyRate(vehicle) {
+  const rawRate = Number(
+    vehicle?.dailyRate ?? vehicle?.price ?? vehicle?.rate ?? vehicle?.rentalPrice ?? NaN
+  );
+
+  return Number.isFinite(rawRate) && rawRate > 0 ? rawRate : null;
+}
+
+function clampPassengerCount(value, max) {
+  const safeMax = Math.max(1, Number(max) || 1);
+  const safeValue = Number(value) || 1;
+
+  return Math.min(safeMax, Math.max(1, safeValue));
+}
+
 function toDateInput(date) {
   if (!date) return "";
   const value = new Date(date);
@@ -198,7 +221,7 @@ export default function BookingWizardScreen({ route, navigation }) {
   const [picker, setPicker] = useState(null);
   const [schedule, setSchedule] = useState({
     destination: incomingTrip?.destination || "",
-    pickupLocation: incomingTrip?.pickupLocation || "Makati City",
+    pickupLocation: incomingTrip?.pickupLocation || "",
     startDate: incomingTrip?.startDate || toDateInput(pickupDate),
     startTime: incomingTrip?.startTime || "09:00",
     endDate: incomingTrip?.endDate || toDateInput(returnDate),
@@ -218,7 +241,10 @@ export default function BookingWizardScreen({ route, navigation }) {
     preferences.tripPurpose === "Other"
       ? preferences.customPurpose.trim()
       : preferences.tripPurpose;
-  const totalPrice = Number(selectedVehicle?.dailyRate || 0) * selectedDays;
+  const passengerMax = isDirectBooking ? getVehicleSeatCapacity(selectedVehicle) : 12;
+  const selectedVehicleRate = getVehicleDailyRate(selectedVehicle);
+  const effectiveBudget = isDirectBooking ? selectedVehicleRate ?? preferences.budget : preferences.budget;
+  const totalPrice = Number(selectedVehicleRate || 0) * selectedDays;
   const isSelfDrive = tripType === "self-drive";
 
   useEffect(() => {
@@ -286,6 +312,25 @@ export default function BookingWizardScreen({ route, navigation }) {
     loadVerification();
   }, []);
 
+  useEffect(() => {
+    if (!isDirectBooking) return;
+
+    setPreferences((prev) => {
+      const nextPassengers = clampPassengerCount(prev.passengers, passengerMax);
+      const nextBudget = selectedVehicleRate ?? prev.budget;
+
+      if (nextPassengers === prev.passengers && nextBudget === prev.budget) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        passengers: nextPassengers,
+        budget: nextBudget,
+      };
+    });
+  }, [isDirectBooking, passengerMax, selectedVehicleRate]);
+
   const recommendedVehicles = useMemo(() => {
     const list = vehicles.filter((vehicle) => {
       const seats = Number(vehicle.seater || vehicle.seats || 0);
@@ -326,7 +371,10 @@ export default function BookingWizardScreen({ route, navigation }) {
   };
 
   const updatePreference = (key, value) => {
-    setPreferences((prev) => ({ ...prev, [key]: value }));
+    setPreferences((prev) => ({
+      ...prev,
+      [key]: key === "passengers" ? clampPassengerCount(value, passengerMax) : value,
+    }));
     setErrors((prev) => ({ ...prev, [key]: "" }));
   };
 
@@ -425,7 +473,7 @@ export default function BookingWizardScreen({ route, navigation }) {
       numberOfPax: preferences.passengers,
       luggageBags: preferences.luggageBags,
       purposeOfTravel,
-      notes: `Trip Type: ${getTripTypeLabel(tripType)}. Start Time: ${schedule.startTime}. End Time: ${schedule.endTime}. Transmission preference: ${preferences.transmission}. Budget target: ${preferences.budget}.`,
+      notes: `Trip Type: ${getTripTypeLabel(tripType)}. Start Time: ${schedule.startTime}. End Time: ${schedule.endTime}. Transmission preference: ${preferences.transmission}. Budget target: ${effectiveBudget}.`,
       withDriver: tripType === "with-driver",
       contact,
       paymentMethod: "GCash",
@@ -651,7 +699,7 @@ export default function BookingWizardScreen({ route, navigation }) {
               <Text style={styles.vehicleMeta}>Plate No: {selectedVehicle.plateNo}</Text>
             )}
             <Text style={styles.vehicleRate}>
-              {formatPeso(selectedVehicle?.dailyRate)}/day
+              {selectedVehicleRate ? `${formatPeso(selectedVehicleRate)}/day` : "Rate unavailable"}
             </Text>
           </View>
         </View>
@@ -760,35 +808,87 @@ export default function BookingWizardScreen({ route, navigation }) {
           <Text style={styles.controlValue}>{preferences.passengers}</Text>
         </View>
         <View style={styles.counterRow}>
-          <TouchableOpacity style={styles.circleButton} onPress={() => updatePreference("passengers", Math.max(1, preferences.passengers - 1))}>
+          <TouchableOpacity
+            style={[
+              styles.circleButton,
+              preferences.passengers <= 1 && styles.buttonDisabled,
+            ]}
+            onPress={() => updatePreference("passengers", preferences.passengers - 1)}
+            disabled={preferences.passengers <= 1}
+          >
             <Text style={styles.circleButtonText}>-</Text>
           </TouchableOpacity>
           <View style={styles.counterTrack}>
-            <View style={[styles.counterFill, { width: `${(preferences.passengers / 12) * 100}%` }]} />
+            <View
+              style={[
+                styles.counterFill,
+                { width: `${(clampPassengerCount(preferences.passengers, passengerMax) / passengerMax) * 100}%` },
+              ]}
+            />
           </View>
-          <TouchableOpacity style={styles.circleButton} onPress={() => updatePreference("passengers", Math.min(12, preferences.passengers + 1))}>
+          <TouchableOpacity
+            style={[
+              styles.circleButton,
+              preferences.passengers >= passengerMax && styles.buttonDisabled,
+            ]}
+            onPress={() => updatePreference("passengers", preferences.passengers + 1)}
+            disabled={preferences.passengers >= passengerMax}
+          >
             <Text style={styles.circleButtonText}>+</Text>
           </TouchableOpacity>
         </View>
+        {isDirectBooking && (
+          <Text
+            style={{
+              color: "#9A3412",
+              fontSize: 12,
+              lineHeight: 18,
+              marginTop: 10,
+              fontWeight: "700",
+            }}
+          >
+            Maximum passengers for this vehicle: {passengerMax}
+          </Text>
+        )}
       </View>
 
-      <View style={styles.controlBlock}>
-        <View style={styles.controlHeader}>
-          <Text style={styles.controlTitle}>Budget Target</Text>
-          <Text style={styles.controlValue}>{formatPeso(preferences.budget)}</Text>
-        </View>
-        <View style={styles.counterRow}>
-          <TouchableOpacity style={styles.circleButton} onPress={() => updatePreference("budget", Math.max(1000, preferences.budget - 500))}>
-            <Text style={styles.circleButtonText}>-</Text>
-          </TouchableOpacity>
-          <View style={styles.counterTrack}>
-            <View style={[styles.counterFill, { width: `${((preferences.budget - 1000) / 9000) * 100}%` }]} />
+      {isDirectBooking ? (
+        <View style={styles.controlBlock}>
+          <View style={styles.controlHeader}>
+            <Text style={styles.controlTitle}>Selected Vehicle Rate</Text>
+            <Text style={styles.controlValue}>
+              {selectedVehicleRate ? `${formatPeso(selectedVehicleRate)} / day` : "Rate unavailable"}
+            </Text>
           </View>
-          <TouchableOpacity style={styles.circleButton} onPress={() => updatePreference("budget", Math.min(10000, preferences.budget + 500))}>
-            <Text style={styles.circleButtonText}>+</Text>
-          </TouchableOpacity>
+          <Text
+            style={{
+              color: "#667085",
+              fontSize: 13,
+              lineHeight: 19,
+            }}
+          >
+            This rate is based on the vehicle you already selected and cannot be edited here.
+          </Text>
         </View>
-      </View>
+      ) : (
+        <View style={styles.controlBlock}>
+          <View style={styles.controlHeader}>
+            <Text style={styles.controlTitle}>Budget Target</Text>
+            <Text style={styles.controlValue}>{formatPeso(preferences.budget)}</Text>
+          </View>
+          <View style={styles.counterRow}>
+            <TouchableOpacity style={styles.circleButton} onPress={() => updatePreference("budget", Math.max(1000, preferences.budget - 500))}>
+              <Text style={styles.circleButtonText}>-</Text>
+            </TouchableOpacity>
+            <View style={styles.counterTrack}>
+              <View style={[styles.counterFill, { width: `${((preferences.budget - 1000) / 9000) * 100}%` }]} />
+            </View>
+            <TouchableOpacity style={styles.circleButton} onPress={() => updatePreference("budget", Math.min(10000, preferences.budget + 500))}>
+              <Text style={styles.circleButtonText}>+</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       <Text style={styles.label}>Luggage Bags</Text>
       <View style={styles.compactGrid}>
@@ -924,7 +1024,7 @@ export default function BookingWizardScreen({ route, navigation }) {
           {selectedVehicle?.transmission || "N/A"}
         </Text>
         <Text style={styles.vehicleRate}>
-          {formatPeso(selectedVehicle?.dailyRate)}/day
+          {selectedVehicleRate ? `${formatPeso(selectedVehicleRate)}/day` : "Rate unavailable"}
         </Text>
       </View>
     </View>

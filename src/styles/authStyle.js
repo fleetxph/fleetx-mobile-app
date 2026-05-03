@@ -1,19 +1,21 @@
 import { Platform, StatusBar, StyleSheet } from "react-native";
+import { colors } from "../theme/colors";
 
 export const authColors = {
-  primary: "#0B132B",
-  primaryDeep: "#111827",
-  accent: "#F28C28",
-  accentSoft: "#FFF4E8",
-  background: "#F5F6F8",
-  card: "#FFFFFF",
-  inputBg: "#FBFCFE",
-  text: "#111827",
-  muted: "#6B7280",
-  border: "#E5E7EB",
+  primary: colors.primary,
+  primaryDeep: colors.primaryNight,
+  accent: colors.accent,
+  accentGold: colors.accentGold,
+  accentSoft: colors.accentSoft,
+  background: "#EEF1F5",
+  card: colors.white,
+  inputBg: "#F8FAFC",
+  text: colors.text,
+  muted: colors.subtext,
+  border: "#E6EAF0",
   danger: "#EF4444",
   success: "#16A34A",
-  white: "#FFFFFF",
+  white: colors.white,
 };
 
 const shadow = Platform.select({
@@ -37,59 +39,68 @@ const shadow = Platform.select({
 export const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: authColors.background,
-    paddingHorizontal: 20,
+    backgroundColor: authColors.primaryDeep,
     paddingTop: Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0,
   },
 
   scrollContent: {
     flexGrow: 1,
-    justifyContent: "center",
-    paddingVertical: 28,
+    justifyContent: "space-between",
+    paddingBottom: 28,
   },
 
   scrollContentTop: {
     flexGrow: 1,
-    paddingTop: 28,
-    paddingBottom: 80,
+    paddingBottom: 42,
   },
 
   topGlow: {
     position: "absolute",
-    top: -72,
-    right: -76,
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    backgroundColor: "#FFE1BD",
-    opacity: 0.72,
+    top: -88,
+    right: -52,
+    width: 230,
+    height: 230,
+    borderRadius: 115,
+    backgroundColor: "rgba(244, 124, 32, 0.2)",
+    opacity: 1,
   },
 
   bottomCurve: {
     position: "absolute",
-    left: -84,
-    bottom: -120,
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: authColors.primary,
-    opacity: 0.08,
+    left: -92,
+    bottom: -110,
+    width: 290,
+    height: 290,
+    borderRadius: 145,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    opacity: 1,
+  },
+
+  authTopSection: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 30,
+  },
+
+  authTopSectionCompact: {
+    paddingBottom: 18,
   },
 
   brandArea: {
     alignItems: "center",
-    marginBottom: 18,
+    marginBottom: 28,
   },
 
   logoWrapper: {
-    width: 78,
-    height: 78,
-    borderRadius: 24,
-    backgroundColor: authColors.white,
+    width: 84,
+    height: 84,
+    borderRadius: 28,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 14,
-    ...shadow,
   },
 
   logoBox: {
@@ -105,27 +116,67 @@ export const styles = StyleSheet.create({
   },
 
   brandName: {
-    color: authColors.primary,
-    fontSize: 28,
+    color: authColors.white,
+    fontSize: 30,
     fontWeight: "900",
-    letterSpacing: 0,
+    letterSpacing: 0.2,
   },
 
   brandTagline: {
-    color: authColors.muted,
+    color: "rgba(248, 250, 252, 0.78)",
     fontSize: 13,
-    fontWeight: "700",
-    marginTop: 4,
+    fontWeight: "600",
+    marginTop: 6,
+    textAlign: "center",
+  },
+
+  heroTextBlock: {
+    alignItems: "center",
+    marginBottom: 4,
+  },
+
+  heroEyebrow: {
+    color: authColors.accentGold,
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 1.8,
+    textTransform: "uppercase",
+    marginBottom: 10,
+  },
+
+  heroTitle: {
+    color: authColors.white,
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: "900",
+    textAlign: "center",
+    marginBottom: 10,
+  },
+
+  heroSubtitle: {
+    color: "rgba(248, 250, 252, 0.82)",
+    fontSize: 14,
+    lineHeight: 22,
+    textAlign: "center",
+    maxWidth: 320,
+  },
+
+  cardWrap: {
+    flex: 1,
+    paddingHorizontal: 16,
   },
 
   card: {
     backgroundColor: authColors.card,
-    borderRadius: 30,
+    borderTopLeftRadius: 34,
+    borderTopRightRadius: 34,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
     paddingHorizontal: 22,
-    paddingTop: 22,
-    paddingBottom: 26,
+    paddingTop: 24,
+    paddingBottom: 28,
     borderWidth: 1,
-    borderColor: "rgba(229,231,235,0.78)",
+    borderColor: "rgba(230,234,240,0.92)",
     ...shadow,
   },
 
@@ -143,6 +194,41 @@ export const styles = StyleSheet.create({
     marginBottom: 22,
   },
 
+  authTabs: {
+    flexDirection: "row",
+    backgroundColor: "#F3F4F6",
+    borderRadius: 18,
+    padding: 5,
+    marginBottom: 22,
+  },
+
+  authTab: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  authTabActive: {
+    backgroundColor: authColors.white,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+
+  authTabText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: authColors.muted,
+  },
+
+  authTabTextActive: {
+    color: authColors.primary,
+  },
+
   iconHero: {
     width: 76,
     height: 76,
@@ -155,11 +241,12 @@ export const styles = StyleSheet.create({
   },
 
   title: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: "900",
     color: authColors.text,
     marginBottom: 8,
     letterSpacing: 0,
+    textAlign: "center",
   },
 
   titleCenter: {
@@ -175,7 +262,8 @@ export const styles = StyleSheet.create({
     fontSize: 14,
     color: authColors.muted,
     lineHeight: 22,
-    marginBottom: 24,
+    marginBottom: 22,
+    textAlign: "center",
   },
 
   subtitleCenter: {
@@ -214,8 +302,8 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: authColors.border,
     paddingHorizontal: 14,
-    height: 56,
-    marginBottom: 15,
+    minHeight: 58,
+    marginBottom: 16,
   },
 
   inputWrapperFocused: {
@@ -241,7 +329,7 @@ export const styles = StyleSheet.create({
   forgotPasswordWrap: {
     alignSelf: "flex-end",
     marginTop: 0,
-    marginBottom: 22,
+    marginBottom: 20,
     minHeight: 32,
     justifyContent: "center",
   },
@@ -253,15 +341,15 @@ export const styles = StyleSheet.create({
   },
 
   button: {
-    backgroundColor: authColors.primary,
+    backgroundColor: authColors.accent,
     borderRadius: 20,
     height: 58,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 4,
-    shadowColor: authColors.primary,
+    shadowColor: authColors.accent,
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.18,
+    shadowOpacity: 0.2,
     shadowRadius: 16,
     elevation: 4,
   },

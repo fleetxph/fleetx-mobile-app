@@ -84,124 +84,155 @@ export default function LoginClient({ navigation }) {
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.scrollContent}
           >
-            <View style={styles.brandArea}>
-              <View style={styles.logoWrapper}>
-                <Image
-                  source={require("../../assets/logo.png")}
-                  style={styles.logoImage}
-                  resizeMode="contain"
-                />
+            <View style={styles.authTopSection}>
+              <View style={styles.brandArea}>
+                <View style={styles.logoWrapper}>
+                  <Image
+                    source={require("../../assets/logo.png")}
+                    style={styles.logoImage}
+                    resizeMode="contain"
+                  />
+                </View>
+                
               </View>
-              <Text style={styles.brandName}>FleetDrive</Text>
-              <Text style={styles.brandTagline}>Smart rental and transport booking</Text>
+
+              <View style={styles.heroTextBlock}>
+                <Text style={styles.heroEyebrow}>CAPT FleetX</Text>
+                <Text style={styles.heroTitle}>Welcome Back!</Text>
+                <Text style={styles.heroSubtitle}>
+                  Sign in to manage bookings, view trip updates, and continue your
+                  next ride with ease.
+                </Text>
+              </View>
             </View>
 
-            <View style={styles.card}>
-              <Text style={styles.title}>Welcome back</Text>
-              <Text style={styles.subtitle}>
-                Sign in to manage your bookings and trip updates.
-              </Text>
+            <View style={styles.cardWrap}>
+              <View style={styles.card}>
+                <View style={styles.authTabs}>
+                  <TouchableOpacity
+                    style={[styles.authTab, styles.authTabActive]}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={[styles.authTabText, styles.authTabTextActive]}>
+                      Log In
+                    </Text>
+                  </TouchableOpacity>
 
-              {!!msg && (
-                <View style={styles.errorBox}>
-                  <Text style={styles.errorText}>{msg}</Text>
+                  <TouchableOpacity
+                    style={styles.authTab}
+                    activeOpacity={0.9}
+                    onPress={() => navigation.navigate("RegisterClient")}
+                  >
+                    <Text style={styles.authTabText}>Sign Up</Text>
+                  </TouchableOpacity>
                 </View>
-              )}
 
-              <Text style={styles.label}>Email / Username</Text>
-              <View
-                style={[
-                  styles.inputWrapper,
-                  focusedField === "login" && styles.inputWrapperFocused,
-                ]}
-              >
-                <Feather
-                  name="user"
-                  size={18}
-                  color="#98A2B3"
-                  style={styles.leftIcon}
-                />
-                <TextInput
-                  style={styles.inputWithIcon}
-                  placeholder="Enter email or username"
-                  placeholderTextColor="#98A2B3"
-                  value={login}
-                  onChangeText={setLogin}
-                  onFocus={() => setFocusedField("login")}
-                  onBlur={() => setFocusedField("")}
-                  autoCapitalize="none"
-                  returnKeyType="next"
-                />
-              </View>
+                <Text style={styles.title}>Welcome Back!</Text>
+                <Text style={styles.subtitle}>
+                  Enter your details to access your FleetDrive account.
+                </Text>
 
-              <Text style={styles.label}>Password</Text>
-              <View
-                style={[
-                  styles.inputWrapper,
-                  focusedField === "password" && styles.inputWrapperFocused,
-                ]}
-              >
-                <Feather
-                  name="lock"
-                  size={18}
-                  color="#98A2B3"
-                  style={styles.leftIcon}
-                />
-                <TextInput
-                  style={styles.inputWithIcon}
-                  placeholder="Enter your password"
-                  placeholderTextColor="#98A2B3"
-                  value={password}
-                  onChangeText={setPassword}
-                  onFocus={() => setFocusedField("password")}
-                  onBlur={() => setFocusedField("")}
-                  secureTextEntry={!showPassword}
-                  returnKeyType="done"
-                  onSubmitEditing={handleLogin}
-                />
-                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                  <Feather
-                    name={showPassword ? "eye-off" : "eye"}
-                    size={18}
-                    color="#98A2B3"
-                  />
-                </TouchableOpacity>
-              </View>
+                {!!msg && (
+                  <View style={styles.errorBox}>
+                    <Text style={styles.errorText}>{msg}</Text>
+                  </View>
+                )}
 
-              <TouchableOpacity
-                style={styles.forgotPasswordWrap}
-                onPress={() => navigation.navigate("ForgotPassword")}
-              >
-                <Text style={styles.forgotPassword}>Forgot Password?</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.button, loading && styles.buttonDisabled]}
-                onPress={handleLogin}
-                disabled={loading}
-              >
-                <Text
+                <Text style={styles.label}>Email / Username</Text>
+                <View
                   style={[
-                    styles.buttonText,
-                    loading && styles.buttonTextDisabled,
+                    styles.inputWrapper,
+                    focusedField === "login" && styles.inputWrapperFocused,
                   ]}
                 >
-                  {loading ? "Signing In..." : "Sign In"}
-                </Text>
-              </TouchableOpacity>
+                  <Feather
+                    name="user"
+                    size={18}
+                    color="#98A2B3"
+                    style={styles.leftIcon}
+                  />
+                  <TextInput
+                    style={styles.inputWithIcon}
+                    placeholder="Enter email or username"
+                    placeholderTextColor="#98A2B3"
+                    value={login}
+                    onChangeText={setLogin}
+                    onFocus={() => setFocusedField("login")}
+                    onBlur={() => setFocusedField("")}
+                    autoCapitalize="none"
+                    returnKeyType="next"
+                  />
+                </View>
 
-              <View style={styles.bottomRow}>
-                <Text style={styles.bottomText}>Don't have an account? </Text>
-                <TouchableOpacity
-                  onPress={() => navigation.navigate("RegisterClient")}
+                <Text style={styles.label}>Password</Text>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    focusedField === "password" && styles.inputWrapperFocused,
+                  ]}
                 >
-                  <Text style={styles.registerText}>Register</Text>
-                </TouchableOpacity>
-              </View>
+                  <Feather
+                    name="lock"
+                    size={18}
+                    color="#98A2B3"
+                    style={styles.leftIcon}
+                  />
+                  <TextInput
+                    style={styles.inputWithIcon}
+                    placeholder="Enter your password"
+                    placeholderTextColor="#98A2B3"
+                    value={password}
+                    onChangeText={setPassword}
+                    onFocus={() => setFocusedField("password")}
+                    onBlur={() => setFocusedField("")}
+                    secureTextEntry={!showPassword}
+                    returnKeyType="done"
+                    onSubmitEditing={handleLogin}
+                  />
+                  <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                    <Feather
+                      name={showPassword ? "eye-off" : "eye"}
+                      size={18}
+                      color="#98A2B3"
+                    />
+                  </TouchableOpacity>
+                </View>
 
-              <Text style={styles.trustText}>
-                Secure login - Verified bookings - Real-time updates
-              </Text>
+                <TouchableOpacity
+                  style={styles.forgotPasswordWrap}
+                  onPress={() => navigation.navigate("ForgotPassword")}
+                >
+                  <Text style={styles.forgotPassword}>Forgot Password?</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.button, loading && styles.buttonDisabled]}
+                  onPress={handleLogin}
+                  disabled={loading}
+                >
+                  <Text
+                    style={[
+                      styles.buttonText,
+                      loading && styles.buttonTextDisabled,
+                    ]}
+                  >
+                    {loading ? "Signing In..." : "Log In"}
+                  </Text>
+                </TouchableOpacity>
+
+                <View style={styles.bottomRow}>
+                  <Text style={styles.bottomText}>Don&apos;t have an account? </Text>
+                  <TouchableOpacity
+                    onPress={() => navigation.navigate("RegisterClient")}
+                  >
+                    <Text style={styles.registerText}>Sign Up</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.trustText}>
+                  Secure login - Verified bookings - Real-time updates
+                </Text>
+              </View>
             </View>
           </ScrollView>
 

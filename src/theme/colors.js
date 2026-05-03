@@ -2,9 +2,11 @@ export const colors = {
   // Brand / Main Dark
   primary: "#101A30",
   primaryDark: "#0A1224",
+  primaryNight: "#060D1B",
 
   // Accent / CTA
   accent: "#F47C20",
+  accentGold: "#FFD39C",
   accentSoft: "#FFF2E8",
 
   // Backgrounds

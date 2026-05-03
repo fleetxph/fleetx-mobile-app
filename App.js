@@ -6,6 +6,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons, Feather } from "@expo/vector-icons";
 
 // Auth screens
+import WelcomeScreen from "./src/screens/WelcomeScreen";
 import LoginClient from "./src/screens/LoginClient";
 import RegisterClient from "./src/screens/RegisterClient";
 import ClientOTP from "./src/screens/ClientOTP";
@@ -178,7 +179,11 @@ function MainTabs() {
 export default function App() {
   return (
     <NavigationContainer>
-      <RootStack.Navigator screenOptions={{ headerShown: false }}>
+      <RootStack.Navigator
+        initialRouteName="Welcome"
+        screenOptions={{ headerShown: false }}
+      >
+        <RootStack.Screen name="Welcome" component={WelcomeScreen} />
         <RootStack.Screen name="ClientLogin" component={LoginClient} />
         <RootStack.Screen name="RegisterClient" component={RegisterClient} />
         <RootStack.Screen name="ClientOTP" component={ClientOTP} />
