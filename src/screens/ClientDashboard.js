@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   Platform,
@@ -12,6 +13,7 @@ import {
   View,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Ionicons } from "@expo/vector-icons";
 import { getClientProfile, getNotifications, getVehicles } from "../api/clientApi";
 import NotificationIcon from "../components/NotificationIcon";
 import { styles } from "../styles/clientDashboardStyle";
@@ -23,6 +25,26 @@ const vehicleTypes = [
   { key: "van", label: "Van" },
   { key: "pickup", label: "Pickup" },
   { key: "mpv", label: "MPV" },
+];
+
+const QUICK_ACCESS_ITEMS = [
+  {
+    key: "bookings",
+    title: "My Bookings",
+    icon: "calendar-clear-outline",
+    cardStyle: "dark",
+    onPress: (navigation, openProtectedRoute) => openProtectedRoute("Bookings"),
+  },
+  {
+    key: "browse",
+    title: "Browse Cars",
+    icon: "car-sport-outline",
+    cardStyle: "light",
+    onPress: (navigation) =>
+      navigation.navigate("Browse", {
+        screen: "BrowseMain",
+      }),
+  },
 ];
 
 const getUnreadCountFromResponse = (notificationRes) => {
@@ -171,6 +193,36 @@ export default function ClientDashboard({ navigation }) {
     setFailedImages((prev) => ({ ...prev, [key]: true }));
   };
 
+  const promptGuestAuth = () => {
+    const message =
+      "You can browse vehicles and plan your trip as a guest. Please log in or create an account to continue.";
+
+    Alert.alert("Sign in to continue", message, [
+      { text: "Log In", onPress: () => navigation.navigate("ClientLogin") },
+      { text: "Create Account", onPress: () => navigation.navigate("RegisterClient") },
+      { text: "Not now", style: "cancel" },
+    ]);
+  };
+
+  const openProtectedRoute = async (routeName) => {
+    try {
+      const token =
+        Platform.OS === "web"
+          ? window.localStorage.getItem("clientToken") || window.localStorage.getItem("token")
+          : (await AsyncStorage.getItem("clientToken")) || (await AsyncStorage.getItem("token"));
+
+      if (!token) {
+        promptGuestAuth();
+        return;
+      }
+
+      navigation.navigate(routeName);
+    } catch (err) {
+      console.log("Protected route error:", err?.message || err);
+      promptGuestAuth();
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView
@@ -188,12 +240,12 @@ export default function ClientDashboard({ navigation }) {
           <View style={styles.headerRight}>
             <NotificationIcon
               unreadCount={unreadCount}
-              onPress={() => navigation.navigate("Notifications")}
+              onPress={() => openProtectedRoute("Notifications")}
             />
 
             <Pressable
               style={styles.avatarButton}
-              onPress={() => navigation.navigate("Profile")}
+              onPress={() => openProtectedRoute("Profile")}
             >
               {profileImage && !failedImages.profile ? (
                 <Image
@@ -276,33 +328,47 @@ export default function ClientDashboard({ navigation }) {
           <Text style={styles.sectionTitle}>Quick Access</Text>
 
           <View style={styles.quickAccessRow}>
-            <TouchableOpacity
-              style={[styles.quickAccessCard, styles.quickAccessCardDark]}
-              activeOpacity={0.9}
-              onPress={() => navigation.navigate("Bookings")}
-            >
-              <View style={[styles.quickIconBox, styles.quickIconBoxDark]}>
-                <Text style={styles.quickIconText}>Trip</Text>
-              </View>
+            {QUICK_ACCESS_ITEMS.map((item) => {
+              const isDarkCard = item.cardStyle === "dark";
 
-              <Text style={styles.quickAccessCardDarkText}>My Bookings</Text>
-            </TouchableOpacity>
+              return (
+                <TouchableOpacity
+                  key={item.key}
+                  style={[
+                    styles.quickAccessCard,
+                    isDarkCard ? styles.quickAccessCardDark : styles.quickAccessCardLight,
+                  ]}
+                  activeOpacity={0.9}
+                  onPress={() => item.onPress(navigation, openProtectedRoute)}
+                >
+                  <View style={styles.quickAccessCardContent}>
+                    <View
+                      style={[
+                        styles.quickIconBox,
+                        isDarkCard ? styles.quickIconBoxDark : styles.quickIconBoxLight,
+                      ]}
+                    >
+                      <Ionicons
+                        name={item.icon}
+                        size={22}
+                        color={isDarkCard ? "#F8FAFC" : "#F97316"}
+                      />
+                    </View>
 
-            <TouchableOpacity
-              style={[styles.quickAccessCard, styles.quickAccessCardLight]}
-              activeOpacity={0.9}
-              onPress={() =>
-                navigation.navigate("Browse", {
-                  screen: "BrowseMain",
-                })
-              }
-            >
-              <View style={[styles.quickIconBox, styles.quickIconBoxLight]}>
-                <Text style={styles.quickIconText}>Cars</Text>
-              </View>
-
-              <Text style={styles.quickAccessCardLightText}>Browse Cars</Text>
-            </TouchableOpacity>
+                    <Text
+                      style={[
+                        styles.quickAccessTitle,
+                        isDarkCard
+                          ? styles.quickAccessCardDarkText
+                          : styles.quickAccessCardLightText,
+                      ]}
+                    >
+                      {item.title}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
 

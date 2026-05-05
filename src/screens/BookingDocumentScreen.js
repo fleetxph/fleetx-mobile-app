@@ -1,4 +1,5 @@
-import { SafeAreaView, ScrollView, Text, TouchableOpacity, View } from "react-native";
+import { useState } from "react";
+import { ActivityIndicator, Alert, SafeAreaView, ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { styles } from "../styles/bookingDocumentStyle";
 import {
@@ -10,7 +11,7 @@ import {
   getReferenceNo,
   getVehicleName,
 } from "../utils/bookingDocuments";
-import { openProtectedPdf, shareDocumentLink } from "../utils/pdfDocument";
+import { downloadPdf, openPdf, sharePdf, showPdfError } from "../utils/pdfUtils";
 
 function SummaryRow({ label, value, last }) {
   return (
@@ -21,8 +22,19 @@ function SummaryRow({ label, value, last }) {
   );
 }
 
+function shouldShowPaymentInstructions(booking) {
+  const status = String(booking?.status || "").toLowerCase();
+  const paymentStatus = String(booking?.paymentStatus || "").toLowerCase();
+
+  return (
+    ["awaiting_payment", "pending_payment", "payment_rejected", "invoice_issued"].includes(status) ||
+    ["invoice_issued", "submitted", "under_review", "reupload_required", "rejected"].includes(paymentStatus)
+  );
+}
+
 export default function BookingDocumentScreen({ navigation, route, type }) {
   const booking = route?.params?.booking || {};
+  const [pdfActionLoading, setPdfActionLoading] = useState("");
   const isInvoice = type === "invoice";
   const title = isInvoice ? "Invoice" : "Receipt";
   const reference = isInvoice
@@ -33,22 +45,57 @@ export default function BookingDocumentScreen({ navigation, route, type }) {
   const isAvailable = Boolean(previewUrl || pdfUrl);
   const fileName = `${title.toLowerCase()}-${reference || getBookingId(booking) || "document"}.pdf`;
   const bookingReference = getReferenceNo(booking);
-  const openPdf = () =>
-    openProtectedPdf({
-      url: pdfUrl || previewUrl,
-      bookingReference,
-      documentReference: reference,
-      type,
-      title,
-    });
-  const sharePdf = () =>
-    shareDocumentLink({
-      url: pdfUrl || previewUrl,
-      bookingReference,
-      documentReference: reference,
-      type,
-      title,
-    });
+  const documentSource = pdfUrl || previewUrl;
+  const isBusy = Boolean(pdfActionLoading);
+
+  const handlePdfAction = async (action) => {
+    if (!documentSource) {
+      Alert.alert("PDF Error", "PDF is not available yet. Please try again later.");
+      return;
+    }
+
+    setPdfActionLoading(action);
+
+    try {
+      const payload = {
+        source: documentSource,
+        fileName,
+        title,
+        bookingReference,
+        documentReference: reference,
+        type,
+      };
+
+      if (action === "open") {
+        await openPdf(payload);
+      } else if (action === "download") {
+        await downloadPdf(payload);
+        Alert.alert("PDF Ready", "PDF ready. Choose where to save or open it.");
+      } else {
+        await sharePdf(payload);
+      }
+    } catch (error) {
+      console.log("PDF action error:", {
+        action,
+        url: documentSource,
+        message: error?.message || error,
+      });
+      showPdfError(error);
+    } finally {
+      setPdfActionLoading("");
+    }
+  };
+
+  const getActionLabel = (action, defaultLabel) => {
+    if (pdfActionLoading !== action) return defaultLabel;
+    if (action === "open") return "Opening...";
+    if (action === "download") return "Preparing PDF...";
+    return "Sharing...";
+  };
+
+  const openPaymentInstructions = () => {
+    navigation.navigate("PaymentInstructions", { booking });
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -144,37 +191,70 @@ export default function BookingDocumentScreen({ navigation, route, type }) {
                 {title} is not available yet. It will appear here once FleetX issues it for this booking.
               </Text>
             ) : null}
+            {isBusy ? (
+              <View style={styles.loadingRow}>
+                <ActivityIndicator size="small" color="#F97316" />
+                <Text style={styles.loadingText}>
+                  {pdfActionLoading === "open"
+                    ? "Opening PDF..."
+                    : pdfActionLoading === "download"
+                    ? "Preparing PDF..."
+                    : "Sharing PDF..."}
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           <TouchableOpacity
-            style={[styles.primaryButton, !isAvailable && styles.disabledButton]}
-            disabled={!isAvailable}
-            onPress={openPdf}
+            style={[styles.primaryButton, (!isAvailable || isBusy) && styles.disabledButton]}
+            disabled={!isAvailable || isBusy}
+            onPress={() => handlePdfAction("open")}
           >
-            <Text style={[styles.primaryButtonText, !isAvailable && styles.disabledButtonText]}>
-              Open {title} PDF
+            <Text
+              style={[
+                styles.primaryButtonText,
+                (!isAvailable || isBusy) && styles.disabledButtonText,
+              ]}
+            >
+              {getActionLabel("open", `Open ${title} PDF`)}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.secondaryButton, !isAvailable && styles.disabledButton]}
-            disabled={!isAvailable}
-            onPress={openPdf}
+            style={[styles.secondaryButton, (!isAvailable || isBusy) && styles.disabledButton]}
+            disabled={!isAvailable || isBusy}
+            onPress={() => handlePdfAction("download")}
           >
-            <Text style={[styles.secondaryButtonText, !isAvailable && styles.disabledButtonText]}>
-              Download PDF
+            <Text
+              style={[
+                styles.secondaryButtonText,
+                (!isAvailable || isBusy) && styles.disabledButtonText,
+              ]}
+            >
+              {getActionLabel("download", "Download PDF")}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.secondaryButton, !isAvailable && styles.disabledButton]}
-            disabled={!isAvailable}
-            onPress={sharePdf}
+            style={[styles.secondaryButton, (!isAvailable || isBusy) && styles.disabledButton]}
+            disabled={!isAvailable || isBusy}
+            onPress={() => handlePdfAction("share")}
           >
-            <Text style={[styles.secondaryButtonText, !isAvailable && styles.disabledButtonText]}>
-              Share PDF
+            <Text
+              style={[
+                styles.secondaryButtonText,
+                (!isAvailable || isBusy) && styles.disabledButtonText,
+              ]}
+            >
+              {getActionLabel("share", "Share PDF")}
             </Text>
           </TouchableOpacity>
+
+          {isInvoice && shouldShowPaymentInstructions(booking) ? (
+            <TouchableOpacity style={styles.secondaryButton} onPress={openPaymentInstructions}>
+              <Text style={styles.secondaryButtonText}>View Payment Instructions</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </ScrollView>
     </SafeAreaView>

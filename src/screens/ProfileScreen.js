@@ -45,6 +45,8 @@ function getToneStyles(tone) {
 }
 
 export default function ProfileScreen({ navigation }) {
+  const [authChecked, setAuthChecked] = useState(false);
+  const [hasToken, setHasToken] = useState(false);
   const [clientUser, setClientUser] = useState(null);
   const [clientName, setClientName] = useState("Client");
   const [clientEmail, setClientEmail] = useState("No email available");
@@ -53,6 +55,24 @@ export default function ProfileScreen({ navigation }) {
 
   const loadProfile = async () => {
     try {
+      const token =
+        Platform.OS === "web"
+          ? window.localStorage.getItem("clientToken") || window.localStorage.getItem("token")
+          : (await AsyncStorage.getItem("clientToken")) || (await AsyncStorage.getItem("token"));
+
+      if (!token) {
+        setHasToken(false);
+        setAuthChecked(true);
+        setClientUser(null);
+        setClientName("Guest");
+        setClientEmail("Sign in to view your FleetX account");
+        setProfileImage(null);
+        setVerificationData(null);
+        return;
+      }
+
+      setHasToken(true);
+      setAuthChecked(true);
       let storedUser = "";
       let storedName = "";
       let storedEmail = "";
@@ -291,224 +311,319 @@ export default function ProfileScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.root}>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.contentContainer}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.profileTop}>
-          <View style={styles.avatarWrap}>
-            {profileImage ? (
-              <Image source={{ uri: profileImage }} style={styles.avatar} />
-            ) : (
+      {!hasToken && authChecked ? (
+        <>
+          <ScrollView
+            style={styles.container}
+            contentContainerStyle={styles.contentContainer}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.profileTop}>
               <View style={styles.avatarFallback}>
-                <Text style={styles.avatarFallbackText}>{initials}</Text>
+                <Text style={styles.avatarFallbackText}>G</Text>
               </View>
-            )}
+              <Text style={styles.profileName}>Guest Account</Text>
+              <Text style={styles.profileEmail}>
+                Sign in to manage your bookings, profile, verification, and notifications.
+              </Text>
+            </View>
 
-            <TouchableOpacity style={styles.cameraButton} onPress={pickImage}>
-              <Ionicons name="camera-outline" size={14} color="#fff" />
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionLabel}>ACCOUNT</Text>
+              <TouchableOpacity
+                style={styles.menuItem}
+                activeOpacity={0.85}
+                onPress={() => navigation.navigate("ClientLogin")}
+              >
+                <View style={[styles.menuIconBox, { backgroundColor: "#fff7ed" }]}>
+                  <Feather name="log-in" size={16} color="#f97316" />
+                </View>
+                <View style={styles.menuTextWrap}>
+                  <Text style={styles.menuTitle}>Log In</Text>
+                  <Text style={styles.menuSubtitle}>Continue your booking and access account tools.</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+              </TouchableOpacity>
+
+              <View style={styles.divider} />
+
+              <TouchableOpacity
+                style={styles.menuItem}
+                activeOpacity={0.85}
+                onPress={() => navigation.navigate("RegisterClient")}
+              >
+                <View style={[styles.menuIconBox, { backgroundColor: "#eff6ff" }]}>
+                  <Feather name="user-plus" size={16} color="#3b82f6" />
+                </View>
+                <View style={styles.menuTextWrap}>
+                  <Text style={styles.menuTitle}>Create Account</Text>
+                  <Text style={styles.menuSubtitle}>Register when you are ready to confirm a booking.</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+
+          <View style={styles.bottomNav}>
+            <TouchableOpacity
+              style={styles.navItem}
+              onPress={() => navigation.navigate("Home")}
+            >
+              <Ionicons name="home-outline" size={20} color="#94a3b8" />
+              <Text style={styles.navText}>Home</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.navItem}
+              onPress={() => navigation.navigate("Browse")}
+            >
+              <Ionicons name="car-outline" size={20} color="#94a3b8" />
+              <Text style={styles.navText}>Browse</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.planButton}
+              onPress={() => navigation.navigate("Plan")}
+            >
+              <MaterialCommunityIcons name="map-outline" size={26} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.navItem}
+              onPress={() => navigation.navigate("Bookings")}
+            >
+              <Ionicons name="calendar-outline" size={20} color="#94a3b8" />
+              <Text style={styles.navText}>Bookings</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.navItem}>
+              <Ionicons name="person" size={20} color="#f97316" />
+              <Text style={[styles.navText, styles.navTextActive]}>Profile</Text>
             </TouchableOpacity>
           </View>
-
-          <Text style={styles.profileName}>{clientName}</Text>
-          <Text style={styles.profileEmail}>{clientEmail}</Text>
-
-          <View style={[styles.verifiedBadge, badgeBoxStyle]}>
-            <Text style={[styles.verifiedBadgeText, badgeTextStyle]}>
-              {verificationLabel}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionLabel}>ACCOUNT</Text>
-
-          <MenuItem
-            title="Edit Personal Info"
-            iconBg="#fff7ed"
-            icon={<Feather name="edit-2" size={16} color="#f97316" />}
-            onPress={() => {
-              const parentNavigation = navigation.getParent?.();
-              if (parentNavigation?.navigate) {
-                parentNavigation.navigate("PersonalInfo");
-                return;
-              }
-              navigation.navigate("PersonalInfo");
-            }}
-          />
-
-          <View style={styles.divider} />
-
-          <MenuItem
-            title="Change Password"
-            iconBg="#fff7ed"
-            icon={<Feather name="lock" size={16} color="#f97316" />}
-            onPress={() => navigation.navigate("ChangePassword")}
-          />
-
-          <View style={styles.divider} />
-
-          <MenuItem
-            title="Notifications"
-            iconBg="#fff7ed"
-            icon={
-              <Ionicons
-                name="notifications-outline"
-                size={17}
-                color="#f97316"
-              />
-            }
-            onPress={() => navigation.navigate("Notifications")}
-          />
-        </View>
-
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionLabel}>VERIFICATION</Text>
-
-          <TouchableOpacity
-            style={styles.verificationCard}
-            activeOpacity={0.85}
-            onPress={openVerification}
+        </>
+      ) : (
+        <>
+          <ScrollView
+            style={styles.container}
+            contentContainerStyle={styles.contentContainer}
+            showsVerticalScrollIndicator={false}
           >
-            <View style={styles.verificationTopRow}>
-              <View style={styles.verificationIconWrap}>
-                <Feather name="shield" size={18} color="#f97316" />
+            <View style={styles.profileTop}>
+              <View style={styles.avatarWrap}>
+                {profileImage ? (
+                  <Image source={{ uri: profileImage }} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatarFallback}>
+                    <Text style={styles.avatarFallbackText}>{initials}</Text>
+                  </View>
+                )}
+
+                <TouchableOpacity style={styles.cameraButton} onPress={pickImage}>
+                  <Ionicons name="camera-outline" size={14} color="#fff" />
+                </TouchableOpacity>
               </View>
-              <View style={styles.verificationTextWrap}>
-                <Text style={styles.verificationTitle}>Account Verification</Text>
-                <Text style={styles.verificationSubtitle}>
-                  {getVerificationSubtitle()}
-                </Text>
-              </View>
-              <View style={[styles.smallBadge, badgeBoxStyle]}>
-                <Text style={[styles.smallBadgeText, badgeTextStyle]}>
+
+              <Text style={styles.profileName}>{clientName}</Text>
+              <Text style={styles.profileEmail}>{clientEmail}</Text>
+
+              <View style={[styles.verifiedBadge, badgeBoxStyle]}>
+                <Text style={[styles.verifiedBadgeText, badgeTextStyle]}>
                   {verificationLabel}
                 </Text>
               </View>
             </View>
 
-            <View style={styles.eligibilityPills}>
-              <View
-                style={[
-                  styles.eligibilityPill,
-                  eligibility.withDriver && styles.eligibilityPillActive,
-                  withDriverBoxStyle,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.eligibilityPillLabel,
-                    eligibility.withDriver && styles.eligibilityPillLabelActive,
-                    withDriverTextStyle,
-                  ]}
-                >
-                  With Driver
-                </Text>
-                <Text
-                  style={[
-                    styles.eligibilityPillValue,
-                    eligibility.withDriver && styles.eligibilityPillValueActive,
-                    withDriverTextStyle,
-                  ]}
-                >
-                  {eligibility.withDriverLabel || "Unavailable"}
-                </Text>
-              </View>
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionLabel}>ACCOUNT</Text>
 
-              <View
-                style={[
-                  styles.eligibilityPill,
-                  eligibility.selfDrive && styles.eligibilityPillActive,
-                  selfDriveBoxStyle,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.eligibilityPillLabel,
-                    eligibility.selfDrive && styles.eligibilityPillLabelActive,
-                    selfDriveTextStyle,
-                  ]}
-                >
-                  Self-Drive
-                </Text>
-                <Text
-                  style={[
-                    styles.eligibilityPillValue,
-                    eligibility.selfDrive && styles.eligibilityPillValueActive,
-                    selfDriveTextStyle,
-                  ]}
-                >
-                  {eligibility.selfDriveLabel || "Unavailable"}
-                </Text>
-              </View>
+              <MenuItem
+                title="Edit Personal Info"
+                iconBg="#fff7ed"
+                icon={<Feather name="edit-2" size={16} color="#f97316" />}
+                onPress={() => {
+                  const parentNavigation = navigation.getParent?.();
+                  if (parentNavigation?.navigate) {
+                    parentNavigation.navigate("PersonalInfo");
+                    return;
+                  }
+                  navigation.navigate("PersonalInfo");
+                }}
+              />
+
+              <View style={styles.divider} />
+
+              <MenuItem
+                title="Change Password"
+                iconBg="#fff7ed"
+                icon={<Feather name="lock" size={16} color="#f97316" />}
+                onPress={() => navigation.navigate("ChangePassword")}
+              />
+
+              <View style={styles.divider} />
+
+              <MenuItem
+                title="Notifications"
+                iconBg="#fff7ed"
+                icon={
+                  <Ionicons
+                    name="notifications-outline"
+                    size={17}
+                    color="#f97316"
+                  />
+                }
+                onPress={() => navigation.navigate("Notifications")}
+              />
             </View>
 
-            <View style={styles.verificationFooter}>
-              <Text style={styles.verificationAction}>{verificationAction}</Text>
-              <Ionicons name="chevron-forward" size={18} color="#f97316" />
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionLabel}>VERIFICATION</Text>
+
+              <TouchableOpacity
+                style={styles.verificationCard}
+                activeOpacity={0.85}
+                onPress={openVerification}
+              >
+                <View style={styles.verificationTopRow}>
+                  <View style={styles.verificationIconWrap}>
+                    <Feather name="shield" size={18} color="#f97316" />
+                  </View>
+                  <View style={styles.verificationTextWrap}>
+                    <Text style={styles.verificationTitle}>Account Verification</Text>
+                    <Text style={styles.verificationSubtitle}>
+                      {getVerificationSubtitle()}
+                    </Text>
+                  </View>
+                  <View style={[styles.smallBadge, badgeBoxStyle]}>
+                    <Text style={[styles.smallBadgeText, badgeTextStyle]}>
+                      {verificationLabel}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.eligibilityPills}>
+                  <View
+                    style={[
+                      styles.eligibilityPill,
+                      eligibility.withDriver && styles.eligibilityPillActive,
+                      withDriverBoxStyle,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.eligibilityPillLabel,
+                        eligibility.withDriver && styles.eligibilityPillLabelActive,
+                        withDriverTextStyle,
+                      ]}
+                    >
+                      With Driver
+                    </Text>
+                    <Text
+                      style={[
+                        styles.eligibilityPillValue,
+                        eligibility.withDriver && styles.eligibilityPillValueActive,
+                        withDriverTextStyle,
+                      ]}
+                    >
+                      {eligibility.withDriverLabel || "Unavailable"}
+                    </Text>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.eligibilityPill,
+                      eligibility.selfDrive && styles.eligibilityPillActive,
+                      selfDriveBoxStyle,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.eligibilityPillLabel,
+                        eligibility.selfDrive && styles.eligibilityPillLabelActive,
+                        selfDriveTextStyle,
+                      ]}
+                    >
+                      Self-Drive
+                    </Text>
+                    <Text
+                      style={[
+                        styles.eligibilityPillValue,
+                        eligibility.selfDrive && styles.eligibilityPillValueActive,
+                        selfDriveTextStyle,
+                      ]}
+                    >
+                      {eligibility.selfDriveLabel || "Unavailable"}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.verificationFooter}>
+                  <Text style={styles.verificationAction}>{verificationAction}</Text>
+                  <Ionicons name="chevron-forward" size={18} color="#f97316" />
+                </View>
+              </TouchableOpacity>
             </View>
-          </TouchableOpacity>
-        </View>
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionLabel}>ACTIVITY</Text>
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionLabel}>ACTIVITY</Text>
 
-          <MenuItem
-            title="My Bookings"
-            iconBg="#eff6ff"
-            icon={<Feather name="calendar" size={16} color="#3b82f6" />}
-            onPress={() => navigation.navigate("Bookings")}
-          />
-        </View>
+              <MenuItem
+                title="My Bookings"
+                iconBg="#eff6ff"
+                icon={<Feather name="calendar" size={16} color="#3b82f6" />}
+                onPress={() => navigation.navigate("Bookings")}
+              />
+            </View>
 
-        <TouchableOpacity
-          style={styles.signOutButton}
-          activeOpacity={0.85}
-          onPress={confirmLogout}
-        >
-          <Ionicons name="log-out-outline" size={18} color="#ef4444" />
-          <Text style={styles.signOutText}>Sign Out</Text>
-        </TouchableOpacity>
-      </ScrollView>
+            <TouchableOpacity
+              style={styles.signOutButton}
+              activeOpacity={0.85}
+              onPress={confirmLogout}
+            >
+              <Ionicons name="log-out-outline" size={18} color="#ef4444" />
+              <Text style={styles.signOutText}>Sign Out</Text>
+            </TouchableOpacity>
+          </ScrollView>
 
-      <View style={styles.bottomNav}>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate("Home")}
-        >
-          <Ionicons name="home-outline" size={20} color="#94a3b8" />
-          <Text style={styles.navText}>Home</Text>
-        </TouchableOpacity>
+          <View style={styles.bottomNav}>
+            <TouchableOpacity
+              style={styles.navItem}
+              onPress={() => navigation.navigate("Home")}
+            >
+              <Ionicons name="home-outline" size={20} color="#94a3b8" />
+              <Text style={styles.navText}>Home</Text>
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate("Browse")}
-        >
-          <Ionicons name="car-outline" size={20} color="#94a3b8" />
-          <Text style={styles.navText}>Browse</Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.navItem}
+              onPress={() => navigation.navigate("Browse")}
+            >
+              <Ionicons name="car-outline" size={20} color="#94a3b8" />
+              <Text style={styles.navText}>Browse</Text>
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.planButton}
-          onPress={() => navigation.navigate("Plan")}
-        >
-          <MaterialCommunityIcons name="map-outline" size={26} color="#fff" />
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.planButton}
+              onPress={() => navigation.navigate("Plan")}
+            >
+              <MaterialCommunityIcons name="map-outline" size={26} color="#fff" />
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate("Bookings")}
-        >
-          <Ionicons name="calendar-outline" size={20} color="#94a3b8" />
-          <Text style={styles.navText}>Bookings</Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.navItem}
+              onPress={() => navigation.navigate("Bookings")}
+            >
+              <Ionicons name="calendar-outline" size={20} color="#94a3b8" />
+              <Text style={styles.navText}>Bookings</Text>
+            </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="person" size={20} color="#f97316" />
-          <Text style={[styles.navText, styles.navTextActive]}>Profile</Text>
-        </TouchableOpacity>
-      </View>
+            <TouchableOpacity style={styles.navItem}>
+              <Ionicons name="person" size={20} color="#f97316" />
+              <Text style={[styles.navText, styles.navTextActive]}>Profile</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
     </SafeAreaView>
   );
 }

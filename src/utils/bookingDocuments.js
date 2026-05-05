@@ -1,6 +1,6 @@
-import { BASE_URL } from "../api/api";
 import { getClientInvoiceUrl, getClientReceiptUrl } from "../api/clientApi";
 import { getVehicleImageUrl as resolveVehicleImageFromFields, resolveImageUrl } from "./imageUrl";
+import { resolvePdfUrl } from "./pdfUtils";
 
 export function getBookingId(booking) {
   return booking?._id || booking?.id || "";
@@ -51,47 +51,102 @@ export function formatBookingPrice(value) {
 
 export function normalizeDocumentUrl(url) {
   if (!url) return "";
-  const value = String(url);
-  if (/^https?:\/\//i.test(value)) return value;
-  if (value.startsWith("/api/")) {
-    return `${BASE_URL.replace(/\/api$/, "")}${value}`;
-  }
-  if (value.startsWith("/")) {
-    return `${BASE_URL.replace(/\/api$/, "")}${value}`;
-  }
-  return value;
+  return resolvePdfUrl(url);
 }
 
-export function getBookingDocumentUrl(booking, type, pdf = false) {
-  const bookingId = getBookingId(booking);
+function getDocumentSourceValue(...values) {
+  const source = values.find((value) => value !== undefined && value !== null && value !== "");
+  if (!source) return "";
 
-  if (type === "receipt") {
-    const explicitUrl =
-      booking?.receiptPdfUrl ||
-      booking?.receiptUrl ||
-      booking?.receipt?.pdfUrl ||
-      booking?.receipt?.url ||
-      booking?.documents?.receiptPdfUrl ||
-      booking?.documents?.receiptUrl;
-
-    if (explicitUrl) return normalizeDocumentUrl(explicitUrl);
-    if (bookingId && booking?.receiptNumber) return getClientReceiptUrl(bookingId, pdf);
-    return "";
+  if (typeof source === "object") {
+    return getDocumentSourceValue(
+      source.pdfUrl,
+      source.url,
+      source.documentUrl,
+      source.fileUrl,
+      source.pdfPath,
+      source.path,
+      source.filename,
+      source.fileName,
+      source.name
+    );
   }
 
-  const explicitUrl =
-    booking?.invoicePdfUrl ||
-    booking?.invoiceUrl ||
-    booking?.invoice?.pdfUrl ||
-    booking?.invoice?.url ||
-    booking?.documents?.invoicePdfUrl ||
-    booking?.documents?.invoiceUrl;
+  return String(source).trim();
+}
 
-  if (explicitUrl) return normalizeDocumentUrl(explicitUrl);
+export function getReceiptPdfSource(booking, pdf = false) {
+  const bookingId = getBookingId(booking);
+  const explicitSource = getDocumentSourceValue(
+    booking?.receiptPdfUrl,
+    booking?.receiptUrl,
+    booking?.receiptDocumentUrl,
+    booking?.receiptFileUrl,
+    booking?.receiptPdfPath,
+    booking?.receipt?.pdfUrl,
+    booking?.receipt?.url,
+    booking?.receipt?.documentUrl,
+    booking?.receipt?.fileUrl,
+    booking?.receipt?.pdfPath,
+    booking?.receipt?.filename,
+    booking?.documents?.receiptPdfUrl,
+    booking?.documents?.receiptUrl,
+    booking?.documents?.receiptDocumentUrl,
+    booking?.documents?.receiptFileUrl,
+    booking?.documents?.receiptPdfPath,
+    booking?.documents?.receiptFilename
+  );
+
+  if (explicitSource && !/^[-\w]+\.pdf$/i.test(explicitSource)) {
+    return normalizeDocumentUrl(explicitSource);
+  }
+
+  if (bookingId && booking?.receiptNumber) {
+    return getClientReceiptUrl(bookingId, pdf);
+  }
+
+  return explicitSource ? normalizeDocumentUrl(explicitSource) : "";
+}
+
+export function getInvoicePdfSource(booking, pdf = false) {
+  const bookingId = getBookingId(booking);
+  const explicitSource = getDocumentSourceValue(
+    booking?.invoicePdfUrl,
+    booking?.invoiceUrl,
+    booking?.invoiceDocumentUrl,
+    booking?.invoiceFileUrl,
+    booking?.invoicePdfPath,
+    booking?.invoice?.pdfUrl,
+    booking?.invoice?.url,
+    booking?.invoice?.documentUrl,
+    booking?.invoice?.fileUrl,
+    booking?.invoice?.pdfPath,
+    booking?.invoice?.filename,
+    booking?.documents?.invoicePdfUrl,
+    booking?.documents?.invoiceUrl,
+    booking?.documents?.invoiceDocumentUrl,
+    booking?.documents?.invoiceFileUrl,
+    booking?.documents?.invoicePdfPath,
+    booking?.documents?.invoiceFilename
+  );
+
+  if (explicitSource && !/^[-\w]+\.pdf$/i.test(explicitSource)) {
+    return normalizeDocumentUrl(explicitSource);
+  }
+
   if (bookingId && (booking?.invoiceReference || booking?.invoiceNumber)) {
     return getClientInvoiceUrl(bookingId, pdf);
   }
-  return "";
+
+  return explicitSource ? normalizeDocumentUrl(explicitSource) : "";
+}
+
+export function getBookingDocumentUrl(booking, type, pdf = false) {
+  if (type === "receipt") {
+    return getReceiptPdfSource(booking, pdf);
+  }
+
+  return getInvoicePdfSource(booking, pdf);
 }
 
 export function getVehicleImageUrl(booking) {

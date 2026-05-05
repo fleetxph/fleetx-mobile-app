@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Dimensions,
   Image,
+  InteractionManager,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -10,25 +13,34 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   useWindowDimensions,
   View,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isUnauthorizedError } from "../api/api";
 import {
   createBooking,
   getClientProfile,
+  getPublicPaymentMethods,
   getVehicles,
   getVehicleById,
   getVerificationStatus,
-  saveClientBookingDraft,
   submitClientBookingDraft,
 } from "../api/clientApi";
+import LocationPickerModal from "../components/LocationPickerModal";
+import SuccessInfoModal from "../components/SuccessInfoModal";
 import { styles } from "../styles/bookingWizardStyle";
 import { getDateRangeError, parseDateOnly } from "../utils/dateValidation";
 import { getVehicleImageUrl } from "../utils/imageUrl";
+import {
+  buildLocalDateTime,
+  calculateRentalPricing,
+  formatRentalHours,
+} from "../utils/rentalPricing";
 
 const TRIP_TYPES = [
   {
@@ -72,6 +84,25 @@ const TRANSMISSION_OPTIONS = [
   { id: "automatic", label: "Automatic" },
   { id: "manual", label: "Manual" },
 ];
+
+const PAYMENT_OPTIONS = [
+  {
+    value: "down_payment_50",
+    label: "50% Down Payment",
+    description: "Pay half after approval and settle the balance later.",
+  },
+  {
+    value: "full_payment",
+    label: "Full Payment",
+    description: "Pay the full approved invoice amount in one payment.",
+  },
+];
+
+const PENDING_GUEST_BOOKING_KEY = "pendingGuestBooking";
+const KEYBOARD_FOCUS_DELAY = 300;
+const KEYBOARD_RESYNC_DELAY = 60;
+const TOP_RESERVED_SPACE = 80;
+const BOTTOM_RESERVED_SPACE = 24;
 
 function formatPeso(value) {
   return `PHP ${Number(value || 0).toLocaleString()}`;
@@ -135,24 +166,82 @@ function formatTimeValue(date) {
   ).padStart(2, "0")}`;
 }
 
-function getSelectedDays(form) {
-  const { startDate, startTime, endDate, endTime } = form;
-  if (!startDate || !startTime || !endDate || !endTime) return 0;
-
-  const start = new Date(`${startDate}T${startTime}`);
-  const end = new Date(`${endDate}T${endTime}`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-  if (end <= start) return 0;
-
-  return Math.ceil((end - start) / (1000 * 60 * 60 * 24)) || 1;
-}
-
 function getVehicleName(vehicle) {
   return `${vehicle?.make || ""} ${vehicle?.model || ""}`.trim() || "Vehicle";
 }
 
 function getTripTypeLabel(type) {
   return type === "self-drive" ? "Self-Drive" : "With Driver";
+}
+
+function getPaymentOptionLabel(value) {
+  return value === "full_payment"
+    ? "Full Payment"
+    : value === "down_payment_50"
+    ? "50% Down Payment"
+    : "Not selected";
+}
+
+function normalizePinnedLabel(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+async function readStorageItem(key) {
+  if (Platform.OS === "web") {
+    return window.localStorage.getItem(key) || "";
+  }
+
+  return (await AsyncStorage.getItem(key)) || "";
+}
+
+async function writeStorageItem(key, value) {
+  if (Platform.OS === "web") {
+    window.localStorage.setItem(key, value);
+    return;
+  }
+
+  await AsyncStorage.setItem(key, value);
+}
+
+function resolveInitialSchedule({
+  route,
+  incomingTrip,
+  pickupDate,
+  returnDate,
+  isDirectBooking,
+}) {
+  const routeSchedule = route?.params?.schedule || {};
+
+  return {
+    destination: incomingTrip?.destination || routeSchedule?.destination || "",
+    pickupLocation: incomingTrip?.pickupLocation || routeSchedule?.pickupLocation || "",
+    startDate:
+      routeSchedule?.startDate ||
+      route?.params?.startDate ||
+      incomingTrip?.startDate ||
+      toDateInput(pickupDate),
+    startTime:
+      routeSchedule?.startTime ||
+      routeSchedule?.pickupTime ||
+      route?.params?.startTime ||
+      route?.params?.pickupTime ||
+      incomingTrip?.startTime ||
+      incomingTrip?.pickupTime ||
+      (isDirectBooking ? "00:00" : "09:00"),
+    endDate:
+      routeSchedule?.endDate ||
+      route?.params?.endDate ||
+      incomingTrip?.endDate ||
+      toDateInput(returnDate),
+    endTime:
+      routeSchedule?.endTime ||
+      routeSchedule?.returnTime ||
+      route?.params?.endTime ||
+      route?.params?.returnTime ||
+      incomingTrip?.endTime ||
+      incomingTrip?.returnTime ||
+      (isDirectBooking ? "00:00" : "18:00"),
+  };
 }
 
 function normalizeVerificationLabel(data, user) {
@@ -175,6 +264,11 @@ function normalizeVerificationLabel(data, user) {
 }
 
 export default function BookingWizardScreen({ route, navigation }) {
+  const insets = useSafeAreaInsets();
+  const scrollRef = useRef(null);
+  const fieldLayouts = useRef({});
+  const focusedFieldRef = useRef(null);
+  const scrollTimeoutRef = useRef(null);
   const { width } = useWindowDimensions();
   const isCompactScreen = width < 375;
   const incomingDraft = route?.params?.bookingDraft || null;
@@ -191,6 +285,7 @@ export default function BookingWizardScreen({ route, navigation }) {
   const incomingTrip = route?.params?.tripData || route?.params?.planData || incomingDraft || {};
   const pickupDate = route?.params?.pickupDate;
   const returnDate = route?.params?.returnDate;
+  const pricingPreview = route?.params?.pricingPreview || route?.params?.bookingPreview || null;
   const entryMode = route?.params?.entryMode || route?.params?.mode || "";
   const isDirectBooking =
     entryMode === "directVehicle" ||
@@ -200,6 +295,17 @@ export default function BookingWizardScreen({ route, navigation }) {
     Boolean(route?.params?.vehicleId) ||
     Boolean(incomingDraft);
   const totalSteps = 4;
+  const initialSchedule = useMemo(
+    () =>
+      resolveInitialSchedule({
+        route,
+        incomingTrip,
+        pickupDate,
+        returnDate,
+        isDirectBooking,
+      }),
+    [incomingTrip, isDirectBooking, pickupDate, returnDate, route]
+  );
 
   const [currentStep, setCurrentStep] = useState(
     incomingDraft?.currentStep === "payment" || incomingDraft?.currentStep === "review" ? 4 : 1
@@ -213,20 +319,40 @@ export default function BookingWizardScreen({ route, navigation }) {
   const [selectedVehicle, setSelectedVehicle] = useState(incomingVehicle);
   const [reviewVisible, setReviewVisible] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
+  const [activeGate, setActiveGate] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
   const [verificationLabel, setVerificationLabel] = useState("Not Verified");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [failedImages, setFailedImages] = useState({});
+  const [paymentMethods, setPaymentMethods] = useState([]);
+  const [paymentMethodsLoading, setPaymentMethodsLoading] = useState(false);
+  const [paymentMethodsError, setPaymentMethodsError] = useState("");
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState(
+    incomingTrip?.selectedPaymentMethodId || route?.params?.selectedPaymentMethodId || ""
+  );
+  const [paymentMethod, setPaymentMethod] = useState(
+    incomingTrip?.selectedPaymentMethodName ||
+      incomingTrip?.paymentMethod ||
+      route?.params?.paymentMethod ||
+      ""
+  );
+  const [paymentOption, setPaymentOption] = useState(
+    incomingTrip?.paymentOption || route?.params?.paymentOption || ""
+  );
+  const [hasEditedSchedule, setHasEditedSchedule] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [locationPins, setLocationPins] = useState({
+    pickup: null,
+    destination: null,
+  });
+  const [locationPicker, setLocationPicker] = useState({
+    visible: false,
+    mode: "destination",
+  });
 
   const [picker, setPicker] = useState(null);
-  const [schedule, setSchedule] = useState({
-    destination: incomingTrip?.destination || "",
-    pickupLocation: incomingTrip?.pickupLocation || "",
-    startDate: incomingTrip?.startDate || toDateInput(pickupDate),
-    startTime: incomingTrip?.startTime || "09:00",
-    endDate: incomingTrip?.endDate || toDateInput(returnDate),
-    endTime: incomingTrip?.endTime || "18:00",
-  });
+  const [schedule, setSchedule] = useState(initialSchedule);
   const [preferences, setPreferences] = useState({
     passengers: Number(incomingTrip?.passengers || incomingTrip?.pax || incomingTrip?.numberOfPax || 2),
     budget: Number(incomingTrip?.budget || 5000),
@@ -236,7 +362,6 @@ export default function BookingWizardScreen({ route, navigation }) {
     customPurpose: "",
   });
 
-  const selectedDays = useMemo(() => getSelectedDays(schedule), [schedule]);
   const purposeOfTravel =
     preferences.tripPurpose === "Other"
       ? preferences.customPurpose.trim()
@@ -244,8 +369,124 @@ export default function BookingWizardScreen({ route, navigation }) {
   const passengerMax = isDirectBooking ? getVehicleSeatCapacity(selectedVehicle) : 12;
   const selectedVehicleRate = getVehicleDailyRate(selectedVehicle);
   const effectiveBudget = isDirectBooking ? selectedVehicleRate ?? preferences.budget : preferences.budget;
-  const totalPrice = Number(selectedVehicleRate || 0) * selectedDays;
   const isSelfDrive = tripType === "self-drive";
+  const rentalPricing = useMemo(
+    () =>
+      calculateRentalPricing({
+        vehicle: selectedVehicle || incomingVehicle || {},
+        pickupDateTime: buildLocalDateTime(schedule.startDate, schedule.startTime || "00:00"),
+        returnDateTime: buildLocalDateTime(schedule.endDate, schedule.endTime || "00:00"),
+        rentalType: tripType,
+        tripType,
+        withDriver: tripType === "with-driver",
+      }),
+    [
+      incomingVehicle,
+      schedule.endDate,
+      schedule.endTime,
+      schedule.startDate,
+      schedule.startTime,
+      selectedVehicle,
+      tripType,
+    ]
+  );
+  const totalPrice = Number(rentalPricing.subtotal || pricingPreview?.estimatedTotal || 0);
+  const downPayment = Number(totalPrice > 0 ? totalPrice * 0.5 : pricingPreview?.downPayment || 0);
+  const remainingBalance = Math.max(
+    0,
+    Number(totalPrice > 0 ? totalPrice - downPayment : pricingPreview?.remainingBalance || 0)
+  );
+  const scrollBottomPadding =
+    Math.max(260, keyboardHeight ? keyboardHeight + 120 : 180) + insets.bottom;
+
+  // TODO: Send pickup/destination coordinates once backend supports map pin fields.
+  // TODO: Replace placeholder with real MapView/geocoding when API is ready.
+
+  const handleFieldLayout = (key, event) => {
+    const { y = 0, height = 0 } = event?.nativeEvent?.layout || {};
+    fieldLayouts.current[key] = { y, height };
+  };
+
+  const scrollFieldToCenter = (fieldKey, overrideKeyboardHeight) => {
+    const layout = fieldLayouts.current[fieldKey];
+
+    if (!layout || !scrollRef.current) return;
+
+    const screenHeight = Dimensions.get("window").height;
+    const effectiveKeyboardHeight = overrideKeyboardHeight || keyboardHeight || 300;
+    const visibleHeight =
+      screenHeight -
+      effectiveKeyboardHeight -
+      TOP_RESERVED_SPACE -
+      BOTTOM_RESERVED_SPACE;
+    const targetY = layout.y - Math.max((visibleHeight - layout.height) / 2, 0);
+
+    scrollRef.current.scrollTo({
+      y: Math.max(targetY, 0),
+      animated: true,
+    });
+  };
+
+  const scheduleCenteredScroll = (
+    fieldKey,
+    delay = KEYBOARD_FOCUS_DELAY,
+    overrideKeyboardHeight
+  ) => {
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    scrollTimeoutRef.current = setTimeout(() => {
+      scrollFieldToCenter(fieldKey, overrideKeyboardHeight);
+      scrollTimeoutRef.current = null;
+    }, delay);
+  };
+
+  const handleInputFocus = (fieldKey) => {
+    focusedFieldRef.current = fieldKey;
+    scheduleCenteredScroll(
+      fieldKey,
+      keyboardHeight ? KEYBOARD_RESYNC_DELAY : KEYBOARD_FOCUS_DELAY
+    );
+  };
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      const nextKeyboardHeight = event?.endCoordinates?.height || 0;
+      setKeyboardHeight(nextKeyboardHeight);
+
+      if (focusedFieldRef.current) {
+        scheduleCenteredScroll(
+          focusedFieldRef.current,
+          KEYBOARD_RESYNC_DELAY,
+          nextKeyboardHeight
+        );
+      }
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+      focusedFieldRef.current = null;
+
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+        scrollTimeoutRef.current = null;
+      }
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+        scrollTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (isDirectBooking) return;
@@ -313,6 +554,85 @@ export default function BookingWizardScreen({ route, navigation }) {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
+    const loadPaymentMethods = async () => {
+      try {
+        setPaymentMethodsLoading(true);
+        setPaymentMethodsError("");
+        const res = await getPublicPaymentMethods();
+        if (!isMounted) return;
+        setPaymentMethods(Array.isArray(res?.paymentMethods) ? res.paymentMethods : []);
+      } catch (err) {
+        if (!isMounted) return;
+        setPaymentMethods([]);
+        setPaymentMethodsError(
+          err?.response?.data?.message || "Unable to load payment methods."
+        );
+      } finally {
+        if (isMounted) {
+          setPaymentMethodsLoading(false);
+        }
+      }
+    };
+
+    loadPaymentMethods();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!paymentMethods.length) return;
+
+    if (selectedPaymentMethodId) {
+      const matchedMethod = paymentMethods.find((method) => method?._id === selectedPaymentMethodId);
+      if (matchedMethod && paymentMethod !== matchedMethod.name) {
+        setPaymentMethod(matchedMethod.name);
+      }
+      return;
+    }
+
+    if (paymentMethod) {
+      const matchedMethod = paymentMethods.find(
+        (method) => String(method?.name || "").trim().toLowerCase() === String(paymentMethod).trim().toLowerCase()
+      );
+      if (matchedMethod) {
+        setSelectedPaymentMethodId(matchedMethod._id);
+        if (paymentMethod !== matchedMethod.name) {
+          setPaymentMethod(matchedMethod.name);
+        }
+        return;
+      }
+    }
+
+    const fallbackMethod = paymentMethods[0];
+    if (fallbackMethod?._id) {
+      setSelectedPaymentMethodId(fallbackMethod._id);
+      setPaymentMethod(fallbackMethod.name || "");
+    }
+  }, [paymentMethod, paymentMethods, selectedPaymentMethodId]);
+
+  useEffect(() => {
+    if (hasEditedSchedule) return;
+    setSchedule((prev) => {
+      if (
+        prev.destination === initialSchedule.destination &&
+        prev.pickupLocation === initialSchedule.pickupLocation &&
+        prev.startDate === initialSchedule.startDate &&
+        prev.startTime === initialSchedule.startTime &&
+        prev.endDate === initialSchedule.endDate &&
+        prev.endTime === initialSchedule.endTime
+      ) {
+        return prev;
+      }
+
+      return initialSchedule;
+    });
+  }, [hasEditedSchedule, initialSchedule]);
+
+  useEffect(() => {
     if (!isDirectBooking) return;
 
     setPreferences((prev) => {
@@ -356,6 +676,17 @@ export default function BookingWizardScreen({ route, navigation }) {
   }, [vehicles, preferences]);
 
   const updateSchedule = (key, value) => {
+    setHasEditedSchedule(true);
+    if (key === "destination" || key === "pickupLocation") {
+      const pinKey = key === "destination" ? "destination" : "pickup";
+      setLocationPins((prev) => ({
+        ...prev,
+        [pinKey]:
+          prev[pinKey] && normalizePinnedLabel(prev[pinKey]?.label) !== normalizePinnedLabel(value)
+            ? null
+            : prev[pinKey],
+      }));
+    }
     setSchedule((prev) => {
       const next = { ...prev, [key]: value };
       if (key === "startDate" && next.endDate) {
@@ -368,6 +699,192 @@ export default function BookingWizardScreen({ route, navigation }) {
       return next;
     });
     setErrors((prev) => ({ ...prev, [key]: "", endDate: key === "startDate" ? "" : prev.endDate, endTime: "" }));
+  };
+
+  const openLocationPicker = (mode) => {
+    setLocationPicker({ visible: true, mode });
+  };
+
+  const closeLocationPicker = () => {
+    setLocationPicker((prev) => ({ ...prev, visible: false }));
+  };
+
+  const handleConfirmLocationPin = (pin) => {
+    const isPickup = locationPicker.mode === "pickup";
+    const pinKey = isPickup ? "pickup" : "destination";
+    const scheduleKey = isPickup ? "pickupLocation" : "destination";
+    const fallbackLabel = isPickup ? "Pinned pickup location" : "Pinned destination";
+
+    setLocationPins((prev) => ({
+      ...prev,
+      [pinKey]: {
+        label: pin?.label || fallbackLabel,
+        latitude: pin?.latitude ?? null,
+        longitude: pin?.longitude ?? null,
+        source: pin?.source || "placeholder",
+      },
+    }));
+
+    setSchedule((prev) => ({
+      ...prev,
+      [scheduleKey]: prev[scheduleKey]?.trim() ? prev[scheduleKey] : pin?.label || fallbackLabel,
+    }));
+
+    setErrors((prev) => ({ ...prev, [scheduleKey]: "" }));
+    closeLocationPicker();
+  };
+
+  const openPicker = (key) => {
+    setPicker(key);
+  };
+
+  const closeTransientBookingUi = () => {
+    setReviewVisible(false);
+    setPicker(null);
+  };
+
+  const closeGateAndNavigate = (routeName, params = {}) => {
+    closeTransientBookingUi();
+    setActiveGate(null);
+
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(() => {
+        navigation.navigate(routeName, params);
+      }, 250);
+    });
+  };
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("blur", () => {
+      closeTransientBookingUi();
+      setActiveGate(null);
+    });
+
+    return unsubscribe;
+  }, [navigation]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+        scrollTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  const buildPendingGuestBooking = () => ({
+    selectedVehicle,
+    vehicleId: selectedVehicle?._id || selectedVehicle?.id || incomingVehicleId || route?.params?.vehicleId || "",
+    entryMode,
+    mode: route?.params?.mode || (isDirectBooking ? "direct" : ""),
+    pickupDate: schedule.startDate ? new Date(`${schedule.startDate}T00:00:00`).toISOString() : pickupDate || "",
+    returnDate: schedule.endDate ? new Date(`${schedule.endDate}T00:00:00`).toISOString() : returnDate || "",
+    pricingPreview: {
+      totalHours: rentalPricing.totalHours || 0,
+      billingLabel: rentalPricing.billingLabel || "",
+      estimatedTotal: totalPrice || 0,
+      downPayment: downPayment || 0,
+      remainingBalance: remainingBalance || 0,
+      vehicleTotal: rentalPricing.vehicleTotal || 0,
+      driverTotal: rentalPricing.driverTotal || 0,
+    },
+    tripData: {
+      ...(incomingTrip || {}),
+      destination: schedule.destination,
+      pickupLocation: schedule.pickupLocation,
+      startDate: schedule.startDate,
+      endDate: schedule.endDate,
+      startTime: schedule.startTime,
+      endTime: schedule.endTime,
+      passengers: preferences.passengers,
+      numberOfPax: preferences.passengers,
+      luggageBags: preferences.luggageBags,
+      transmission: preferences.transmission,
+      tripPurpose: preferences.tripPurpose,
+      purposeOfTravel,
+      withDriver: tripType === "with-driver",
+      tripType,
+    },
+    paymentMethod,
+    paymentOption,
+    selectedPaymentMethodId,
+    currentStep: currentStep >= 4 ? "review" : "payment",
+  });
+
+  const savePendingGuestBooking = async () => {
+    await writeStorageItem(
+      PENDING_GUEST_BOOKING_KEY,
+      JSON.stringify(buildPendingGuestBooking())
+    );
+  };
+
+  const promptGuestSignIn = async () => {
+    if (activeGate || submitLoading) return;
+
+    const shouldRestoreReview = reviewVisible;
+    closeTransientBookingUi();
+    setActiveGate("auth");
+
+    try {
+      await savePendingGuestBooking();
+    } catch (err) {
+      console.log("Save guest booking error:", err?.message || err);
+    }
+
+    let handled = false;
+
+    setTimeout(() => {
+      Alert.alert(
+        "Sign in to continue",
+        "You can browse vehicles and plan your trip as a guest. Please log in or create an account to confirm your booking.",
+        [
+          {
+            text: "Log In",
+            onPress: () => {
+              handled = true;
+              closeGateAndNavigate("ClientLogin", {
+                resumeGuestBooking: true,
+                redirectAfterLogin: "ResumeBooking",
+                pendingBookingKey: PENDING_GUEST_BOOKING_KEY,
+              });
+            },
+          },
+          {
+            text: "Create Account",
+            onPress: () => {
+              handled = true;
+              closeGateAndNavigate("RegisterClient", {
+                resumeGuestBooking: true,
+                redirectAfterRegister: "ResumeBooking",
+                pendingBookingKey: PENDING_GUEST_BOOKING_KEY,
+              });
+            },
+          },
+          {
+            text: "Not now",
+            style: "cancel",
+            onPress: () => {
+              handled = true;
+              setActiveGate(null);
+              if (shouldRestoreReview) {
+                setTimeout(() => setReviewVisible(true), 250);
+              }
+            },
+          },
+        ],
+        {
+          cancelable: true,
+          onDismiss: () => {
+            if (!handled) {
+              setActiveGate(null);
+              if (shouldRestoreReview) {
+                setTimeout(() => setReviewVisible(true), 250);
+              }
+            }
+          },
+        }
+      );
+    }, 250);
   };
 
   const updatePreference = (key, value) => {
@@ -411,7 +928,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     if (!validateStep()) return;
 
     if (isDirectBooking && currentStep === 3) {
-      if (!selectedVehicle?._id) {
+      if (!selectedVehicle?._id && !selectedVehicle?.id) {
         Alert.alert(
           "Vehicle unavailable",
           "We could not load the selected vehicle. Please return to Browse and choose a vehicle again."
@@ -465,7 +982,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     }
 
     return {
-      vehicleId: selectedVehicle?._id,
+      vehicleId: selectedVehicle?._id || selectedVehicle?.id,
       destination: schedule.destination,
       pickupLocation: schedule.pickupLocation,
       startDate: schedule.startDate,
@@ -473,23 +990,42 @@ export default function BookingWizardScreen({ route, navigation }) {
       numberOfPax: preferences.passengers,
       luggageBags: preferences.luggageBags,
       purposeOfTravel,
-      notes: `Trip Type: ${getTripTypeLabel(tripType)}. Start Time: ${schedule.startTime}. End Time: ${schedule.endTime}. Transmission preference: ${preferences.transmission}. Budget target: ${effectiveBudget}.`,
+      notes: isDirectBooking
+        ? `Trip Type: ${getTripTypeLabel(tripType)}. Start Time: ${schedule.startTime}. End Time: ${schedule.endTime}. Transmission preference: ${preferences.transmission}. Billing label: ${rentalPricing.billingLabel || "Not set"}. Estimated total: ${totalPrice}.`
+        : `Trip Type: ${getTripTypeLabel(tripType)}. Start Time: ${schedule.startTime}. End Time: ${schedule.endTime}. Transmission preference: ${preferences.transmission}. Budget target: ${effectiveBudget}. Billing label: ${rentalPricing.billingLabel || "Not set"}. Estimated total: ${totalPrice}.`,
       withDriver: tripType === "with-driver",
       contact,
-      paymentMethod: "GCash",
+      selectedPaymentMethodId,
+      selectedPaymentMethodName: paymentMethod,
+      paymentMethod,
+      paymentOption,
       currentStep: "submitted",
     };
   };
 
   const submitBooking = async () => {
+    if (submitLoading || activeGate || successModalVisible) return;
+
     try {
-      const token = await AsyncStorage.getItem("clientToken");
+      const token = await readStorageItem("clientToken");
       if (!token) {
-        Alert.alert("Sign In Required", "Please sign in or register to submit this booking.", [
-          { text: "Register", onPress: () => navigation.navigate("RegisterClient") },
-          { text: "Sign In", onPress: () => navigation.navigate("ClientLogin") },
-          { text: "Cancel", style: "cancel" },
-        ]);
+        await promptGuestSignIn();
+        return;
+      }
+
+      if (!paymentMethod || !selectedPaymentMethodId) {
+        Alert.alert(
+          "Payment option required",
+          "Please select a payment option before submitting your booking."
+        );
+        return;
+      }
+
+      if (!paymentOption) {
+        Alert.alert(
+          "Payment option required",
+          "Please select a payment option before submitting your booking."
+        );
         return;
       }
 
@@ -500,15 +1036,55 @@ export default function BookingWizardScreen({ route, navigation }) {
         : await createBooking(payload);
       setReviewVisible(false);
       setSuccess(res?.booking || res);
+      setSuccessModalVisible(true);
     } catch (err) {
       if (err?.code === "MISSING_CONTACT") {
-        Alert.alert("Contact number required", err.message, [
-          {
-            text: "Update Profile",
-            onPress: () => navigation.navigate("PersonalInfo"),
-          },
-          { text: "Cancel", style: "cancel" },
-        ]);
+        const shouldRestoreReview = reviewVisible;
+        closeTransientBookingUi();
+        setActiveGate("contact");
+
+        try {
+          await savePendingGuestBooking();
+        } catch (saveErr) {
+          console.log("Save contact gate booking error:", saveErr?.message || saveErr);
+        }
+
+        let handled = false;
+        setTimeout(() => {
+          Alert.alert("Contact number required", err.message, [
+            {
+              text: "Update Profile",
+              onPress: () => {
+                handled = true;
+                closeGateAndNavigate("PersonalInfo", {
+                  redirectAfterProfileUpdate: "ResumeBooking",
+                  pendingBookingKey: PENDING_GUEST_BOOKING_KEY,
+                });
+              },
+            },
+            {
+              text: "Cancel",
+              style: "cancel",
+              onPress: () => {
+                handled = true;
+                setActiveGate(null);
+                if (shouldRestoreReview) {
+                  setTimeout(() => setReviewVisible(true), 250);
+                }
+              },
+            },
+          ], {
+            cancelable: true,
+            onDismiss: () => {
+              if (!handled) {
+                setActiveGate(null);
+                if (shouldRestoreReview) {
+                  setTimeout(() => setReviewVisible(true), 250);
+                }
+              }
+            },
+          });
+        }, 250);
         return;
       }
 
@@ -519,37 +1095,121 @@ export default function BookingWizardScreen({ route, navigation }) {
       }
 
       if (isUnauthorizedError(err)) {
-        Alert.alert("Session expired", "Please sign in again to continue.", [
-          {
-            text: "Sign In",
-            onPress: () => navigation.navigate("ClientLogin"),
-          },
-        ]);
+        const shouldRestoreReview = reviewVisible;
+        closeTransientBookingUi();
+        setActiveGate("session");
+
+        try {
+          await savePendingGuestBooking();
+        } catch (saveErr) {
+          console.log("Save session gate booking error:", saveErr?.message || saveErr);
+        }
+
+        let handled = false;
+        setTimeout(() => {
+          Alert.alert("Session expired", "Please sign in again to continue.", [
+            {
+              text: "Sign In",
+              onPress: () => {
+                handled = true;
+                closeGateAndNavigate("ClientLogin", {
+                  resumeGuestBooking: true,
+                  redirectAfterLogin: "ResumeBooking",
+                  pendingBookingKey: PENDING_GUEST_BOOKING_KEY,
+                });
+              },
+            },
+            {
+              text: "Not now",
+              style: "cancel",
+              onPress: () => {
+                handled = true;
+                setActiveGate(null);
+                if (shouldRestoreReview) {
+                  setTimeout(() => setReviewVisible(true), 250);
+                }
+              },
+            },
+          ], {
+            cancelable: true,
+            onDismiss: () => {
+              if (!handled) {
+                setActiveGate(null);
+                if (shouldRestoreReview) {
+                  setTimeout(() => setReviewVisible(true), 250);
+                }
+              }
+            },
+          });
+        }, 250);
         return;
       }
 
       const message = err?.response?.data?.message || err.message || "Booking failed.";
       if (err?.response?.status === 403 && err?.response?.data?.verificationStatus) {
         try {
-          const draftPayload = await buildPayload();
-          await saveClientBookingDraft({ ...draftPayload, currentStep: "payment" });
+          await savePendingGuestBooking();
         } catch (draftErr) {
-          console.log("Save verification draft error:", draftErr?.response?.data || draftErr.message);
+          console.log("Save verification gate booking error:", draftErr?.response?.data || draftErr.message);
         }
 
-        Alert.alert("Verification required", message, [
-          {
-            text: "Go to Verification",
-            onPress: () =>
-              navigation.navigate("Verification", {
-                verificationType: isSelfDrive ? "self_drive" : "with_driver",
-              }),
-          },
-          {
-            text: "View Bookings",
-            onPress: () => navigation.navigate("Bookings"),
-          },
-        ]);
+        const shouldRestoreReview = reviewVisible;
+        const canOpenBookings = Boolean(incomingDraft?._id);
+        closeTransientBookingUi();
+        setActiveGate("verification");
+
+        let handled = false;
+        setTimeout(() => {
+          Alert.alert("Verification required", message, [
+            {
+              text: "Go to Verification",
+              onPress: () => {
+                handled = true;
+                closeGateAndNavigate("Verification", {
+                  verificationType: isSelfDrive ? "self_drive" : "with_driver",
+                  redirectAfterVerification: "ResumeBooking",
+                  pendingBookingKey: PENDING_GUEST_BOOKING_KEY,
+                });
+              },
+            },
+            {
+              text: "View Bookings",
+              onPress: () => {
+                handled = true;
+                if (canOpenBookings) {
+                  closeGateAndNavigate("Bookings");
+                  return;
+                }
+
+                setActiveGate(null);
+                if (shouldRestoreReview) {
+                  setTimeout(() => setReviewVisible(true), 250);
+                }
+              },
+            },
+            {
+              text: "Not now",
+              style: "cancel",
+              onPress: () => {
+                handled = true;
+                setActiveGate(null);
+                if (shouldRestoreReview) {
+                  setTimeout(() => setReviewVisible(true), 250);
+                }
+              },
+            },
+          ], {
+            cancelable: true,
+            onDismiss: () => {
+              if (!handled) {
+                setActiveGate(null);
+                if (shouldRestoreReview) {
+                  setTimeout(() => setReviewVisible(true), 250);
+                }
+              }
+            },
+          });
+        }, 250);
         return;
       }
 
@@ -716,19 +1376,46 @@ export default function BookingWizardScreen({ route, navigation }) {
           : "Add the route and schedule so recommendations can reflect your trip window."}
       </Text>
 
-      <Text style={styles.label}>Destination</Text>
-      <View style={styles.inputWrap}>
-        <Feather name="map-pin" size={18} color="#98A2B3" />
-        <TextInput
-          value={schedule.destination}
-          onChangeText={(value) => updateSchedule("destination", value)}
-          placeholder="e.g. Tagaytay, Batangas, Baguio"
-          placeholderTextColor="#98A2B3"
-          style={styles.input}
-          returnKeyType="next"
-        />
+      <View>
+        <Text style={styles.label}>Destination</Text>
+        <View style={styles.inputWrap}>
+          <Feather name="map-pin" size={18} color="#98A2B3" />
+          <TextInput
+            value={schedule.destination}
+            onChangeText={(value) => updateSchedule("destination", value)}
+            placeholder="e.g. Tagaytay, Batangas, Baguio"
+            placeholderTextColor="#98A2B3"
+            style={styles.input}
+            returnKeyType="next"
+          />
+          <TouchableOpacity
+            style={[
+              styles.locationPinButton,
+              locationPins.destination && styles.locationPinButtonActive,
+            ]}
+            activeOpacity={0.9}
+            onPress={() => openLocationPicker("destination")}
+          >
+            <Ionicons
+              name="location"
+              size={17}
+              color={locationPins.destination ? "#FFFFFF" : "#F47C20"}
+            />
+          </TouchableOpacity>
+        </View>
+        <Text
+          style={[
+            styles.locationStatusText,
+            locationPins.destination && styles.locationStatusTextActive,
+          ]}
+        >
+          {locationPins.destination ? "Destination pin selected" : "Manual entry only"}
+        </Text>
+        <Text style={styles.locationHelperText}>
+          Optional: use the pin button if you prefer selecting on a map.
+        </Text>
+        {!!errors.destination && <Text style={styles.errorText}>{errors.destination}</Text>}
       </View>
-      {!!errors.destination && <Text style={styles.errorText}>{errors.destination}</Text>}
 
       <View style={styles.chipsWrap}>
         {SUGGESTED_DESTINATIONS.map((place) => (
@@ -744,19 +1431,43 @@ export default function BookingWizardScreen({ route, navigation }) {
         ))}
       </View>
 
-      <Text style={styles.label}>Pickup Location</Text>
-      <View style={styles.inputWrap}>
-        <Feather name="navigation" size={18} color="#98A2B3" />
-        <TextInput
-          value={schedule.pickupLocation}
-          onChangeText={(value) => updateSchedule("pickupLocation", value)}
-          placeholder="Enter full pickup address"
-          placeholderTextColor="#98A2B3"
-          style={styles.input}
-          multiline
-        />
+      <View>
+        <Text style={styles.label}>Pickup Location</Text>
+        <View style={[styles.inputWrap, styles.inputWrapMultiline]}>
+          <Feather name="navigation" size={18} color="#98A2B3" />
+          <TextInput
+            value={schedule.pickupLocation}
+            onChangeText={(value) => updateSchedule("pickupLocation", value)}
+            placeholder="Enter full pickup address"
+            placeholderTextColor="#98A2B3"
+            style={[styles.input, styles.multilineInput]}
+            multiline
+          />
+          <TouchableOpacity
+            style={[styles.locationPinButton, locationPins.pickup && styles.locationPinButtonActive]}
+            activeOpacity={0.9}
+            onPress={() => openLocationPicker("pickup")}
+          >
+            <Ionicons
+              name="location"
+              size={17}
+              color={locationPins.pickup ? "#FFFFFF" : "#F47C20"}
+            />
+          </TouchableOpacity>
+        </View>
+        <Text
+          style={[
+            styles.locationStatusText,
+            locationPins.pickup && styles.locationStatusTextActive,
+          ]}
+        >
+          {locationPins.pickup ? "Pickup pin selected" : "Manual entry only"}
+        </Text>
+        <Text style={styles.locationHelperText}>
+          Optional: use the pin button if you prefer selecting on a map.
+        </Text>
+        {!!errors.pickupLocation && <Text style={styles.errorText}>{errors.pickupLocation}</Text>}
       </View>
-      {!!errors.pickupLocation && <Text style={styles.errorText}>{errors.pickupLocation}</Text>}
 
       <View style={styles.twoColumn}>
         {[
@@ -772,7 +1483,7 @@ export default function BookingWizardScreen({ route, navigation }) {
             <Text style={styles.label}>{label}</Text>
             <TouchableOpacity
               style={styles.pickerButton}
-              onPress={() => setPicker(key)}
+              onPress={() => openPicker(key)}
             >
               <Text style={value === "Not set" ? styles.placeholderText : styles.pickerText}>
                 {value}
@@ -787,9 +1498,39 @@ export default function BookingWizardScreen({ route, navigation }) {
       <View style={styles.durationBox}>
         <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
         <Text style={styles.durationText}>
-          {selectedDays > 0 ? `${selectedDays} day(s) selected` : "Select valid date and time"}
+          {rentalPricing.totalHours > 0
+            ? `${formatRentalHours(rentalPricing.totalHours)} • ${rentalPricing.billingLabel}`
+            : "Select valid date and time"}
         </Text>
       </View>
+    </View>
+  );
+
+  const renderInlineActions = () => (
+    <View style={[styles.inlineActionRow, isCompactScreen && styles.inlineActionRowStacked]}>
+      <TouchableOpacity
+        style={[styles.secondaryButton, isCompactScreen && styles.inlineActionButtonFull]}
+        onPress={handleBack}
+      >
+        <Text style={styles.secondaryButtonText}>Back</Text>
+      </TouchableOpacity>
+      {currentStep < 4 ? (
+        <TouchableOpacity
+          style={[styles.primaryButton, isCompactScreen && styles.inlineActionButtonFull]}
+          onPress={handleNext}
+        >
+          <Text style={styles.primaryButtonText}>Continue</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={[styles.primaryButton, isCompactScreen && styles.inlineActionButtonFull]}
+          onPress={() => (isDirectBooking ? setReviewVisible(true) : setCurrentStep(3))}
+        >
+          <Text style={styles.primaryButtonText}>
+            {isDirectBooking ? "Review Booking" : "Edit Trip Details"}
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 
@@ -936,6 +1677,7 @@ export default function BookingWizardScreen({ route, navigation }) {
         ))}
       </View>
       {preferences.tripPurpose === "Other" && (
+        <View onLayout={(event) => handleFieldLayout("customPurpose", event)}>
         <View style={styles.inputWrap}>
           <Feather name="edit-3" size={18} color="#98A2B3" />
           <TextInput
@@ -944,7 +1686,9 @@ export default function BookingWizardScreen({ route, navigation }) {
             placeholder="Describe your Trip Purpose"
             placeholderTextColor="#98A2B3"
             style={styles.input}
+            onFocus={() => handleInputFocus("customPurpose")}
           />
+        </View>
         </View>
       )}
       {!!errors.tripPurpose && <Text style={styles.errorText}>{errors.tripPurpose}</Text>}
@@ -1062,8 +1806,26 @@ export default function BookingWizardScreen({ route, navigation }) {
       {selectedVehicle && renderSelectedVehicle()}
 
       <View style={styles.summaryCard}>
+        <Text style={styles.summaryLabel}>Duration</Text>
+        <Text style={styles.summaryValue}>
+          {rentalPricing.totalHours > 0 ? formatRentalHours(rentalPricing.totalHours) : "Not set"}
+        </Text>
+      </View>
+
+      <View style={styles.summaryCard}>
+        <Text style={styles.summaryLabel}>Billing</Text>
+        <Text style={styles.summaryValue}>
+          {rentalPricing.totalHours > 0 ? rentalPricing.billingLabel : "Not set"}
+        </Text>
+      </View>
+
+      <View style={styles.summaryCard}>
         <Text style={styles.summaryLabel}>Estimated Total</Text>
         <Text style={styles.summaryValue}>{formatPeso(totalPrice)}</Text>
+        <Text style={styles.summaryLabel}>Down Payment</Text>
+        <Text style={styles.summaryValue}>{formatPeso(downPayment)}</Text>
+        <Text style={styles.summaryLabel}>Remaining Balance</Text>
+        <Text style={styles.summaryValue}>{formatPeso(remainingBalance)}</Text>
       </View>
 
       <TouchableOpacity
@@ -1102,25 +1864,76 @@ export default function BookingWizardScreen({ route, navigation }) {
     ["Pickup Location", schedule.pickupLocation],
     ["Destination", schedule.destination],
     ["Schedule", `${formatDate(schedule.startDate)} ${formatTime(schedule.startTime)} to ${formatDate(schedule.endDate)} ${formatTime(schedule.endTime)}`],
+    ["Duration", rentalPricing.totalHours > 0 ? formatRentalHours(rentalPricing.totalHours) : "Not set"],
+    ["Billing", rentalPricing.totalHours > 0 ? rentalPricing.billingLabel : "Not set"],
     ["Passengers", `${preferences.passengers}`],
     ["Luggage Bags", `${preferences.luggageBags}`],
     ["Transmission", preferences.transmission === "any" ? "Any" : preferences.transmission],
     ["Trip Purpose", purposeOfTravel || "Not set"],
+    ["Payment Method", paymentMethod || "Not selected"],
+    ["Payment Option", paymentOption === "full_payment" ? "Full Payment" : paymentOption === "down_payment_50" ? "50% Down Payment" : "Not selected"],
     ["Estimated Total", formatPeso(totalPrice)],
+    ["Down Payment", formatPeso(downPayment)],
+    ["Remaining Balance", formatPeso(remainingBalance)],
     ["Verification", `${verificationLabel}. Verification is reviewed before approval.`],
   ];
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.contentContainer}
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <SafeAreaView style={styles.safeArea}>
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
         >
+          <SuccessInfoModal
+            visible={successModalVisible}
+            title="Booking Request Submitted"
+            message="Your booking request has been sent to FleetX. Our team will review your booking details before issuing an invoice."
+            note="Updates usually appear within a few minutes to an hour."
+            steps={[
+              "FleetX will review your booking details.",
+              "Once approved, your invoice will appear in My Bookings.",
+              "You may also receive updates through notifications or email.",
+              "You can track your booking status anytime in My Bookings.",
+            ]}
+            reference={success?.bookingReference || success?.referenceNo || "Pending Reference"}
+            primaryActionLabel="View My Bookings"
+            secondaryActionLabel="Stay Here"
+            onPrimary={() => {
+              setSuccessModalVisible(false);
+              navigation.navigate("Bookings");
+            }}
+            onSecondary={() => setSuccessModalVisible(false)}
+            onClose={() => setSuccessModalVisible(false)}
+          />
+          <LocationPickerModal
+            visible={locationPicker.visible}
+            mode={locationPicker.mode}
+            initialLocation={
+              locationPicker.mode === "pickup"
+                ? locationPins.pickup
+                : locationPins.destination
+            }
+            initialLabel={
+              locationPicker.mode === "pickup"
+                ? schedule.pickupLocation
+                : schedule.destination
+            }
+            onClose={closeLocationPicker}
+            onConfirm={handleConfirmLocationPin}
+          />
+          <ScrollView
+            ref={scrollRef}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            showsVerticalScrollIndicator={false}
+            contentInsetAdjustmentBehavior="automatic"
+            contentContainerStyle={[
+              styles.contentContainer,
+              { paddingBottom: scrollBottomPadding },
+            ]}
+          >
           <View style={styles.headerRow}>
             <View style={styles.headerContent}>
               <Text style={styles.headerEyebrow}>Premium booking flow</Text>
@@ -1146,31 +1959,9 @@ export default function BookingWizardScreen({ route, navigation }) {
             : isDirectBooking
             ? renderDirectReview()
             : renderResults()}
-        </ScrollView>
-
-        {!success && (
-          <View style={styles.stickyFooter}>
-            <TouchableOpacity style={styles.secondaryButton} onPress={handleBack}>
-              <Text style={styles.secondaryButtonText}>Back</Text>
-            </TouchableOpacity>
-            {currentStep < 4 ? (
-              <TouchableOpacity style={styles.primaryButton} onPress={handleNext}>
-                <Text style={styles.primaryButtonText}>Continue</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={styles.primaryButton}
-                onPress={() =>
-                  isDirectBooking ? setReviewVisible(true) : setCurrentStep(3)
-                }
-              >
-                <Text style={styles.primaryButtonText}>
-                  {isDirectBooking ? "Review Booking" : "Edit Trip Details"}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
+          {!success && renderInlineActions()}
+          {!success && <View style={styles.bottomSpacer} />}
+          </ScrollView>
 
         {!!picker && (
           <DateTimePicker
@@ -1194,7 +1985,7 @@ export default function BookingWizardScreen({ route, navigation }) {
           />
         )}
 
-        <Modal visible={reviewVisible} animationType="slide" transparent>
+          <Modal visible={reviewVisible} animationType="slide" transparent>
           <View style={styles.modalOverlay}>
             <View style={styles.reviewModal}>
               <ScrollView
@@ -1217,6 +2008,94 @@ export default function BookingWizardScreen({ route, navigation }) {
                   ))}
                 </View>
 
+                <View style={styles.paymentSection}>
+                  <Text style={styles.cardTitle}>Payment Option</Text>
+                  <Text style={styles.cardSubtitle}>
+                    Choose how you want to pay after your booking is approved.
+                  </Text>
+
+                  <View style={styles.paymentOptionGrid}>
+                    {paymentMethodsLoading ? (
+                      <View style={styles.paymentOptionCard}>
+                        <Text style={styles.paymentOptionText}>Loading payment methods...</Text>
+                      </View>
+                    ) : null}
+
+                    {!paymentMethodsLoading && paymentMethodsError ? (
+                      <View style={styles.paymentOptionCard}>
+                        <Text style={styles.paymentOptionText}>{paymentMethodsError}</Text>
+                      </View>
+                    ) : null}
+
+                    {!paymentMethodsLoading && !paymentMethodsError
+                      ? paymentMethods.map((method) => {
+                          const isSelected = selectedPaymentMethodId === method?._id;
+
+                          return (
+                            <TouchableOpacity
+                              key={method?._id}
+                              style={[
+                                styles.paymentOptionCard,
+                                isSelected && styles.paymentOptionCardSelected,
+                              ]}
+                              onPress={() => {
+                                setSelectedPaymentMethodId(method?._id || "");
+                                setPaymentMethod(method?.name || "");
+                              }}
+                            >
+                              <Text
+                                style={[
+                                  styles.paymentOptionText,
+                                  isSelected && styles.paymentOptionTextSelected,
+                                ]}
+                              >
+                                {method?.name || "Payment Method"}
+                              </Text>
+                              {method?.category ? (
+                                <Text style={styles.paymentHelperText}>{method.category}</Text>
+                              ) : null}
+                            </TouchableOpacity>
+                          );
+                        })
+                      : null}
+                  </View>
+
+                  <Text style={styles.paymentHelperText}>
+                    Selected payment method: {paymentMethod || "Not selected"}
+                  </Text>
+
+                  <View style={styles.paymentOptionGrid}>
+                    {PAYMENT_OPTIONS.map((option) => {
+                      const isSelected = paymentOption === option.value;
+
+                      return (
+                        <TouchableOpacity
+                          key={option.value}
+                          style={[
+                            styles.paymentOptionCard,
+                            isSelected && styles.paymentOptionCardSelected,
+                          ]}
+                          onPress={() => setPaymentOption(option.value)}
+                        >
+                          <Text
+                            style={[
+                              styles.paymentOptionText,
+                              isSelected && styles.paymentOptionTextSelected,
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                          <Text style={styles.paymentHelperText}>{option.description}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <Text style={styles.paymentHelperText}>
+                    Selected payment option: {getPaymentOptionLabel(paymentOption)}
+                  </Text>
+                </View>
+
                 <TouchableOpacity
                   style={styles.termsBox}
                   activeOpacity={0.9}
@@ -1237,18 +2116,18 @@ export default function BookingWizardScreen({ route, navigation }) {
                     style={styles.secondaryButton}
                     onPress={() => {
                       setReviewVisible(false);
-                      setCurrentStep(3);
+                      setCurrentStep(isDirectBooking ? 2 : 3);
                     }}
                   >
                     <Text style={styles.secondaryButtonText}>Edit Trip</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.primaryButton,
-                      (submitLoading || !acceptedTerms) && styles.buttonDisabled,
-                    ]}
+                <TouchableOpacity
+                  style={[
+                    styles.primaryButton,
+                    (submitLoading || !acceptedTerms || Boolean(activeGate)) && styles.buttonDisabled,
+                  ]}
                     onPress={submitBooking}
-                    disabled={submitLoading || !acceptedTerms}
+                    disabled={submitLoading || !acceptedTerms || Boolean(activeGate)}
                   >
                     <Text style={styles.primaryButtonText}>
                       {submitLoading ? "Submitting..." : "Submit Booking"}
@@ -1267,8 +2146,9 @@ export default function BookingWizardScreen({ route, navigation }) {
               </ScrollView>
             </View>
           </View>
-        </Modal>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          </Modal>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </TouchableWithoutFeedback>
   );
 }

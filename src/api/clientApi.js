@@ -77,6 +77,16 @@ export async function getVehicleById(vehicleId) {
   return response.data;
 }
 
+export async function getVehicleBookings(vehicleId) {
+  const response = await api.get(`/public/bookings/vehicle/${vehicleId}`);
+  return response.data;
+}
+
+export async function getPublicPaymentMethods() {
+  const response = await api.get("/public/payment-methods");
+  return response.data;
+}
+
 export async function createBooking(payload) {
   const response = await api.post("/client/bookings", payload);
   return response.data;

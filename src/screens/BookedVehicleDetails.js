@@ -40,6 +40,16 @@ function SummaryRow({ label, value, last }) {
   );
 }
 
+function shouldShowPaymentInstructions(booking) {
+  const status = String(booking?.status || "").toLowerCase();
+  const paymentStatus = String(booking?.paymentStatus || "").toLowerCase();
+
+  return (
+    ["awaiting_payment", "pending_payment", "payment_rejected", "invoice_issued"].includes(status) ||
+    ["invoice_issued", "submitted", "under_review", "reupload_required", "rejected"].includes(paymentStatus)
+  );
+}
+
 export default function BookedVehicleDetails({ navigation, route }) {
   const booking = route?.params?.booking || {};
   const [imageFailed, setImageFailed] = useState(false);
@@ -66,6 +76,10 @@ export default function BookedVehicleDetails({ navigation, route }) {
     navigation.navigate(type === "invoice" ? "BookingInvoice" : "BookingReceipt", {
       booking,
     });
+  };
+
+  const openPaymentInstructions = () => {
+    navigation.navigate("PaymentInstructions", { booking });
   };
 
   return (
@@ -144,6 +158,11 @@ export default function BookedVehicleDetails({ navigation, route }) {
         <TouchableOpacity style={styles.secondaryButton} onPress={() => openDocument("invoice")}>
           <Text style={styles.secondaryButtonText}>View Invoice</Text>
         </TouchableOpacity>
+        {shouldShowPaymentInstructions(booking) ? (
+          <TouchableOpacity style={styles.secondaryButton} onPress={openPaymentInstructions}>
+            <Text style={styles.secondaryButtonText}>Payment Instructions</Text>
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.goBack()}>
           <Text style={styles.secondaryButtonText}>Back to My Bookings</Text>
         </TouchableOpacity>

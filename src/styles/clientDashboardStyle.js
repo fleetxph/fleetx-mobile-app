@@ -241,18 +241,21 @@ export const styles = StyleSheet.create({
   quickAccessRow: {
     flexDirection: "row",
     gap: 14,
+    alignItems: "stretch",
   },
 
   quickAccessCard: {
     flex: 1,
-    borderRadius: 20,
-    padding: 18,
-    minHeight: 112,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderRadius: 22,
+    minHeight: 126,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    justifyContent: "center",
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
   },
 
   quickAccessCardDark: {
@@ -261,39 +264,46 @@ export const styles = StyleSheet.create({
 
   quickAccessCardLight: {
     backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+
+  quickAccessCardContent: {
+    flex: 1,
+    justifyContent: "space-between",
   },
 
   quickIconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
+    marginBottom: 16,
   },
 
   quickIconBoxDark: {
-    backgroundColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
   },
 
   quickIconBoxLight: {
-    backgroundColor: "#fff7ed",
-  },
-
-  quickIconText: {
-    fontSize: 20,
+    backgroundColor: "#FFF1E6",
   },
 
   quickAccessCardDarkText: {
     color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "800",
   },
 
   quickAccessCardLightText: {
     color: "#0f172a",
-    fontSize: 15,
+  },
+
+  quickAccessTitle: {
+    fontSize: 16,
     fontWeight: "800",
+    lineHeight: 21,
   },
 
   featuredRow: {

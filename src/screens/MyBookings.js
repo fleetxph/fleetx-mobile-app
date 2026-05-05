@@ -8,11 +8,9 @@ import {
   RefreshControl,
   SafeAreaView,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-import * as ImagePicker from "expo-image-picker";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { isUnauthorizedError } from "../api/api";
@@ -20,7 +18,6 @@ import {
   cancelClientBooking,
   getClientBookings,
   resumeClientBooking,
-  submitPaymentProof,
 } from "../api/clientApi";
 import { styles } from "../styles/myBookingsStyle";
 import {
@@ -28,12 +25,6 @@ import {
   getBookingStatusMeta,
 } from "../utils/bookingStatusDisplay";
 import { getVehicleImageUrl } from "../utils/imageUrl";
-
-function toBase64DataUri(asset) {
-  if (!asset?.base64) return "";
-  const mimeType = asset.mimeType || "image/jpeg";
-  return `data:${mimeType};base64,${asset.base64}`;
-}
 
 function getBookingId(item) {
   return item?._id || item?.id || "";
@@ -119,12 +110,9 @@ function shouldShowPaymentPanel(item) {
 export default function MyBookings({ navigation }) {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [hasToken, setHasToken] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState("all");
-  const [paymentAssets, setPaymentAssets] = useState({});
-  const [paymentRefs, setPaymentRefs] = useState({});
-  const [replaceFlags, setReplaceFlags] = useState({});
-  const [submittingPaymentId, setSubmittingPaymentId] = useState("");
   const [failedImages, setFailedImages] = useState({});
 
   const loadBookings = useCallback(
@@ -137,10 +125,12 @@ export default function MyBookings({ navigation }) {
             : (await AsyncStorage.getItem("clientToken")) || (await AsyncStorage.getItem("token"));
 
         if (!token) {
+          setHasToken(false);
           setBookings([]);
           return;
         }
 
+        setHasToken(true);
         const res = await getClientBookings();
         setBookings(res?.bookings || []);
       } catch (err) {
@@ -168,75 +158,6 @@ export default function MyBookings({ navigation }) {
     if (activeFilter === "all") return bookings;
     return bookings.filter((item) => getBookingStatusMeta(item?.status).key === activeFilter);
   }, [bookings, activeFilter]);
-
-  const openPaymentPicker = async (bookingId, source) => {
-    const permission =
-      source === "camera"
-        ? await ImagePicker.requestCameraPermissionsAsync()
-        : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert("Permission needed", "Please allow access to upload payment proof.");
-      return;
-    }
-
-    const pickerFn =
-      source === "camera"
-        ? ImagePicker.launchCameraAsync
-        : ImagePicker.launchImageLibraryAsync;
-    const result = await pickerFn({
-      mediaTypes: ["images"],
-      quality: 0.85,
-      base64: true,
-    });
-
-    if (result.canceled) return;
-    const asset = result.assets?.[0];
-    if (!asset?.uri || !asset?.base64) {
-      Alert.alert("Upload failed", "Could not prepare the selected image.");
-      return;
-    }
-    setPaymentAssets((prev) => ({ ...prev, [bookingId]: asset }));
-  };
-
-  const pickPaymentProof = async (bookingId) => {
-    Alert.alert("Upload payment proof", "Choose how you want to add the receipt image.", [
-      { text: "Camera", onPress: () => openPaymentPicker(bookingId, "camera") },
-      { text: "Gallery", onPress: () => openPaymentPicker(bookingId, "gallery") },
-      { text: "Cancel", style: "cancel" },
-    ]);
-  };
-
-  const handleSubmitPayment = async (booking) => {
-    const bookingId = getBookingId(booking);
-    const asset = paymentAssets[bookingId];
-
-    if (!asset) {
-      Alert.alert("Payment proof required", "Please upload your payment screenshot first.");
-      return;
-    }
-
-    try {
-      setSubmittingPaymentId(bookingId);
-      const paymentProof = toBase64DataUri(asset);
-      if (!paymentProof) {
-        Alert.alert("Payment upload failed", "Could not prepare the selected receipt image.");
-        return;
-      }
-      await submitPaymentProof(bookingId, {
-        paymentReference: paymentRefs[bookingId] || "",
-        paymentProof,
-        replaceExisting: Boolean(replaceFlags[bookingId]),
-      });
-      setPaymentAssets((prev) => ({ ...prev, [bookingId]: null }));
-      setReplaceFlags((prev) => ({ ...prev, [bookingId]: false }));
-      await loadBookings("refresh");
-      Alert.alert("Submitted", "Your payment proof is now waiting for admin review.");
-    } catch (err) {
-      Alert.alert("Payment upload failed", err?.response?.data?.message || "Please try again.");
-    } finally {
-      setSubmittingPaymentId("");
-    }
-  };
 
   const handleResume = async (booking) => {
     const bookingId = getBookingId(booking);
@@ -294,6 +215,18 @@ export default function MyBookings({ navigation }) {
     navigation.navigate(routeName, params);
   };
 
+  const openPaymentInstructions = (booking) => {
+    const params = { booking };
+    const parentNavigation = navigation.getParent?.();
+
+    if (parentNavigation?.navigate) {
+      parentNavigation.navigate("PaymentInstructions", params);
+      return;
+    }
+
+    navigation.navigate("PaymentInstructions", params);
+  };
+
   const openBookedVehicleDetails = (booking) => {
     const params = { booking };
     const parentNavigation = navigation.getParent?.();
@@ -307,7 +240,6 @@ export default function MyBookings({ navigation }) {
   };
 
   const renderActions = (item) => {
-    const bookingId = getBookingId(item);
     const meta = getBookingStatusMeta(item?.status);
     if (meta.key === "in_progress") {
       return (
@@ -330,19 +262,15 @@ export default function MyBookings({ navigation }) {
         <View style={styles.paymentPanel}>
           <Text style={styles.panelTitle}>Invoice and payment</Text>
           <Text style={styles.panelText}>
-            Down payment due {formatDateTime(item?.paymentDueAt)}. Upload a clear GCash payment screenshot before the deadline.
+            Review your payment method, references, invoice, and proof upload steps in one place.
           </Text>
-          <TextInput
-            style={styles.referenceInput}
-            placeholder="Payment transaction reference"
-            placeholderTextColor="#94a3b8"
-            value={paymentRefs[bookingId] || ""}
-            onChangeText={(value) => setPaymentRefs((prev) => ({ ...prev, [bookingId]: value }))}
-          />
           <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.secondaryActionButton} onPress={() => pickPaymentProof(bookingId)}>
-              <Text style={styles.secondaryActionText}>
-                {paymentAssets[bookingId]?.uri ? "Proof Selected" : "Upload Payment Proof"}
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => openPaymentInstructions(item)}
+            >
+              <Text style={styles.actionButtonText}>
+                {canSubmitPayment(item) ? "View Payment Instructions" : "Payment Details"}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -352,39 +280,9 @@ export default function MyBookings({ navigation }) {
               <Text style={styles.secondaryActionText}>View Invoice</Text>
             </TouchableOpacity>
           </View>
-          {item?.paymentProof ? (
-            <TouchableOpacity
-              style={styles.checkRow}
-              onPress={() => setReplaceFlags((prev) => ({ ...prev, [bookingId]: !prev[bookingId] }))}
-            >
-              <Ionicons
-                name={replaceFlags[bookingId] ? "checkbox" : "square-outline"}
-                size={18}
-                color="#f97316"
-              />
-              <Text style={styles.checkText}>Replace previous payment proof</Text>
-            </TouchableOpacity>
-          ) : null}
-          <TouchableOpacity
-            style={[
-              styles.actionButton,
-              (!paymentAssets[bookingId]?.uri || submittingPaymentId === bookingId || !canSubmitPayment(item)) &&
-                styles.actionButtonDisabled,
-            ]}
-            disabled={!paymentAssets[bookingId]?.uri || submittingPaymentId === bookingId || !canSubmitPayment(item)}
-            onPress={() => handleSubmitPayment(item)}
-          >
-            <Text style={styles.actionButtonText}>
-              {submittingPaymentId === bookingId
-                ? "Submitting..."
-                : !canSubmitPayment(item)
-                ? "Waiting for Invoice"
-                : "Submit Payment Proof"}
-            </Text>
-          </TouchableOpacity>
           {!canSubmitPayment(item) ? (
             <Text style={styles.panelText}>
-              Payment upload opens once FleetX issues the invoice for this booking.
+              Payment instructions will become actionable once FleetX issues the invoice for this booking.
             </Text>
           ) : null}
         </View>
@@ -546,6 +444,19 @@ export default function MyBookings({ navigation }) {
           <View style={styles.centerBox}>
             <ActivityIndicator size="large" color="#f97316" />
             <Text style={styles.loadingText}>Loading bookings...</Text>
+          </View>
+        ) : !hasToken ? (
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyTitle}>Sign in to view bookings</Text>
+            <Text style={styles.emptyText}>
+              Browse vehicles and plan trips as a guest, then sign in to manage confirmed bookings.
+            </Text>
+            <TouchableOpacity style={styles.refreshButton} onPress={() => navigation.navigate("ClientLogin")}>
+              <Text style={styles.refreshText}>Log In</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.refreshButton} onPress={() => navigation.navigate("RegisterClient")}>
+              <Text style={styles.refreshText}>Create Account</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <FlatList

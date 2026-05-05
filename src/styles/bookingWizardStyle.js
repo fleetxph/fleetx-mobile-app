@@ -11,9 +11,10 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   contentContainer: {
+    flexGrow: 1,
     paddingHorizontal: 18,
     paddingTop: 18,
-    paddingBottom: 132,
+    paddingBottom: 24,
   },
   headerRow: {
     flexDirection: "row",
@@ -207,11 +208,50 @@ export const styles = StyleSheet.create({
     paddingVertical: 2,
     minHeight: 56,
   },
+  inputWrapMultiline: {
+    alignItems: "flex-start",
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
   input: {
     flex: 1,
     color: colors.text,
     fontSize: 14,
     paddingVertical: 14,
+  },
+  multilineInput: {
+    minHeight: 72,
+    textAlignVertical: "top",
+    paddingTop: 2,
+  },
+  locationPinButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFF7ED",
+    borderWidth: 1,
+    borderColor: "#FED7AA",
+  },
+  locationPinButtonActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  locationStatusText: {
+    color: "#9A3412",
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 8,
+  },
+  locationStatusTextActive: {
+    color: colors.accent,
+  },
+  locationHelperText: {
+    color: colors.subtext,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 4,
   },
   errorText: {
     color: colors.danger,
@@ -618,6 +658,44 @@ export const styles = StyleSheet.create({
     fontWeight: "900",
     lineHeight: 20,
   },
+  paymentSection: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 16,
+  },
+  paymentOptionGrid: {
+    gap: 10,
+    marginBottom: 12,
+  },
+  paymentOptionCard: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  paymentOptionCardSelected: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accentSoft,
+  },
+  paymentOptionText: {
+    color: colors.heading,
+    fontSize: 14,
+    fontWeight: "900",
+    marginBottom: 4,
+  },
+  paymentOptionTextSelected: {
+    color: colors.accent,
+  },
+  paymentHelperText: {
+    color: colors.subtext,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   termsBox: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -636,23 +714,26 @@ export const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "700",
   },
-  stickyFooter: {
-    flexDirection: "row",
-    gap: 12,
-    paddingHorizontal: 18,
-    paddingTop: 14,
-    paddingBottom: 24,
-    marginTop: 4,
-    marginBottom: 12,
-    backgroundColor: "rgba(244,244,244,0.98)",
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-  },
   footer: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
     marginTop: 8,
+  },
+  inlineActionRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 4,
+  },
+  inlineActionRowStacked: {
+    flexDirection: "column",
+  },
+  inlineActionButtonFull: {
+    width: "100%",
+    flex: 0,
+  },
+  bottomSpacer: {
+    height: 24,
   },
   primaryButton: {
     flex: 1,

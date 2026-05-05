@@ -5,6 +5,26 @@ export function parseDateOnly(value) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+export function normalizeDate(value) {
+  return parseDateOnly(value);
+}
+
+export function formatLocalDate(value) {
+  const date = parseDateOnly(value);
+  if (!date) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function isBeforeToday(value) {
+  const date = parseDateOnly(value);
+  if (!date) return false;
+  const today = parseDateOnly(new Date());
+  return Boolean(today && date < today);
+}
+
 export function parseDateInput(value) {
   if (!value) return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : new Date(value);
@@ -50,8 +70,17 @@ export function getDateRangeError({ startDate, endDate, startTime, endTime }) {
   const endOnly = parseDateOnly(endDate);
   if (!startOnly) return { field: "startDate", message: "Start date is required." };
   if (!endOnly) return { field: "endDate", message: "End date is required." };
+  if (isBeforeToday(startOnly)) {
+    return { field: "startDate", message: "Pick-up date cannot be before today." };
+  }
+  if (isBeforeToday(endOnly)) {
+    return { field: "endDate", message: "Return date cannot be before today." };
+  }
   if (endOnly.getTime() < startOnly.getTime()) {
     return { field: "endDate", message: "End date cannot be earlier than start date." };
+  }
+  if (!startTime && !endTime && endOnly.getTime() === startOnly.getTime()) {
+    return { field: "endDate", message: "Return date must be later than start date." };
   }
 
   if (startTime && endTime) {

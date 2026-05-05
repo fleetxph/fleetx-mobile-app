@@ -18,6 +18,77 @@ import api from "../api/api";
 import { styles } from "../styles/authStyle";
 import LoadingOverlay from "../components/LoadingOverlay";
 
+const PENDING_GUEST_BOOKING_KEY = "pendingGuestBooking";
+
+async function getStoredItem(key) {
+  if (Platform.OS === "web") {
+    return window.localStorage.getItem(key) || "";
+  }
+
+  return (await AsyncStorage.getItem(key)) || "";
+}
+
+async function removeStoredItem(key) {
+  if (Platform.OS === "web") {
+    window.localStorage.removeItem(key);
+    return;
+  }
+
+  await AsyncStorage.removeItem(key);
+}
+
+function buildGuestResumeTarget(pendingRaw) {
+  if (!pendingRaw) return null;
+
+  let pending = null;
+  try {
+    pending = JSON.parse(pendingRaw);
+  } catch {
+    return null;
+  }
+
+  if (!pending) return null;
+
+  const wizardParams = {
+    vehicle: pending.selectedVehicle || null,
+    selectedVehicle: pending.selectedVehicle || null,
+    vehicleId: pending.vehicleId || pending.selectedVehicle?._id || pending.selectedVehicle?.id || "",
+    entryMode: pending.entryMode || "",
+    mode: pending.mode || "",
+    pickupDate: pending.pickupDate || "",
+    returnDate: pending.returnDate || "",
+    pricingPreview: pending.pricingPreview || null,
+    paymentMethod: pending.paymentMethod || "",
+    paymentOption: pending.paymentOption || "",
+    selectedPaymentMethodId: pending.selectedPaymentMethodId || "",
+    tripData: pending.tripData || {},
+    bookingDraft:
+      pending.currentStep === "review" || pending.currentStep === 4
+        ? { currentStep: "review" }
+        : null,
+  };
+
+  const isDirectBooking =
+    pending.entryMode === "directVehicle" ||
+    pending.entryMode === "direct" ||
+    pending.mode === "direct";
+
+  if (isDirectBooking) {
+    return {
+      screen: "Browse",
+      params: {
+        screen: "BookingWizard",
+        params: wizardParams,
+      },
+    };
+  }
+
+  return {
+    screen: "Plan",
+    params: wizardParams,
+  };
+}
+
 export default function LoginClient({ navigation }) {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
@@ -60,6 +131,15 @@ export default function LoginClient({ navigation }) {
         await AsyncStorage.setItem("clientName", name);
         await AsyncStorage.setItem("clientEmail", userEmail);
         await AsyncStorage.setItem("clientUser", JSON.stringify(user));
+      }
+
+      const pendingGuestBooking = await getStoredItem(PENDING_GUEST_BOOKING_KEY);
+      const resumeTarget = buildGuestResumeTarget(pendingGuestBooking);
+
+      if (resumeTarget) {
+        await removeStoredItem(PENDING_GUEST_BOOKING_KEY);
+        navigation.replace("MainApp", resumeTarget);
+        return;
       }
 
       navigation.replace("MainApp");

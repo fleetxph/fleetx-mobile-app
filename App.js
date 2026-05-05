@@ -31,6 +31,7 @@ import NotificationsScreen from "./src/screens/NotificationsScreen";
 import BookingReceiptScreen from "./src/screens/BookingReceiptScreen";
 import BookingInvoiceScreen from "./src/screens/BookingInvoiceScreen";
 import BookedVehicleDetails from "./src/screens/BookedVehicleDetails";
+import PaymentInstructionsScreen from "./src/screens/PaymentInstructionsScreen";
 
 const RootStack = createNativeStackNavigator();
 const BrowseStackNav = createNativeStackNavigator();
@@ -218,6 +219,7 @@ export default function App() {
         <RootStack.Screen name="BookingReceipt" component={BookingReceiptScreen} />
         <RootStack.Screen name="BookingInvoice" component={BookingInvoiceScreen} />
         <RootStack.Screen name="BookedVehicleDetails" component={BookedVehicleDetails} />
+        <RootStack.Screen name="PaymentInstructions" component={PaymentInstructionsScreen} />
       </RootStack.Navigator>
     </NavigationContainer>
   );

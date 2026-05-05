@@ -193,6 +193,17 @@ export const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 10,
   },
+  loadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 12,
+  },
+  loadingText: {
+    color: "#9A3412",
+    fontSize: 12,
+    fontWeight: "800",
+  },
   primaryButton: {
     minHeight: 52,
     borderRadius: 18,

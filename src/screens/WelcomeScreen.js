@@ -102,7 +102,7 @@ export default function WelcomeScreen({ navigation }) {
               <TouchableOpacity
                 activeOpacity={0.9}
                 style={styles.ctaButton}
-                onPress={() => navigation.navigate("RegisterClient")}
+                onPress={() => navigation.replace("MainApp")}
               >
                 <Text style={styles.ctaText}>Get Started</Text>
               </TouchableOpacity>

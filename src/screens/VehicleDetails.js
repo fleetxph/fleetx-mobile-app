@@ -1,113 +1,448 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
+  Image,
   ScrollView,
-  View,
   Text,
   TouchableOpacity,
-  Image,
-  Platform,
+  View,
 } from "react-native";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import { getVehicleBookings } from "../api/clientApi";
 import { styles } from "../styles/vehicleDetailsStyle";
-import { getDateRangeError } from "../utils/dateValidation";
+import {
+  formatLocalDate,
+  getDateRangeError,
+  isBeforeToday,
+  normalizeDate,
+} from "../utils/dateValidation";
 import { getVehicleImageGallery } from "../utils/imageUrl";
+import {
+  buildLocalDateTime,
+  calculateRentalPricing,
+  formatRentalHours,
+  getVehicleRate24Hr,
+} from "../utils/rentalPricing";
+
+const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const BLOCKING_STATUSES = ["confirmed", "booked_confirmed", "completed"];
+
+function toMidnight(value) {
+  return normalizeDate(value);
+}
+
+function getDateKey(value) {
+  const date = toMidnight(value);
+  if (!date) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(value, days) {
+  const date = toMidnight(value);
+  if (!date) return null;
+  date.setDate(date.getDate() + days);
+  return date;
+}
+
+function getMonthStart(value) {
+  const date = toMidnight(value) || new Date();
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function getMonthLabel(value) {
+  const date = getMonthStart(value);
+  return date.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function formatCurrency(amount) {
+  const value = Number(amount);
+  if (!Number.isFinite(value)) return "Rate unavailable";
+  return `\u20b1${Math.round(value).toLocaleString("en-PH")}`;
+}
+
+function formatDisplayDate(date) {
+  const parsed = toMidnight(date);
+  if (!parsed) return "Not set";
+
+  return parsed.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function isDateBooked(date, unavailableDates) {
+  const key = getDateKey(date);
+  if (!key) return false;
+
+  if (unavailableDates instanceof Set) {
+    return unavailableDates.has(key);
+  }
+
+  return Array.isArray(unavailableDates) ? unavailableDates.includes(key) : false;
+}
+
+function doesRangeContainBookedDate(startDate, endDate, unavailableDates) {
+  const start = toMidnight(startDate);
+  const end = toMidnight(endDate);
+
+  if (!start || !end || end < start) return false;
+
+  let cursor = new Date(start);
+  while (cursor <= end) {
+    if (isDateBooked(cursor, unavailableDates)) {
+      return true;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return false;
+}
+
+function getCalendarMarkedDates(bookedRanges = [], pickupDate, returnDate) {
+  const marked = {};
+
+  bookedRanges.forEach((booking) => {
+    const start = toMidnight(booking?.startDate);
+    const end = toMidnight(booking?.endDate);
+    if (!start || !end || end < start) return;
+
+    let cursor = new Date(start);
+    while (cursor <= end) {
+      marked[getDateKey(cursor)] = "booked";
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  });
+
+  const pickupKey = getDateKey(pickupDate);
+  const returnKey = getDateKey(returnDate);
+  if (pickupKey) marked[pickupKey] = "pickup";
+  if (returnKey) marked[returnKey] = "return";
+
+  if (pickupDate && returnDate) {
+    let cursor = addDays(pickupDate, 1);
+    while (cursor && cursor < returnDate) {
+      const key = getDateKey(cursor);
+      if (!marked[key]) marked[key] = "range";
+      cursor = addDays(cursor, 1);
+    }
+  }
+
+  return marked;
+}
 
 export default function VehicleDetails({ route, navigation }) {
   const { vehicle, tripData } = route.params || {};
+  const vehicleId = vehicle?._id || vehicle?.id || route.params?.vehicleId || null;
+  const initialPickupDate = tripData?.startDate
+    ? new Date(`${tripData.startDate}T00:00:00`)
+    : null;
+  const initialReturnDate = tripData?.endDate
+    ? new Date(`${tripData.endDate}T00:00:00`)
+    : null;
 
-  const [showPickup, setShowPickup] = useState(false);
-  const [showReturn, setShowReturn] = useState(false);
-
-  const [pickupDate, setPickupDate] = useState(
-    tripData?.startDate ? new Date(`${tripData.startDate}T00:00:00`) : null
-  );
-  const [returnDate, setReturnDate] = useState(
-    tripData?.endDate ? new Date(`${tripData.endDate}T00:00:00`) : null
-  );
-
+  const [pickupDate, setPickupDate] = useState(initialPickupDate);
+  const [returnDate, setReturnDate] = useState(initialReturnDate);
   const [errorMsg, setErrorMsg] = useState("");
+  const [availabilityNotice, setAvailabilityNotice] = useState("");
   const [failedImages, setFailedImages] = useState({});
-  const galleryImages = useMemo(() => getVehicleImageGallery(vehicle), [vehicle]);
   const [activeImage, setActiveImage] = useState(null);
+  const [activeDateField, setActiveDateField] = useState(
+    initialPickupDate && !initialReturnDate ? "return" : "pickup"
+  );
+  const [calendarMonth, setCalendarMonth] = useState(
+    getMonthStart(initialPickupDate || new Date())
+  );
+  const [bookedRanges, setBookedRanges] = useState([]);
+
+  const galleryImages = useMemo(() => getVehicleImageGallery(vehicle), [vehicle]);
+  const today = useMemo(() => toMidnight(new Date()), []);
+  const selectedVehicleRate = useMemo(() => {
+    const rate = getVehicleRate24Hr(vehicle);
+    return Number.isFinite(rate) && rate > 0 ? rate : null;
+  }, [vehicle]);
+  const rentalPricing = useMemo(
+    () =>
+      calculateRentalPricing({
+        vehicle,
+        pickupDateTime: buildLocalDateTime(
+          pickupDate ? formatLocalDate(pickupDate) : "",
+          tripData?.startTime || tripData?.pickupTime || "00:00"
+        ),
+        returnDateTime: buildLocalDateTime(
+          returnDate ? formatLocalDate(returnDate) : "",
+          tripData?.endTime || tripData?.returnTime || "00:00"
+        ),
+        rentalType: tripData?.tripType || tripData?.rentalType || "",
+        withDriver: Boolean(tripData?.withDriver),
+      }),
+    [pickupDate, returnDate, tripData, vehicle]
+  );
+  const billingDays = useMemo(() => {
+    if (rentalPricing.totalHours <= 0) return 0;
+    return Math.max(1, Math.ceil(rentalPricing.totalHours / 24));
+  }, [rentalPricing.totalHours]);
+  const estimatedTotal = useMemo(() => rentalPricing.subtotal || 0, [rentalPricing.subtotal]);
+  const estimatedDeposit = useMemo(() => estimatedTotal * 0.5, [estimatedTotal]);
+  const remainingBalance = useMemo(
+    () => Math.max(0, estimatedTotal - estimatedDeposit),
+    [estimatedTotal, estimatedDeposit]
+  );
+  const hasValidDates = Boolean(pickupDate && returnDate && rentalPricing.totalHours > 0);
+  const canContinue = hasValidDates && Boolean(selectedVehicleRate);
 
   useEffect(() => {
     setActiveImage(galleryImages[0] || null);
     setFailedImages({});
   }, [vehicle?._id, vehicle?.id, galleryImages]);
 
-  const toMidnight = (date) => {
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  };
+  useEffect(() => {
+    let isMounted = true;
 
-  const days = useMemo(() => {
-    if (!pickupDate || !returnDate) return 0;
+    const loadBookedRanges = async () => {
+      if (!vehicleId) {
+        if (isMounted) {
+          setBookedRanges([]);
+          setAvailabilityNotice("");
+        }
+        return;
+      }
 
-    const start = toMidnight(pickupDate);
-    const end = toMidnight(returnDate);
-    const diff = (end - start) / (1000 * 60 * 60 * 24);
+      try {
+        setAvailabilityNotice("");
+        const response = await getVehicleBookings(vehicleId);
+        const ranges = Array.isArray(response?.bookings) ? response.bookings : [];
 
-    if (diff < 0) return 0;
-    return Math.floor(diff) + 1;
-  }, [pickupDate, returnDate]);
+        if (!isMounted) return;
 
-  const total = days * Number(vehicle?.dailyRate || 0);
-  const downPayment = total * 0.5;
-  const balance = total - downPayment;
+        setBookedRanges(
+          ranges.filter((item) =>
+            BLOCKING_STATUSES.includes(String(item?.status || "").toLowerCase())
+          )
+        );
+      } catch (error) {
+        if (!isMounted) return;
+        console.log("Vehicle booking availability error:", error?.response?.data || error?.message || error);
+        setBookedRanges([]);
+        setAvailabilityNotice(
+          "Booked dates could not be loaded right now. Please review your dates carefully before continuing."
+        );
+      }
+    };
 
-  const formatDateForInput = (date) => {
-    if (!date) return "";
-    const d = new Date(date);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
+    loadBookedRanges();
 
-  const formatDateForDisplay = (date) => {
-    return date ? new Date(date).toDateString() : "";
-  };
+    return () => {
+      isMounted = false;
+    };
+  }, [vehicleId]);
 
-  const handleWebDateChange = (value, type) => {
-    if (!value) return;
+  const calendarMarkedDates = useMemo(
+    () => getCalendarMarkedDates(bookedRanges, pickupDate, returnDate),
+    [bookedRanges, pickupDate, returnDate]
+  );
 
-    const selected = new Date(`${value}T00:00:00`);
+  const unavailableDateKeys = useMemo(() => {
+    const keys = new Set();
+
+    bookedRanges.forEach((booking) => {
+      const start = toMidnight(booking?.startDate);
+      const end = toMidnight(booking?.endDate);
+
+      if (!start || !end || end < start) return;
+
+      let cursor = new Date(start);
+      while (cursor <= end) {
+        keys.add(getDateKey(cursor));
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    });
+
+    return keys;
+  }, [bookedRanges]);
+
+  const calendarDays = useMemo(() => {
+    const monthStart = getMonthStart(calendarMonth);
+    const gridStart = addDays(monthStart, -monthStart.getDay());
+    return Array.from({ length: 42 }, (_, index) => addDays(gridStart, index));
+  }, [calendarMonth]);
+
+  useEffect(() => {
+    if (pickupDate) {
+      setCalendarMonth(getMonthStart(pickupDate));
+    }
+  }, [pickupDate]);
+
+  useEffect(() => {
+    if (pickupDate && isDateBooked(pickupDate, unavailableDateKeys)) {
+      setPickupDate(null);
+      setReturnDate(null);
+      setActiveDateField("pickup");
+      setErrorMsg("Your previous pickup date is no longer available.");
+      return;
+    }
+
+    if (
+      pickupDate &&
+      returnDate &&
+      doesRangeContainBookedDate(pickupDate, returnDate, unavailableDateKeys)
+    ) {
+      setReturnDate(null);
+      setActiveDateField("return");
+      setErrorMsg("Your selected range includes booked dates. Please choose another return date.");
+    }
+  }, [pickupDate, returnDate, unavailableDateKeys]);
+
+  const handleDateSelection = (selectedDate) => {
+    const nextDate = toMidnight(selectedDate);
+    if (!nextDate) return;
+
+    if (isBeforeToday(nextDate)) {
+      Alert.alert("Unavailable date", "Past dates cannot be selected.");
+      return;
+    }
+
+    if (isDateBooked(nextDate, unavailableDateKeys)) {
+      Alert.alert("Unavailable date", "That date is already booked for this vehicle.");
+      return;
+    }
+
     setErrorMsg("");
 
-    if (type === "pickup") {
-      setPickupDate(selected);
+    if (activeDateField === "pickup") {
+      setPickupDate(nextDate);
 
-      if (returnDate && new Date(returnDate) < selected) {
+      if (returnDate && toMidnight(returnDate) <= nextDate) {
         setReturnDate(null);
       }
-    } else {
-      const dateError = getDateRangeError({ startDate: pickupDate, endDate: selected });
-      if (dateError) {
-        setErrorMsg(dateError.message);
-      }
-      setReturnDate(selected);
+
+      setActiveDateField("return");
+      return;
     }
+
+    if (!pickupDate) {
+      Alert.alert("Pickup date required", "Please select a pickup date first.");
+      setActiveDateField("pickup");
+      return;
+    }
+
+    const dateError = getDateRangeError({ startDate: pickupDate, endDate: nextDate });
+    if (dateError || nextDate <= toMidnight(pickupDate)) {
+      setReturnDate(null);
+      Alert.alert("Invalid return date", "Return date must be later than pickup date.");
+      return;
+    }
+
+    if (doesRangeContainBookedDate(pickupDate, nextDate, unavailableDateKeys)) {
+      setReturnDate(null);
+      Alert.alert(
+        "Date range unavailable",
+        "Selected dates are already booked for this vehicle."
+      );
+      return;
+    }
+
+    setReturnDate(nextDate);
   };
 
   const handleContinueBooking = () => {
     setErrorMsg("");
 
-    const dateError = getDateRangeError({ startDate: pickupDate, endDate: returnDate });
-    if (dateError) {
-      setErrorMsg(dateError.message);
+    if (!pickupDate || !returnDate) {
+      const message = "Please select pickup and return dates before continuing.";
+      setErrorMsg(message);
+      Alert.alert("Dates required", message);
       return;
     }
 
+    if (rentalPricing.totalHours <= 0) {
+      const message = "Return date must be later than pickup date.";
+      setErrorMsg(message);
+      Alert.alert("Invalid schedule", message);
+      return;
+    }
+
+    if (doesRangeContainBookedDate(pickupDate, returnDate, unavailableDateKeys)) {
+      const message =
+        "Your selected rental period includes booked dates. Please choose a different range.";
+      setErrorMsg(message);
+      setReturnDate(null);
+      setActiveDateField("return");
+      Alert.alert("Date range unavailable", message);
+      return;
+    }
+
+    if (!selectedVehicleRate) {
+      const message = "Rate unavailable for this vehicle right now.";
+      setErrorMsg(message);
+      Alert.alert("Rate unavailable", message);
+      return;
+    }
+
+    const dateError = getDateRangeError({ startDate: pickupDate, endDate: returnDate });
+    if (dateError) {
+      setErrorMsg(dateError.message);
+      Alert.alert("Invalid schedule", dateError.message);
+      return;
+    }
+
+    const bookingPreview = {
+      selectedVehicleRate,
+      pickupDate: pickupDate.toISOString(),
+      returnDate: returnDate.toISOString(),
+      totalHours: rentalPricing.totalHours,
+      durationHours: rentalPricing.totalHours,
+      billingLabel: rentalPricing.billingLabel,
+      billingDays: Math.max(1, billingDays),
+      totalRentalFee: estimatedTotal,
+      estimatedTotal,
+      deposit: estimatedDeposit,
+      estimatedDeposit,
+      downPayment: estimatedDeposit,
+      remainingBalance,
+      vehicleTotal: rentalPricing.vehicleTotal,
+      driverTotal: rentalPricing.driverTotal || 0,
+    };
+
     navigation.navigate("BookingWizard", {
       vehicle,
-      vehicleId: vehicle?._id,
+      vehicleId,
       selectedVehicle: vehicle,
       entryMode: "directVehicle",
       mode: "direct",
-      pickupDate: pickupDate.toISOString(),
-      returnDate: returnDate.toISOString(),
-      tripData: tripData || null,
+      pickupDate: bookingPreview.pickupDate,
+      returnDate: bookingPreview.returnDate,
+      pricingPreview: {
+        totalHours: bookingPreview.totalHours,
+        billingLabel: bookingPreview.billingLabel,
+        estimatedTotal: bookingPreview.estimatedTotal,
+        downPayment: bookingPreview.downPayment,
+        remainingBalance: bookingPreview.remainingBalance,
+        vehicleTotal: bookingPreview.vehicleTotal,
+        driverTotal: bookingPreview.driverTotal,
+      },
+      tripData: {
+        ...(tripData || {}),
+        startDate: formatLocalDate(pickupDate),
+        endDate: formatLocalDate(returnDate),
+        startTime: tripData?.startTime || tripData?.pickupTime || "00:00",
+        endTime: tripData?.endTime || tripData?.returnTime || "00:00",
+        durationHours: bookingPreview.durationHours,
+        billingDays: bookingPreview.billingDays,
+        billingLabel: bookingPreview.billingLabel,
+        totalRentalFee: bookingPreview.totalRentalFee,
+        estimatedTotal: bookingPreview.estimatedTotal,
+        deposit: bookingPreview.deposit,
+        estimatedDeposit: bookingPreview.estimatedDeposit,
+        downPayment: bookingPreview.downPayment,
+        remainingBalance: bookingPreview.remainingBalance,
+      },
+      bookingPreview,
     });
   };
 
@@ -198,7 +533,9 @@ export default function VehicleDetails({ route, navigation }) {
 
         <View style={styles.rateBox}>
           <Text style={styles.rateLabel}>Rental Rate</Text>
-          <Text style={styles.rateValue}>₱{vehicle?.dailyRate || 0}/day</Text>
+          <Text style={styles.rateValue}>
+            {selectedVehicleRate ? `${formatCurrency(selectedVehicleRate)}/day` : "Rate unavailable"}
+          </Text>
         </View>
       </View>
 
@@ -216,155 +553,229 @@ export default function VehicleDetails({ route, navigation }) {
           </View>
         )}
 
-        {!!errorMsg && (
-          <Text style={{ color: "#DC2626", marginBottom: 12, fontWeight: "600" }}>
-            {errorMsg}
+        {!!availabilityNotice && (
+          <View style={styles.availabilityNotice}>
+            <Text style={styles.availabilityNoticeText}>{availabilityNotice}</Text>
+          </View>
+        )}
+
+        {!!errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
+
+        <View style={styles.dateFieldRow}>
+          <TouchableOpacity
+            onPress={() => setActiveDateField("pickup")}
+            style={[
+              styles.dateFieldCard,
+              activeDateField === "pickup" && styles.dateFieldCardActive,
+            ]}
+          >
+            <Text style={styles.label}>Pickup Date</Text>
+            <Text style={styles.inputText}>
+              {pickupDate ? formatDisplayDate(pickupDate) : "Select pickup date"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setActiveDateField("return")}
+            style={[
+              styles.dateFieldCard,
+              activeDateField === "return" && styles.dateFieldCardActive,
+            ]}
+          >
+            <Text style={styles.label}>Return Date</Text>
+            <Text style={styles.inputText}>
+              {returnDate ? formatDisplayDate(returnDate) : "Select return date"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.calendarCard}>
+          <View style={styles.calendarHeader}>
+            <TouchableOpacity
+              style={styles.calendarNavButton}
+              onPress={() =>
+                setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
+              }
+            >
+              <Text style={styles.calendarNavText}>{"<"}</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.calendarMonthText}>{getMonthLabel(calendarMonth)}</Text>
+
+            <TouchableOpacity
+              style={styles.calendarNavButton}
+              onPress={() =>
+                setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
+              }
+            >
+              <Text style={styles.calendarNavText}>{">"}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.calendarHint}>
+            {activeDateField === "pickup"
+              ? "Select your pickup date."
+              : "Select your return date. Booked dates are blocked."}
           </Text>
-        )}
 
-        <Text style={styles.label}>Pickup Date</Text>
-        {Platform.OS === "web" ? (
-          <input
-            type="date"
-            value={formatDateForInput(pickupDate)}
-            min={formatDateForInput(new Date())}
-            onChange={(e) => handleWebDateChange(e.target.value, "pickup")}
-            style={{
-              width: "100%",
-              padding: "14px",
-              borderRadius: "14px",
-              border: "1px solid #DCE7F5",
-              background: "#F8FBFF",
-              color: "#0F172A",
-              fontSize: "14px",
-              outline: "none",
-              boxSizing: "border-box",
-              marginBottom: "12px",
-            }}
-          />
-        ) : (
-          <TouchableOpacity
-            onPress={() => setShowPickup(true)}
-            style={styles.inputBox}
-          >
-            <Text style={styles.inputText}>
-              {pickupDate ? formatDateForDisplay(pickupDate) : "Select pickup date"}
-            </Text>
-          </TouchableOpacity>
-        )}
+          <View style={styles.calendarWeekRow}>
+            {DAY_LABELS.map((day) => (
+              <Text key={day} style={styles.calendarWeekLabel}>
+                {day}
+              </Text>
+            ))}
+          </View>
 
-        <Text style={styles.label}>Return Date</Text>
-        {Platform.OS === "web" ? (
-          <input
-            type="date"
-            value={formatDateForInput(returnDate)}
-            min={formatDateForInput(pickupDate || new Date())}
-            onChange={(e) => handleWebDateChange(e.target.value, "return")}
-            style={{
-              width: "100%",
-              padding: "14px",
-              borderRadius: "14px",
-              border: "1px solid #DCE7F5",
-              background: "#F8FBFF",
-              color: "#0F172A",
-              fontSize: "14px",
-              outline: "none",
-              boxSizing: "border-box",
-              marginBottom: "12px",
-            }}
-          />
-        ) : (
-          <TouchableOpacity
-            onPress={() => setShowReturn(true)}
-            style={styles.inputBox}
-          >
-            <Text style={styles.inputText}>
-              {returnDate ? formatDateForDisplay(returnDate) : "Select return date"}
+          <View style={styles.calendarGrid}>
+            {calendarDays.map((day) => {
+              const dayKey = getDateKey(day);
+              const isCurrentMonth = day.getMonth() === calendarMonth.getMonth();
+              const isPast = day < today;
+              const markerType = calendarMarkedDates[dayKey];
+              const blocked = isDateBooked(day, unavailableDateKeys);
+              const beforePickup =
+                activeDateField === "return" && pickupDate && day <= toMidnight(pickupDate);
+              const disabled = isPast || blocked || beforePickup;
+              const isPickup = markerType === "pickup";
+              const isReturn = markerType === "return";
+              const isInRange = markerType === "range";
+
+              return (
+                <TouchableOpacity
+                  key={dayKey}
+                  activeOpacity={disabled ? 1 : 0.85}
+                  onPress={() => !disabled && handleDateSelection(day)}
+                  style={[
+                    styles.calendarDay,
+                    !isCurrentMonth && styles.calendarDayMuted,
+                    blocked && styles.calendarDayBlocked,
+                    isInRange && styles.calendarDayInRange,
+                    (isPickup || isReturn) && styles.calendarDaySelected,
+                    disabled && styles.calendarDayDisabled,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.calendarDayText,
+                      !isCurrentMonth && styles.calendarDayTextMuted,
+                      blocked && styles.calendarDayTextBlocked,
+                      (isPickup || isReturn) && styles.calendarDayTextSelected,
+                    ]}
+                  >
+                    {day.getDate()}
+                  </Text>
+                  {blocked ? <View style={styles.calendarBlockedDot} /> : null}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <View style={styles.calendarLegendRow}>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendSwatch, styles.legendSwatchSelected]} />
+              <Text style={styles.legendText}>Selected</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendSwatch, styles.legendSwatchRange]} />
+              <Text style={styles.legendText}>Range</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendSwatch, styles.legendSwatchBlocked]} />
+              <Text style={styles.legendText}>Unavailable</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.summaryChipsRow}>
+          <View style={styles.summaryChip}>
+            <Text style={styles.summaryChipLabel}>Pick-up</Text>
+            <Text style={styles.summaryChipValue}>
+              {pickupDate ? formatDisplayDate(pickupDate) : "Select date"}
             </Text>
-          </TouchableOpacity>
-        )}
+          </View>
+
+          <View style={styles.summaryChip}>
+            <Text style={styles.summaryChipLabel}>Return</Text>
+            <Text style={styles.summaryChipValue}>
+              {returnDate ? formatDisplayDate(returnDate) : "Select date"}
+            </Text>
+          </View>
+
+          <View style={styles.summaryChip}>
+            <Text style={styles.summaryChipLabel}>Duration</Text>
+            <Text style={styles.summaryChipValue}>
+              {hasValidDates ? formatRentalHours(rentalPricing.totalHours) : "Select dates"}
+            </Text>
+          </View>
+
+          <View style={styles.summaryChip}>
+            <Text style={styles.summaryChipLabel}>Billing</Text>
+            <Text style={styles.summaryChipValue}>
+              {rentalPricing.totalHours > 0 ? rentalPricing.billingLabel : "Select dates"}
+            </Text>
+          </View>
+        </View>
 
         <View style={styles.summaryBox}>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Pickup Date</Text>
+            <Text style={styles.summaryLabel}>Pickup</Text>
             <Text style={styles.summaryValue}>
-              {pickupDate ? formatDateForDisplay(pickupDate) : "Not set"}
+              {pickupDate ? formatDisplayDate(pickupDate) : "Not set"}
             </Text>
           </View>
 
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Return Date</Text>
+            <Text style={styles.summaryLabel}>Return</Text>
             <Text style={styles.summaryValue}>
-              {returnDate ? formatDateForDisplay(returnDate) : "Not set"}
+              {returnDate ? formatDisplayDate(returnDate) : "Not set"}
             </Text>
           </View>
 
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Rental Length</Text>
+            <Text style={styles.summaryLabel}>Duration</Text>
             <Text style={styles.summaryValue}>
-              {days > 0 ? `${days} day${days > 1 ? "s" : ""}` : "Not set"}
+              {hasValidDates ? formatRentalHours(rentalPricing.totalHours) : "Select valid dates"}
+            </Text>
+          </View>
+
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Billing</Text>
+            <Text style={styles.summaryValue}>
+              {rentalPricing.totalHours > 0 ? rentalPricing.billingLabel : "Not set"}
             </Text>
           </View>
 
           <View style={styles.summaryDivider} />
 
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Total Rental Fee</Text>
-            <Text style={styles.summaryValue}>₱{total || 0}</Text>
+            <Text style={styles.summaryLabel}>Estimated Total</Text>
+            <Text style={styles.summaryValue}>
+              {estimatedTotal > 0 ? formatCurrency(estimatedTotal) : "Select dates"}
+            </Text>
           </View>
 
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Required Down Payment</Text>
-            <Text style={styles.summaryValue}>₱{downPayment || 0}</Text>
+            <Text style={styles.summaryLabel}>Estimated Deposit / Down Payment</Text>
+            <Text style={styles.summaryValue}>
+              {estimatedDeposit > 0 ? formatCurrency(estimatedDeposit) : "Select dates"}
+            </Text>
           </View>
 
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Remaining Balance</Text>
-            <Text style={styles.summaryValue}>₱{balance || 0}</Text>
+            <Text style={styles.summaryValue}>
+              {remainingBalance > 0 ? formatCurrency(remainingBalance) : "Select dates"}
+            </Text>
           </View>
         </View>
       </View>
 
       <TouchableOpacity
         onPress={handleContinueBooking}
-        style={styles.button}
+        style={[styles.button, !canContinue && styles.buttonDisabled]}
       >
         <Text style={styles.buttonText}>Continue Booking</Text>
       </TouchableOpacity>
-
-      {Platform.OS !== "web" && showPickup && (
-        <DateTimePicker
-          value={pickupDate || new Date()}
-          mode="date"
-          minimumDate={new Date()}
-          onChange={(event, date) => {
-            setShowPickup(false);
-            if (date) {
-              setErrorMsg("");
-              setPickupDate(date);
-              if (returnDate && new Date(returnDate) < date) {
-                setReturnDate(null);
-              }
-            }
-          }}
-        />
-      )}
-
-      {Platform.OS !== "web" && showReturn && (
-        <DateTimePicker
-          value={returnDate || pickupDate || new Date()}
-          mode="date"
-          minimumDate={pickupDate || new Date()}
-          onChange={(event, date) => {
-            setShowReturn(false);
-            if (date) {
-              const dateError = getDateRangeError({ startDate: pickupDate, endDate: date });
-              setErrorMsg(dateError?.message || "");
-              setReturnDate(date);
-            }
-          }}
-        />
-      )}
     </ScrollView>
   );
-} 
+}
