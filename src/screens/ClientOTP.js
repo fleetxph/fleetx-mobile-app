@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   Keyboard,
-  TouchableWithoutFeedback,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -15,13 +14,17 @@ import { Ionicons, Feather } from "@expo/vector-icons";
 import api from "../api/api";
 import { styles } from "../styles/authStyle";
 import LoadingOverlay from "../components/LoadingOverlay";
+import { mapApiFieldError, normalizeEmail, validateOtpCode } from "../utils/validation";
 
 export default function ClientOTP({ route, navigation }) {
   const emailFromRoute = route?.params?.email || "";
+  const successMessage = route?.params?.message || "";
 
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
-  const [msg, setMsg] = useState("");
+  const [msg, setMsg] = useState(successMessage);
+  const [fieldErrors, setFieldErrors] = useState({});
   const [seconds, setSeconds] = useState(300);
+  const [resendCooldown, setResendCooldown] = useState(60);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
 
@@ -41,6 +44,16 @@ export default function ClientOTP({ route, navigation }) {
     return () => clearInterval(timer);
   }, [seconds]);
 
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => prev - 1);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
   const maskedEmail = emailFromRoute
     ? emailFromRoute.replace(/(.{2}).+(@.+)/, "$1***$2")
     : "";
@@ -56,6 +69,7 @@ export default function ClientOTP({ route, navigation }) {
 
   const handleChange = (text, index) => {
     const cleanText = text.replace(/\D/g, "");
+    clearOtpError();
 
     if (!cleanText) {
       const updated = [...otp];
@@ -99,7 +113,16 @@ export default function ClientOTP({ route, navigation }) {
     }
   };
 
+  const clearOtpError = () => {
+    setFieldErrors((prev) => {
+      if (!prev.otp) return prev;
+      return { ...prev, otp: "" };
+    });
+    setMsg("");
+  };
+
   const handleVerify = async () => {
+    if (loading) return;
     setMsg("");
     Keyboard.dismiss();
 
@@ -108,8 +131,9 @@ export default function ClientOTP({ route, navigation }) {
       return;
     }
 
-    if (!isComplete) {
-      setMsg("Please enter the 6-digit verification code.");
+    const otpError = validateOtpCode(otpValue, 6);
+    if (otpError) {
+      setFieldErrors({ otp: otpError });
       return;
     }
 
@@ -117,26 +141,26 @@ export default function ClientOTP({ route, navigation }) {
       setLoading(true);
 
       await api.post("/client/verify-otp", {
-        email: emailFromRoute.trim().toLowerCase(),
+        email: normalizeEmail(emailFromRoute),
         otp: otpValue,
       });
 
       navigation.replace("ClientLogin");
     } catch (err) {
-      console.log("OTP VERIFY ERROR:", err?.response?.data || err.message);
-
-      const message =
-        err?.response?.data?.message ||
-        err.message ||
-        "OTP verification failed.";
-
-      setMsg(message);
+      const message = err?.response?.data?.message || err.message || "Unable to verify code right now. Please try again.";
+      const mappedError = mapApiFieldError(message, "otp");
+      if (mappedError?.field) {
+        setFieldErrors((prev) => ({ ...prev, [mappedError.field]: mappedError.message }));
+      } else {
+        setMsg(message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleResend = async () => {
+    if (resending || resendCooldown > 0) return;
     setMsg("");
     Keyboard.dismiss();
 
@@ -149,11 +173,13 @@ export default function ClientOTP({ route, navigation }) {
       setResending(true);
 
       const res = await api.post("/client/request-otp", {
-        email: emailFromRoute.trim().toLowerCase(),
+        email: normalizeEmail(emailFromRoute),
       });
 
       setOtp(["", "", "", "", "", ""]);
       setSeconds(300);
+      setResendCooldown(60);
+      setFieldErrors({});
 
       setTimeout(() => {
         inputsRef.current[0]?.focus();
@@ -161,13 +187,7 @@ export default function ClientOTP({ route, navigation }) {
 
       setMsg(res.data?.message || "OTP sent to your email.");
     } catch (err) {
-      console.log("RESEND OTP ERROR:", err?.response?.data || err.message);
-
-      const message =
-        err?.response?.data?.message ||
-        err.message ||
-        "Failed to resend OTP.";
-
+      const message = err?.response?.data?.message || err.message || "Failed to resend OTP.";
       setMsg(message);
     } finally {
       setResending(false);
@@ -175,17 +195,18 @@ export default function ClientOTP({ route, navigation }) {
   };
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
       <SafeAreaView style={styles.container}>
-        <View style={styles.topGlow} />
-        <View style={styles.bottomCurve} />
+        <View pointerEvents="none" style={styles.topGlow} />
+        <View pointerEvents="none" style={styles.bottomCurve} />
         <ScrollView
+          style={styles.scrollView}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           contentContainerStyle={styles.scrollContent}
         >
         <View style={styles.card}>
@@ -217,7 +238,7 @@ export default function ClientOTP({ route, navigation }) {
               <TextInput
                 key={index}
                 ref={(ref) => (inputsRef.current[index] = ref)}
-                style={styles.otpInput}
+                style={[styles.otpInput, fieldErrors.otp && styles.otpInputError]}
                 value={digit}
                 onChangeText={(text) => handleChange(text, index)}
                 onKeyPress={(e) => handleKeyPress(e, index)}
@@ -228,6 +249,9 @@ export default function ClientOTP({ route, navigation }) {
               />
             ))}
           </View>
+          {!!fieldErrors.otp && (
+            <Text style={styles.fieldErrorText}>{fieldErrors.otp}</Text>
+          )}
 
           <View style={styles.timerRow}>
             <Feather name="clock" size={14} color="#98A2B3" />
@@ -256,12 +280,23 @@ export default function ClientOTP({ route, navigation }) {
 
           <Text style={styles.resendLabel}>Didn't receive the code?</Text>
 
+          <Text style={styles.resendTimerText}>
+            {resendCooldown > 0
+              ? `Resend available in ${resendCooldown}s`
+              : "You can resend the code now"}
+          </Text>
+
           <TouchableOpacity
             onPress={handleResend}
-            disabled={resending}
+            disabled={resending || resendCooldown > 0}
             style={styles.resendButton}
           >
-            <Text style={styles.resendText}>
+            <Text
+              style={[
+                styles.resendText,
+                (resending || resendCooldown > 0) && styles.disabledResendText,
+              ]}
+            >
               {resending ? "Sending..." : "Resend code"}
             </Text>
           </TouchableOpacity>
@@ -286,7 +321,6 @@ export default function ClientOTP({ route, navigation }) {
           text={loading ? "Verifying your code..." : "Sending a new code..."}
         />
       </SafeAreaView>
-      </KeyboardAvoidingView>
-    </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }

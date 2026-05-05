@@ -43,15 +43,19 @@ export const styles = StyleSheet.create({
     paddingTop: Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0,
   },
 
+  scrollView: {
+    flex: 1,
+  },
+
   scrollContent: {
     flexGrow: 1,
     justifyContent: "space-between",
-    paddingBottom: 28,
+    paddingBottom: 60,
   },
 
   scrollContentTop: {
     flexGrow: 1,
-    paddingBottom: 42,
+    paddingBottom: 72,
   },
 
   topGlow: {
@@ -92,15 +96,21 @@ export const styles = StyleSheet.create({
   },
 
   logoWrapper: {
-    width: 84,
-    height: 84,
-    borderRadius: 28,
-    backgroundColor: "rgba(255,255,255,0.14)",
+    width: 88,
+    height: 88,
+    borderRadius: 24,
+    backgroundColor: authColors.white,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
+    borderColor: "rgba(230,234,240,0.92)",
     alignItems: "center",
     justifyContent: "center",
+    padding: 12,
     marginBottom: 14,
+    shadowColor: "#0B132B",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    elevation: 6,
   },
 
   logoBox: {
@@ -110,8 +120,8 @@ export const styles = StyleSheet.create({
   },
 
   logoImage: {
-    width: 62,
-    height: 62,
+    width: 58,
+    height: 58,
     resizeMode: "contain",
   },
 
@@ -313,6 +323,29 @@ export const styles = StyleSheet.create({
 
   inputWrapperError: {
     borderColor: authColors.danger,
+  },
+
+  fieldErrorText: {
+    color: authColors.danger,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+    marginTop: -10,
+    marginBottom: 12,
+    marginLeft: 2,
+  },
+
+  inlineFieldRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+
+  inlineFieldColumn: {
+    flex: 1,
+  },
+
+  inlineFieldColumnNarrow: {
+    width: 96,
   },
 
   leftIcon: {
@@ -541,6 +574,10 @@ export const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "900",
     color: authColors.accent,
+  },
+
+  otpInputError: {
+    borderColor: authColors.danger,
   },
 
   timerRow: {

@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   Keyboard,
-  TouchableWithoutFeedback,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -15,14 +14,16 @@ import { Feather } from "@expo/vector-icons";
 import api from "../api/api";
 import { styles } from "../styles/authStyle";
 import LoadingOverlay from "../components/LoadingOverlay";
+import { mapApiFieldError, normalizeEmail, validateOtpCode } from "../utils/validation";
 
 export default function ForgotPasswordVerifyScreen({ route, navigation }) {
   const email = route?.params?.email || "";
 
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [msg, setMsg] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [seconds, setSeconds] = useState(600);
-  const [resendCooldown, setResendCooldown] = useState(36);
+  const [resendCooldown, setResendCooldown] = useState(60);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
 
@@ -67,6 +68,7 @@ export default function ForgotPasswordVerifyScreen({ route, navigation }) {
 
   const handleChange = (text, index) => {
     const cleanText = text.replace(/\D/g, "");
+    clearOtpError();
 
     if (!cleanText) {
       const updated = [...otp];
@@ -110,7 +112,16 @@ export default function ForgotPasswordVerifyScreen({ route, navigation }) {
     }
   };
 
+  const clearOtpError = () => {
+    setFieldErrors((prev) => {
+      if (!prev.otp) return prev;
+      return { ...prev, otp: "" };
+    });
+    setMsg("");
+  };
+
   const handleVerify = async () => {
+    if (loading) return;
     setMsg("");
     Keyboard.dismiss();
 
@@ -119,8 +130,9 @@ export default function ForgotPasswordVerifyScreen({ route, navigation }) {
       return;
     }
 
-    if (!isComplete) {
-      setMsg("Please enter the 6-digit verification code.");
+    const otpError = validateOtpCode(otpValue, 6);
+    if (otpError) {
+      setFieldErrors({ otp: otpError });
       return;
     }
 
@@ -128,7 +140,7 @@ export default function ForgotPasswordVerifyScreen({ route, navigation }) {
       setLoading(true);
 
       await api.post("/client/forgot-password/verify-code", {
-        email: email.trim().toLowerCase(),
+        email: normalizeEmail(email),
         otp: otpValue,
       });
 
@@ -137,19 +149,20 @@ export default function ForgotPasswordVerifyScreen({ route, navigation }) {
         otp: otpValue,
       });
     } catch (err) {
-      const message =
-        err?.response?.data?.message ||
-        err.message ||
-        "Failed to verify reset code.";
-
-      setMsg(message);
+      const message = err?.response?.data?.message || err.message || "Unable to verify reset code. Please try again.";
+      const mappedError = mapApiFieldError(message, "otp");
+      if (mappedError?.field) {
+        setFieldErrors((prev) => ({ ...prev, [mappedError.field]: mappedError.message }));
+      } else {
+        setMsg(message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleResend = async () => {
-    if (resendCooldown > 0) return;
+    if (resending || resendCooldown > 0) return;
 
     setMsg("");
     Keyboard.dismiss();
@@ -158,12 +171,13 @@ export default function ForgotPasswordVerifyScreen({ route, navigation }) {
       setResending(true);
 
       await api.post("/client/forgot-password/request-code", {
-        email: email.trim().toLowerCase(),
+        email: normalizeEmail(email),
       });
 
       setOtp(["", "", "", "", "", ""]);
       setSeconds(600);
-      setResendCooldown(36);
+      setResendCooldown(60);
+      setFieldErrors({});
 
       setTimeout(() => {
         inputsRef.current[0]?.focus();
@@ -183,17 +197,18 @@ export default function ForgotPasswordVerifyScreen({ route, navigation }) {
   };
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
       <SafeAreaView style={styles.container}>
-        <View style={styles.topGlow} />
-        <View style={styles.bottomCurve} />
+        <View pointerEvents="none" style={styles.topGlow} />
+        <View pointerEvents="none" style={styles.bottomCurve} />
         <ScrollView
+          style={styles.scrollView}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           contentContainerStyle={styles.scrollContent}
         >
         <View style={styles.card}>
@@ -218,7 +233,10 @@ export default function ForgotPasswordVerifyScreen({ route, navigation }) {
               <TextInput
                 key={index}
                 ref={(ref) => (inputsRef.current[index] = ref)}
-                style={styles.otpInputOrange}
+                style={[
+                  styles.otpInputOrange,
+                  fieldErrors.otp && styles.otpInputError,
+                ]}
                 value={digit}
                 onChangeText={(text) => handleChange(text, index)}
                 onKeyPress={(e) => handleKeyPress(e, index)}
@@ -229,6 +247,9 @@ export default function ForgotPasswordVerifyScreen({ route, navigation }) {
               />
             ))}
           </View>
+          {!!fieldErrors.otp && (
+            <Text style={styles.fieldErrorText}>{fieldErrors.otp}</Text>
+          )}
 
           <View style={styles.timerRow}>
             <Feather name="clock" size={14} color="#98A2B3" />
@@ -298,7 +319,6 @@ export default function ForgotPasswordVerifyScreen({ route, navigation }) {
           text={loading ? "Verifying code..." : "Sending a new code..."}
         />
       </SafeAreaView>
-      </KeyboardAvoidingView>
-    </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }

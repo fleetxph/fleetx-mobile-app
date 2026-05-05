@@ -82,9 +82,13 @@ export const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
 
+  heroBackgroundImage: {
+    borderRadius: 24,
+  },
+
   heroOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.38)",
+    backgroundColor: "rgba(0,0,0,0.44)",
   },
 
   heroContent: {
@@ -165,37 +169,50 @@ export const styles = StyleSheet.create({
 
   typeScrollContent: {
     gap: 12,
-    paddingRight: 12,
+    paddingRight: 16,
   },
 
   typeChip: {
-    width: 92,
-    borderRadius: 22,
+    width: 104,
+    minHeight: 132,
+    borderRadius: 24,
     backgroundColor: "#ffffff",
     borderWidth: 1,
-    borderColor: "#e5e7eb",
-    padding: 10,
+    borderColor: "#f3e2d3",
+    paddingHorizontal: 10,
+    paddingVertical: 11,
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    justifyContent: "space-between",
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.07,
+    shadowRadius: 14,
+    elevation: 4,
+  },
+
+  typeChipImageWrap: {
+    width: "100%",
+    height: 74,
+    borderRadius: 20,
+    backgroundColor: "#fffaf5",
+    borderWidth: 1,
+    borderColor: "#fed7aa",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    marginBottom: 12,
   },
 
   typeChipImage: {
-    width: 64,
-    height: 54,
-    borderRadius: 16,
-    marginBottom: 8,
-    backgroundColor: "#f1f5f9",
+    width: "100%",
+    height: "100%",
   },
 
   typeChipFallback: {
-    width: 64,
-    height: 54,
+    width: "100%",
+    height: "100%",
     borderRadius: 16,
-    marginBottom: 8,
     backgroundColor: "#fff7ed",
     alignItems: "center",
     justifyContent: "center",
@@ -233,9 +250,10 @@ export const styles = StyleSheet.create({
 
   typeLabel: {
     fontSize: 12,
-    fontWeight: "800",
-    color: "#334155",
+    fontWeight: "900",
+    color: "#1e293b",
     textAlign: "center",
+    lineHeight: 16,
   },
 
   quickAccessRow: {

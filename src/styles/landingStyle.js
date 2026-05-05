@@ -70,12 +70,29 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 10,
+  },
+
+  logoChip: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: "rgba(230,234,240,0.92)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 10,
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 6,
   },
 
   brandLogo: {
-    width: 28,
-    height: 28,
+    width: 32,
+    height: 32,
   },
 
   brandInlineText: {

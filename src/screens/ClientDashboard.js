@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  ImageBackground,
   Pressable,
   Platform,
   SafeAreaView,
@@ -263,11 +264,11 @@ export default function ClientDashboard({ navigation }) {
         </View>
 
         <View style={styles.heroCard}>
-          <Image
-            source={{
-              uri: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80",
-            }}
+          <ImageBackground
+            source={require("../../assets/images/home-hero-bg.png")}
             style={styles.heroBackground}
+            imageStyle={styles.heroBackgroundImage}
+            resizeMode="cover"
           />
           <View style={styles.heroOverlay} />
 
@@ -306,18 +307,21 @@ export default function ClientDashboard({ navigation }) {
                   })
                 }
               >
-                {item.image && !failedImages[`type-${item.key}`] ? (
-                  <Image
-                    key={`type-${item.key}-${item.image}`}
-                    source={{ uri: item.image }}
-                    style={styles.typeChipImage}
-                    onError={() => markImageFailed(`type-${item.key}`)}
-                  />
-                ) : (
-                  <View style={styles.typeChipFallback}>
-                    <Text style={styles.typeChipFallbackText}>{item.label.slice(0, 2)}</Text>
-                  </View>
-                )}
+                <View style={styles.typeChipImageWrap}>
+                  {item.image && !failedImages[`type-${item.key}`] ? (
+                    <Image
+                      key={`type-${item.key}-${item.image}`}
+                      source={{ uri: item.image }}
+                      style={styles.typeChipImage}
+                      resizeMode="contain"
+                      onError={() => markImageFailed(`type-${item.key}`)}
+                    />
+                  ) : (
+                    <View style={styles.typeChipFallback}>
+                      <Text style={styles.typeChipFallbackText}>{item.label.slice(0, 2)}</Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={styles.typeLabel}>{item.label}</Text>
               </TouchableOpacity>
             ))}

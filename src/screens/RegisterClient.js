@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   Keyboard,
-  TouchableWithoutFeedback,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
@@ -16,18 +15,51 @@ import { Ionicons, Feather } from "@expo/vector-icons";
 import api from "../api/api";
 import { styles } from "../styles/authStyle";
 import LoadingOverlay from "../components/LoadingOverlay";
+import {
+  getPasswordChecks,
+  getPasswordStrength,
+  mapApiFieldError,
+  normalizeEmail,
+  normalizeExtension,
+  normalizeMiddleInitial,
+  normalizeName,
+  normalizeUsername,
+  validateConfirmPassword,
+  validateEmail,
+  validateExtension,
+  validateMiddleInitial,
+  validateName,
+  validatePassword,
+  validateUsername,
+} from "../utils/validation";
+
+function Requirement({ passed, text }) {
+  return (
+    <Text
+      style={[
+        styles.passwordRuleItem,
+        passed && { color: "#16a34a", fontWeight: "700" },
+      ]}
+    >
+      {passed ? "OK" : "-"} {text}
+    </Text>
+  );
+}
 
 export default function RegisterClient({ navigation }) {
   const scrollRef = useRef(null);
 
   const [firstName, setFirstName] = useState("");
+  const [middleInitial, setMiddleInitial] = useState("");
   const [lastName, setLastName] = useState("");
+  const [extension, setExtension] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const [msg, setMsg] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -39,103 +71,60 @@ export default function RegisterClient({ navigation }) {
     }, 250);
   };
 
-  const passwordChecks = useMemo(() => {
-    return {
-      minLength: password.length >= 10,
-      maxLength: password.length <= 64 && password.length > 0,
-      uppercase: /[A-Z]/.test(password),
-      number: /\d/.test(password),
+  const passwordChecks = useMemo(() => getPasswordChecks(password), [password]);
+  const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
+
+  const clearFieldError = (field) => {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      return { ...prev, [field]: "" };
+    });
+  };
+
+  const updateField = (field, value, setter) => {
+    setter(value);
+    clearFieldError(field);
+    setMsg("");
+  };
+
+  const validateForm = () => {
+    const nextErrors = {
+      firstName: validateName(firstName, "First name"),
+      middleInitial: validateMiddleInitial(middleInitial),
+      lastName: validateName(lastName, "Last name"),
+      extension: validateExtension(extension),
+      username: validateUsername(username),
+      email: validateEmail(email),
+      password: validatePassword(password),
+      confirmPassword: validateConfirmPassword(password, confirmPassword),
     };
-  }, [password]);
 
-  const passwordStrength = useMemo(() => {
-    const score = Object.values(passwordChecks).filter(Boolean).length;
+    setFieldErrors(nextErrors);
 
-    if (!password) return { label: "", width: "0%", color: "#D0D5DD" };
-    if (score <= 1) return { label: "Weak", width: "33%", color: "#EF4444" };
-    if (score <= 3) return { label: "Medium", width: "66%", color: "#F59E0B" };
-
-    return { label: "Strong", width: "100%", color: "#22C55E" };
-  }, [password, passwordChecks]);
-
-  const Requirement = ({ passed, text }) => (
-    <Text
-      style={[
-        styles.passwordRuleItem,
-        passed && { color: "#16a34a", fontWeight: "700" },
-      ]}
-    >
-      {passed ? "OK" : "-"} {text}
-    </Text>
-  );
+    return !Object.values(nextErrors).some(Boolean);
+  };
 
   const handleRegister = async () => {
+    if (loading) return;
     setMsg("");
     Keyboard.dismiss();
+    if (!validateForm()) return;
 
-    const cleanFirstName = firstName.trim();
-    const cleanLastName = lastName.trim();
-    const cleanUsername = username.trim().toLowerCase();
-    const cleanEmail = email.trim().toLowerCase();
-
-    if (
-      !cleanFirstName ||
-      !cleanLastName ||
-      !cleanUsername ||
-      !cleanEmail ||
-      !password ||
-      !confirmPassword
-    ) {
-      setMsg("Please fill in all required fields.");
-      return;
-    }
-
-    if (!/\S+@\S+\.\S+/.test(cleanEmail)) {
-      setMsg("Please enter a valid email address.");
-      return;
-    }
-
-    if (cleanUsername.length < 3) {
-      setMsg("Username must be at least 3 characters.");
-      return;
-    }
-
-    if (!/^[a-zA-Z0-9._]+$/.test(cleanUsername)) {
-      setMsg("Username can only contain letters, numbers, dots, and underscores.");
-      return;
-    }
-
-    if (!passwordChecks.minLength) {
-      setMsg("Password must be at least 10 characters.");
-      return;
-    }
-
-    if (!passwordChecks.maxLength) {
-      setMsg("Password must not exceed 64 characters.");
-      return;
-    }
-
-    if (!passwordChecks.uppercase) {
-      setMsg("Password must include at least one uppercase letter.");
-      return;
-    }
-
-    if (!passwordChecks.number) {
-      setMsg("Password must include at least one number.");
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setMsg("Passwords do not match.");
-      return;
-    }
+    const cleanFirstName = normalizeName(firstName);
+    const cleanMiddleInitial = normalizeMiddleInitial(middleInitial);
+    const cleanLastName = normalizeName(lastName);
+    const cleanExtension = normalizeExtension(extension);
+    const cleanUsername = normalizeUsername(username).toLowerCase();
+    const cleanEmail = normalizeEmail(email);
 
     try {
       setLoading(true);
 
       const res = await api.post("/client/register", {
         firstName: cleanFirstName,
+        middleInitial: cleanMiddleInitial,
         lastName: cleanLastName,
+        extension: cleanExtension,
         username: cleanUsername,
         email: cleanEmail,
         password,
@@ -143,31 +132,39 @@ export default function RegisterClient({ navigation }) {
 
       navigation.navigate("ClientOTP", {
         email: res.data?.email || cleanEmail,
+        message: "Account created. Please check your email for verification.",
       });
     } catch (err) {
-      setMsg(err?.response?.data?.message || err.message || "Register failed.");
+      const message = err?.response?.data?.message || err.message || "Unable to create account right now. Please try again.";
+      const mappedError = mapApiFieldError(message, "register");
+
+      if (mappedError?.field) {
+        setFieldErrors((prev) => ({ ...prev, [mappedError.field]: mappedError.message }));
+        setMsg("");
+      } else {
+        setMsg(message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 40 : 0}
-      >
-        <SafeAreaView style={styles.container}>
-          <View style={styles.topGlow} />
-          <View style={styles.bottomCurve} />
-          <ScrollView
-            ref={scrollRef}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="interactive"
-            contentContainerStyle={styles.scrollContentTop}
-          >
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
+      <SafeAreaView style={styles.container}>
+        <View pointerEvents="none" style={styles.topGlow} />
+        <View pointerEvents="none" style={styles.bottomCurve} />
+        <ScrollView
+          ref={scrollRef}
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          contentContainerStyle={styles.scrollContentTop}
+        >
             <View style={styles.authTopSection}>
               <View style={styles.brandArea}>
                 <View style={styles.logoWrapper}>
@@ -194,6 +191,8 @@ export default function RegisterClient({ navigation }) {
               <View style={styles.card}>
                 <TouchableOpacity
                   style={styles.backButton}
+                  activeOpacity={0.8}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   onPress={() => navigation.goBack()}
                 >
                   <Ionicons name="arrow-back" size={20} color="#0B1633" />
@@ -230,60 +229,152 @@ export default function RegisterClient({ navigation }) {
                 )}
 
                 <Text style={styles.label}>First Name</Text>
-                <View style={[styles.inputWrapper, focusedField === "firstName" && styles.inputWrapperFocused]}>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    focusedField === "firstName" && styles.inputWrapperFocused,
+                    fieldErrors.firstName && styles.inputWrapperError,
+                  ]}
+                >
                   <Feather name="user" size={18} color="#98A2B3" style={styles.leftIcon} />
                   <TextInput
                     style={styles.inputWithIcon}
                     placeholder="Enter first name"
                     placeholderTextColor="#98A2B3"
                     value={firstName}
-                    onChangeText={setFirstName}
+                    onChangeText={(text) => updateField("firstName", text, setFirstName)}
                     onFocus={() => setFocusedField("firstName")}
                     onBlur={() => setFocusedField("")}
                     returnKeyType="next"
                   />
                 </View>
+                {!!fieldErrors.firstName && (
+                  <Text style={styles.fieldErrorText}>{fieldErrors.firstName}</Text>
+                )}
+
+                <View style={styles.inlineFieldRow}>
+                  <View style={styles.inlineFieldColumnNarrow}>
+                    <Text style={styles.label}>Middle Initial</Text>
+                    <View
+                      style={[
+                        styles.inputWrapper,
+                        focusedField === "middleInitial" && styles.inputWrapperFocused,
+                        fieldErrors.middleInitial && styles.inputWrapperError,
+                      ]}
+                    >
+                      <Feather name="type" size={18} color="#98A2B3" style={styles.leftIcon} />
+                      <TextInput
+                        style={styles.inputWithIcon}
+                        placeholder="M"
+                        placeholderTextColor="#98A2B3"
+                        value={middleInitial}
+                        onChangeText={(text) =>
+                          updateField("middleInitial", text.toUpperCase().slice(0, 2), setMiddleInitial)
+                        }
+                        onFocus={() => setFocusedField("middleInitial")}
+                        onBlur={() => setFocusedField("")}
+                        autoCapitalize="characters"
+                        maxLength={2}
+                        returnKeyType="next"
+                      />
+                    </View>
+                    {!!fieldErrors.middleInitial && (
+                      <Text style={styles.fieldErrorText}>{fieldErrors.middleInitial}</Text>
+                    )}
+                  </View>
+
+                  <View style={styles.inlineFieldColumn}>
+                    <Text style={styles.label}>Extension</Text>
+                    <View
+                      style={[
+                        styles.inputWrapper,
+                        focusedField === "extension" && styles.inputWrapperFocused,
+                        fieldErrors.extension && styles.inputWrapperError,
+                      ]}
+                    >
+                      <Feather name="bookmark" size={18} color="#98A2B3" style={styles.leftIcon} />
+                      <TextInput
+                        style={styles.inputWithIcon}
+                        placeholder="Jr., Sr., III"
+                        placeholderTextColor="#98A2B3"
+                        value={extension}
+                        onChangeText={(text) => updateField("extension", text, setExtension)}
+                        onFocus={() => setFocusedField("extension")}
+                        onBlur={() => setFocusedField("")}
+                        autoCapitalize="characters"
+                        returnKeyType="next"
+                      />
+                    </View>
+                    {!!fieldErrors.extension && (
+                      <Text style={styles.fieldErrorText}>{fieldErrors.extension}</Text>
+                    )}
+                  </View>
+                </View>
 
                 <Text style={styles.label}>Last Name</Text>
-                <View style={[styles.inputWrapper, focusedField === "lastName" && styles.inputWrapperFocused]}>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    focusedField === "lastName" && styles.inputWrapperFocused,
+                    fieldErrors.lastName && styles.inputWrapperError,
+                  ]}
+                >
                   <Feather name="user" size={18} color="#98A2B3" style={styles.leftIcon} />
                   <TextInput
                     style={styles.inputWithIcon}
                     placeholder="Enter last name"
                     placeholderTextColor="#98A2B3"
                     value={lastName}
-                    onChangeText={setLastName}
+                    onChangeText={(text) => updateField("lastName", text, setLastName)}
                     onFocus={() => setFocusedField("lastName")}
                     onBlur={() => setFocusedField("")}
                     returnKeyType="next"
                   />
                 </View>
+                {!!fieldErrors.lastName && (
+                  <Text style={styles.fieldErrorText}>{fieldErrors.lastName}</Text>
+                )}
 
                 <Text style={styles.label}>Username</Text>
-                <View style={[styles.inputWrapper, focusedField === "username" && styles.inputWrapperFocused]}>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    focusedField === "username" && styles.inputWrapperFocused,
+                    fieldErrors.username && styles.inputWrapperError,
+                  ]}
+                >
                   <Feather name="at-sign" size={18} color="#98A2B3" style={styles.leftIcon} />
                   <TextInput
                     style={styles.inputWithIcon}
                     placeholder="Choose a username"
                     placeholderTextColor="#98A2B3"
                     value={username}
-                    onChangeText={setUsername}
+                    onChangeText={(text) => updateField("username", text, setUsername)}
                     onFocus={() => setFocusedField("username")}
                     onBlur={() => setFocusedField("")}
                     autoCapitalize="none"
                     returnKeyType="next"
                   />
                 </View>
+                {!!fieldErrors.username && (
+                  <Text style={styles.fieldErrorText}>{fieldErrors.username}</Text>
+                )}
 
                 <Text style={styles.label}>Email Address</Text>
-                <View style={[styles.inputWrapper, focusedField === "email" && styles.inputWrapperFocused]}>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    focusedField === "email" && styles.inputWrapperFocused,
+                    fieldErrors.email && styles.inputWrapperError,
+                  ]}
+                >
                   <Feather name="mail" size={18} color="#98A2B3" style={styles.leftIcon} />
                   <TextInput
                     style={styles.inputWithIcon}
-                    placeholder="you@email.com"
+                    placeholder="Enter Email"
                     placeholderTextColor="#98A2B3"
                     value={email}
-                    onChangeText={setEmail}
+                    onChangeText={(text) => updateField("email", text, setEmail)}
                     onFocus={() => setFocusedField("email")}
                     onBlur={() => setFocusedField("")}
                     autoCapitalize="none"
@@ -291,16 +382,25 @@ export default function RegisterClient({ navigation }) {
                     returnKeyType="next"
                   />
                 </View>
+                {!!fieldErrors.email && (
+                  <Text style={styles.fieldErrorText}>{fieldErrors.email}</Text>
+                )}
 
                 <Text style={styles.label}>Password</Text>
-                <View style={[styles.inputWrapper, focusedField === "password" && styles.inputWrapperFocused]}>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    focusedField === "password" && styles.inputWrapperFocused,
+                    fieldErrors.password && styles.inputWrapperError,
+                  ]}
+                >
                   <Feather name="lock" size={18} color="#98A2B3" style={styles.leftIcon} />
                   <TextInput
                     style={styles.inputWithIcon}
                     placeholder="Create a password"
                     placeholderTextColor="#98A2B3"
                     value={password}
-                    onChangeText={(text) => setPassword(text.slice(0, 64))}
+                    onChangeText={(text) => updateField("password", text.slice(0, 64), setPassword)}
                     maxLength={64}
                     secureTextEntry={!showPassword}
                     returnKeyType="next"
@@ -310,7 +410,11 @@ export default function RegisterClient({ navigation }) {
                     }}
                     onBlur={() => setFocusedField("")}
                   />
-                  <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    onPress={() => setShowPassword(!showPassword)}
+                  >
                     <Feather
                       name={showPassword ? "eye-off" : "eye"}
                       size={18}
@@ -318,6 +422,9 @@ export default function RegisterClient({ navigation }) {
                     />
                   </TouchableOpacity>
                 </View>
+                {!!fieldErrors.password && (
+                  <Text style={styles.fieldErrorText}>{fieldErrors.password}</Text>
+                )}
 
                 {!!password && (
                   <View style={styles.strengthWrap}>
@@ -340,14 +447,22 @@ export default function RegisterClient({ navigation }) {
                 )}
 
                 <Text style={styles.label}>Confirm Password</Text>
-                <View style={[styles.inputWrapper, focusedField === "confirmPassword" && styles.inputWrapperFocused]}>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    focusedField === "confirmPassword" && styles.inputWrapperFocused,
+                    fieldErrors.confirmPassword && styles.inputWrapperError,
+                  ]}
+                >
                   <Feather name="lock" size={18} color="#98A2B3" style={styles.leftIcon} />
                   <TextInput
                     style={styles.inputWithIcon}
                     placeholder="Re-enter password"
                     placeholderTextColor="#98A2B3"
                     value={confirmPassword}
-                    onChangeText={(text) => setConfirmPassword(text.slice(0, 64))}
+                    onChangeText={(text) =>
+                      updateField("confirmPassword", text.slice(0, 64), setConfirmPassword)
+                    }
                     maxLength={64}
                     secureTextEntry={!showConfirmPassword}
                     returnKeyType="done"
@@ -359,6 +474,8 @@ export default function RegisterClient({ navigation }) {
                     onBlur={() => setFocusedField("")}
                   />
                   <TouchableOpacity
+                    activeOpacity={0.8}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     onPress={() => setShowConfirmPassword(!showConfirmPassword)}
                   >
                     <Feather
@@ -368,13 +485,16 @@ export default function RegisterClient({ navigation }) {
                     />
                   </TouchableOpacity>
                 </View>
+                {!!fieldErrors.confirmPassword && (
+                  <Text style={styles.fieldErrorText}>{fieldErrors.confirmPassword}</Text>
+                )}
 
                 <View style={styles.passwordRulesCard}>
                   <Text style={styles.passwordRulesTitle}>Password Requirements</Text>
 
                   <Requirement
                     passed={passwordChecks.minLength}
-                    text="At least 10 characters"
+                    text="At least 8 characters"
                   />
 
                   <Requirement
@@ -388,8 +508,18 @@ export default function RegisterClient({ navigation }) {
                   />
 
                   <Requirement
+                    passed={passwordChecks.lowercase}
+                    text="At least one lowercase letter"
+                  />
+
+                  <Requirement
                     passed={passwordChecks.number}
                     text="At least one number"
+                  />
+
+                  <Requirement
+                    passed={passwordChecks.special}
+                    text="At least one special character"
                   />
                 </View>
 
@@ -403,8 +533,8 @@ export default function RegisterClient({ navigation }) {
                       styles.buttonText,
                       loading && styles.buttonTextDisabled,
                     ]}
-                  >
-                    {loading ? "Creating Account..." : "Sign Up"}
+                    >
+                    {loading ? "Creating account..." : "Sign Up"}
                   </Text>
                 </TouchableOpacity>
 
@@ -416,11 +546,10 @@ export default function RegisterClient({ navigation }) {
                 </View>
               </View>
             </View>
-          </ScrollView>
+        </ScrollView>
 
-          <LoadingOverlay visible={loading} text="Creating your account..." />
-        </SafeAreaView>
-      </KeyboardAvoidingView>
-    </TouchableWithoutFeedback>
+        <LoadingOverlay visible={loading} text="Creating your account..." />
+      </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }

@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   Keyboard,
-  TouchableWithoutFeedback,
   Platform,
   Alert,
   KeyboardAvoidingView,
@@ -18,6 +17,28 @@ import { Ionicons, Feather } from "@expo/vector-icons";
 import api from "../api/api";
 import { styles } from "../styles/authStyle";
 import LoadingOverlay from "../components/LoadingOverlay";
+import {
+  getPasswordChecks,
+  getPasswordStrength,
+  mapApiFieldError,
+  normalizeEmail,
+  validateConfirmPassword,
+  validateEmail,
+  validatePassword,
+} from "../utils/validation";
+
+function RequirementText({ passed, children }) {
+  return (
+    <Text
+      style={[
+        styles.passwordGuideText,
+        passed && styles.passwordGuideTextPassed,
+      ]}
+    >
+      {passed ? "OK" : "-"} {children}
+    </Text>
+  );
+}
 
 export default function ForgotPasswordScreen({ navigation, route }) {
   const isChangePassword = route?.params?.mode === "changePassword";
@@ -29,102 +50,81 @@ export default function ForgotPasswordScreen({ navigation, route }) {
 
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [focusedField, setFocusedField] = useState("");
 
-  const passwordChecks = useMemo(() => {
-    return {
-      minLength: newPassword.length >= 10,
-      maxLength: newPassword.length <= 64 && newPassword.length > 0,
-      uppercase: /[A-Z]/.test(newPassword),
-      number: /[0-9]/.test(newPassword),
-    };
-  }, [newPassword]);
+  const passwordChecks = useMemo(() => getPasswordChecks(newPassword), [newPassword]);
+  const passwordStrength = useMemo(() => getPasswordStrength(newPassword), [newPassword]);
 
-  const passwordStrength = useMemo(() => {
-    const score = Object.values(passwordChecks).filter(Boolean).length;
+  const clearFieldError = (field) => {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      return { ...prev, [field]: "" };
+    });
+  };
 
-    if (!newPassword) {
-      return {
-        label: "Enter password",
-        width: "0%",
-        color: "#e5e7eb",
-      };
-    }
-
-    if (score <= 1) {
-      return {
-        label: "Weak",
-        width: "33%",
-        color: "#ef4444",
-      };
-    }
-
-    if (score <= 3) {
-      return {
-        label: "Medium",
-        width: "66%",
-        color: "#f59e0b",
-      };
-    }
-
-    return {
-      label: "Strong",
-      width: "100%",
-      color: "#22c55e",
-    };
-  }, [newPassword, passwordChecks]);
-
-  const RequirementText = ({ passed, children }) => (
-    <Text
-      style={[
-        styles.passwordGuideText,
-        passed && styles.passwordGuideTextPassed,
-      ]}
-    >
-      {passed ? "OK" : "-"} {children}
-    </Text>
-  );
+  const updateField = (field, value, setter) => {
+    setter(value);
+    clearFieldError(field);
+    setMsg("");
+  };
 
   const handleSendCode = async () => {
+    if (loading) return;
     setMsg("");
     Keyboard.dismiss();
-
-    if (!email.trim()) {
-      setMsg("Email is required.");
-      return;
-    }
-
-    if (!/\S+@\S+\.\S+/.test(email.trim())) {
-      setMsg("Please enter a valid email address.");
+    const emailError = validateEmail(email).replace("Email is required.", "Email address is required.");
+    if (emailError) {
+      setFieldErrors({ email: emailError });
       return;
     }
 
     try {
       setLoading(true);
+      const cleanEmail = normalizeEmail(email);
 
       const res = await api.post("/client/forgot-password/request-code", {
-        email: email.trim().toLowerCase(),
+        email: cleanEmail,
       });
 
       navigation.navigate("ForgotPasswordSent", {
-        email: email.trim().toLowerCase(),
+        email: cleanEmail,
         message:
           res.data?.message ||
           "If an account exists for this email, a reset code has been sent.",
       });
     } catch (err) {
-      setMsg(
-        err?.response?.data?.message ||
-          err.message ||
-          "Failed to send reset code."
-      );
+      const message = err?.response?.data?.message || err.message || "Unable to send reset code. Please try again.";
+      const mappedError = mapApiFieldError(message, "forgotPassword");
+      if (mappedError?.field) {
+        setFieldErrors((prev) => ({ ...prev, [mappedError.field]: mappedError.message }));
+        setMsg("");
+      } else {
+        setMsg(message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleChangePassword = async () => {
+    if (loading) return;
     setMsg("");
     Keyboard.dismiss();
+
+    const nextErrors = {
+      currentPassword: !currentPassword ? "Current password is required." : "",
+      newPassword: validatePassword(newPassword, {
+        fieldLabel: "New password",
+        compareTo: currentPassword,
+        disallowSameAsOld: true,
+      }),
+      confirmPassword: validateConfirmPassword(newPassword, confirmPassword, {
+        emptyMessage: "Please confirm your new password.",
+      }),
+    };
+    setFieldErrors(nextErrors);
+    if (Object.values(nextErrors).some(Boolean)) return;
 
     try {
       setLoading(true);
@@ -132,14 +132,15 @@ export default function ForgotPasswordScreen({ navigation, route }) {
         Platform.OS === "web"
           ? window.localStorage.getItem("clientEmail") || ""
           : (await AsyncStorage.getItem("clientEmail")) || "";
+      const cleanStoredEmail = normalizeEmail(storedEmail);
 
-      if (!storedEmail) {
+      if (!cleanStoredEmail) {
         setMsg("We could not find your account email. Please use Forgot Password instead.");
         return;
       }
 
       const res = await api.post("/client/forgot-password/request-code", {
-        email: storedEmail.trim().toLowerCase(),
+        email: cleanStoredEmail,
       });
 
       Alert.alert(
@@ -150,35 +151,32 @@ export default function ForgotPasswordScreen({ navigation, route }) {
             text: "Continue",
             onPress: () =>
               navigation.navigate("ForgotPasswordSent", {
-                email: storedEmail.trim().toLowerCase(),
+                email: cleanStoredEmail,
                 message: "Use the code from your email to finish changing your password.",
               }),
           },
         ]
       );
     } catch (err) {
-      setMsg(
-        err?.response?.data?.message ||
-          err.message ||
-          "Failed to start password reset."
-      );
+      setMsg(err?.response?.data?.message || err.message || "Failed to start password reset.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
       <SafeAreaView style={styles.container}>
-        <View style={styles.topGlow} />
-        <View style={styles.bottomCurve} />
+        <View pointerEvents="none" style={styles.topGlow} />
+        <View pointerEvents="none" style={styles.bottomCurve} />
         <ScrollView
+          style={styles.scrollView}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           contentContainerStyle={styles.scrollContent}
         >
           <View style={[styles.authTopSection, styles.authTopSectionCompact]}>
@@ -239,7 +237,13 @@ export default function ForgotPasswordScreen({ navigation, route }) {
               {isChangePassword ? (
                 <>
                   <Text style={styles.label}>Current Password</Text>
-                  <View style={styles.inputWrapper}>
+                  <View
+                    style={[
+                      styles.inputWrapper,
+                      focusedField === "currentPassword" && styles.inputWrapperFocused,
+                      fieldErrors.currentPassword && styles.inputWrapperError,
+                    ]}
+                  >
                     <Feather
                       name="lock"
                       size={18}
@@ -251,13 +255,24 @@ export default function ForgotPasswordScreen({ navigation, route }) {
                       placeholder="Enter current password"
                       placeholderTextColor="#98A2B3"
                       value={currentPassword}
-                      onChangeText={setCurrentPassword}
+                      onChangeText={(text) => updateField("currentPassword", text, setCurrentPassword)}
+                      onFocus={() => setFocusedField("currentPassword")}
+                      onBlur={() => setFocusedField("")}
                       secureTextEntry
                     />
                   </View>
+                  {!!fieldErrors.currentPassword && (
+                    <Text style={styles.fieldErrorText}>{fieldErrors.currentPassword}</Text>
+                  )}
 
                   <Text style={styles.label}>New Password</Text>
-                  <View style={styles.inputWrapper}>
+                  <View
+                    style={[
+                      styles.inputWrapper,
+                      focusedField === "newPassword" && styles.inputWrapperFocused,
+                      fieldErrors.newPassword && styles.inputWrapperError,
+                    ]}
+                  >
                     <Feather
                       name="key"
                       size={18}
@@ -269,10 +284,16 @@ export default function ForgotPasswordScreen({ navigation, route }) {
                       placeholder="Enter new password"
                       placeholderTextColor="#98A2B3"
                       value={newPassword}
-                      onChangeText={setNewPassword}
+                      onChangeText={(text) => updateField("newPassword", text.slice(0, 64), setNewPassword)}
+                      maxLength={64}
+                      onFocus={() => setFocusedField("newPassword")}
+                      onBlur={() => setFocusedField("")}
                       secureTextEntry
                     />
                   </View>
+                  {!!fieldErrors.newPassword && (
+                    <Text style={styles.fieldErrorText}>{fieldErrors.newPassword}</Text>
+                  )}
 
                   <View style={styles.passwordStrengthBox}>
                     <View style={styles.passwordStrengthTop}>
@@ -308,7 +329,7 @@ export default function ForgotPasswordScreen({ navigation, route }) {
                     </Text>
 
                     <RequirementText passed={passwordChecks.minLength}>
-                      At least 10 characters
+                      At least 8 characters
                     </RequirementText>
 
                     <RequirementText passed={passwordChecks.maxLength}>
@@ -319,13 +340,27 @@ export default function ForgotPasswordScreen({ navigation, route }) {
                       At least one uppercase letter
                     </RequirementText>
 
+                    <RequirementText passed={passwordChecks.lowercase}>
+                      At least one lowercase letter
+                    </RequirementText>
+
                     <RequirementText passed={passwordChecks.number}>
                       At least one number
+                    </RequirementText>
+
+                    <RequirementText passed={passwordChecks.special}>
+                      At least one special character
                     </RequirementText>
                   </View>
 
                   <Text style={styles.label}>Confirm New Password</Text>
-                  <View style={styles.inputWrapper}>
+                  <View
+                    style={[
+                      styles.inputWrapper,
+                      focusedField === "confirmPassword" && styles.inputWrapperFocused,
+                      fieldErrors.confirmPassword && styles.inputWrapperError,
+                    ]}
+                  >
                     <Feather
                       name="check-circle"
                       size={18}
@@ -337,10 +372,18 @@ export default function ForgotPasswordScreen({ navigation, route }) {
                       placeholder="Confirm new password"
                       placeholderTextColor="#98A2B3"
                       value={confirmPassword}
-                      onChangeText={setConfirmPassword}
+                      onChangeText={(text) =>
+                        updateField("confirmPassword", text.slice(0, 64), setConfirmPassword)
+                      }
+                      maxLength={64}
+                      onFocus={() => setFocusedField("confirmPassword")}
+                      onBlur={() => setFocusedField("")}
                       secureTextEntry
                     />
                   </View>
+                  {!!fieldErrors.confirmPassword && (
+                    <Text style={styles.fieldErrorText}>{fieldErrors.confirmPassword}</Text>
+                  )}
 
                   <TouchableOpacity
                     style={[styles.button, loading && styles.buttonDisabled]}
@@ -353,14 +396,20 @@ export default function ForgotPasswordScreen({ navigation, route }) {
                         loading && styles.buttonTextDisabled,
                       ]}
                     >
-                      {loading ? "Saving..." : "Save Password"}
+                      {loading ? "Sending reset code..." : "Save Password"}
                     </Text>
                   </TouchableOpacity>
                 </>
               ) : (
                 <>
                   <Text style={styles.label}>Email Address</Text>
-                  <View style={styles.inputWrapper}>
+                  <View
+                    style={[
+                      styles.inputWrapper,
+                      focusedField === "email" && styles.inputWrapperFocused,
+                      fieldErrors.email && styles.inputWrapperError,
+                    ]}
+                  >
                     <Feather
                       name="mail"
                       size={18}
@@ -372,11 +421,16 @@ export default function ForgotPasswordScreen({ navigation, route }) {
                       placeholder="you@email.com"
                       placeholderTextColor="#98A2B3"
                       value={email}
-                      onChangeText={setEmail}
+                      onChangeText={(text) => updateField("email", text, setEmail)}
+                      onFocus={() => setFocusedField("email")}
+                      onBlur={() => setFocusedField("")}
                       autoCapitalize="none"
                       keyboardType="email-address"
                     />
                   </View>
+                  {!!fieldErrors.email && (
+                    <Text style={styles.fieldErrorText}>{fieldErrors.email}</Text>
+                  )}
 
                   <TouchableOpacity
                     style={[styles.button, loading && styles.buttonDisabled]}
@@ -389,7 +443,7 @@ export default function ForgotPasswordScreen({ navigation, route }) {
                         loading && styles.buttonTextDisabled,
                       ]}
                     >
-                      {loading ? "Sending Code..." : "Send Code"}
+                      {loading ? "Sending reset code..." : "Send Code"}
                     </Text>
                   </TouchableOpacity>
 
@@ -414,7 +468,6 @@ export default function ForgotPasswordScreen({ navigation, route }) {
           }
         />
       </SafeAreaView>
-      </KeyboardAvoidingView>
-    </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }

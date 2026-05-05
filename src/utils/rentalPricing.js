@@ -21,7 +21,6 @@ function resolveRates({ rate12Hr, rate24Hr, extraHourRate, dailyRate, vehicleDai
   const resolved24 = Number(rate24Hr || dailyRate || vehicleDailyRate || 0);
   const resolved12 = Number(rate12Hr || resolved24 || 0);
   const resolvedExtra = Number(extraHourRate || (resolved24 > 0 ? resolved24 / 24 : 0));
-
   return {
     rate12Hr: Number.isFinite(resolved12) ? resolved12 : 0,
     rate24Hr: Number.isFinite(resolved24) ? resolved24 : 0,
@@ -66,90 +65,64 @@ function calculateTierPricing({
   let extensionType = "none";
   let billingDurationLabel = "";
 
-  if (totalHours <= 12) {
-    charge = rates.rate12Hr;
-    rows = [{ label: `${prefix}12-hour rate`.trim(), amount: rates.rate12Hr }];
-    billingDurationLabel = "12-hour rate";
-    extensionType = "twelve_hour_minimum";
-  } else if (totalHours <= 24) {
-    const extraHours = totalHours - 12;
-    const extraAmount = rates.extraHourRate * extraHours;
-    const computed = rates.rate12Hr + extraAmount;
-    appliedCap = computed >= rates.rate24Hr;
-    charge = Math.min(computed, rates.rate24Hr);
-    extensionType = appliedCap ? "twenty_four_hour_cap" : "initial_extra_hours";
-    billingDurationLabel = appliedCap
-      ? "24-hour rate"
-      : `12-hour rate + ${formatHours(extraHours)} extra ${extraHours === 1 ? "hour" : "hours"}`;
-    rows = appliedCap
-      ? [{ label: `${prefix}24-hour rate`.trim(), amount: rates.rate24Hr }]
-      : [
-          { label: `${prefix}12-hour rate`.trim(), amount: rates.rate12Hr },
-          {
-            label: `${prefix}Extra hours`.trim(),
-            detail: `PHP ${Math.round(rates.extraHourRate).toLocaleString()} x ${formatHours(extraHours)}`,
-            amount: extraAmount,
-          },
-        ];
-  } else {
-    const full24Blocks = Math.floor(totalHours / 24);
-    const remainingHours = totalHours - full24Blocks * 24;
-    const baseAmount = full24Blocks * rates.rate24Hr;
-    rows = [
-      {
-        label:
-          full24Blocks === 1
-            ? `${prefix}24-hour rate`.trim()
-            : `${prefix}${fullDaysLabel(full24Blocks)}`.trim(),
-        detail:
-          full24Blocks > 1
-            ? `PHP ${Math.round(rates.rate24Hr).toLocaleString()} x ${full24Blocks}`
-            : "",
-        amount: baseAmount,
-      },
-    ];
-    charge = baseAmount;
-    billingDurationLabel = full24Blocks === 1 ? "24-hour rate" : fullDaysLabel(full24Blocks);
-
-    if (remainingHours > 0 && remainingHours <= 6) {
-      const extraAmount = rates.extraHourRate * remainingHours;
-      charge += extraAmount;
-      extensionType = "hourly_overtime";
-      billingDurationLabel += ` + ${formatHours(remainingHours)} extra ${remainingHours === 1 ? "hour" : "hours"}`;
-      rows.push({
-        label: `${prefix}Extra hours`.trim(),
-        detail: `PHP ${Math.round(rates.extraHourRate).toLocaleString()} x ${formatHours(remainingHours)}`,
-        amount: extraAmount,
-      });
-    } else if (remainingHours > 6 && remainingHours <= 12) {
-      charge += rates.rate12Hr;
-      extensionType = "twelve_hour_extension";
-      billingDurationLabel += " + 12-hour extension";
-      rows.push({ label: `${prefix}12-hour extension`.trim(), amount: rates.rate12Hr });
-    } else if (remainingHours > 12) {
-      charge += rates.rate24Hr;
-      appliedCap = true;
-      extensionType = "full_day_extension";
-      billingDurationLabel = fullDaysLabel(full24Blocks + 1);
-      rows = [
-        {
-          label: fullDaysLabel(full24Blocks + 1),
-          detail: `PHP ${Math.round(rates.rate24Hr).toLocaleString()} x ${full24Blocks + 1}`,
-          amount: (full24Blocks + 1) * rates.rate24Hr,
-        },
-      ];
-    }
+  if (totalHours <= 24) {
+    charge = rates.rate24Hr;
+    rows = [{ label: `${prefix}24-hour rate`.trim(), amount: rates.rate24Hr }];
+    billingDurationLabel = "24-hour rate";
+    extensionType = "twenty_four_hour_minimum";
 
     return {
       totalHours,
       billingDurationLabel,
       charge: roundMoney(charge),
       rows: rows.map((row) => ({ ...row, amount: roundMoney(row.amount) })),
-      appliedCap,
+      appliedCap: false,
       extensionType,
-      full24Blocks,
-      remainingHours,
+      full24Blocks: 1,
+      remainingHours: 0,
     };
+  }
+
+  const full24Blocks = Math.floor(totalHours / 24);
+  const remainingHours = totalHours - full24Blocks * 24;
+  const baseAmount = full24Blocks * rates.rate24Hr;
+  rows = [
+    {
+      label: full24Blocks === 1 ? `${prefix}24-hour rate`.trim() : `${prefix}${fullDaysLabel(full24Blocks)}`.trim(),
+      detail: full24Blocks > 1 ? `PHP ${Math.round(rates.rate24Hr).toLocaleString()} x ${full24Blocks}` : "",
+      amount: baseAmount,
+    },
+  ];
+  charge = baseAmount;
+  billingDurationLabel = full24Blocks === 1 ? "24-hour rate" : fullDaysLabel(full24Blocks);
+
+  if (remainingHours > 0 && remainingHours <= 6) {
+    const extraAmount = rates.extraHourRate * remainingHours;
+    charge += extraAmount;
+    extensionType = "hourly_overtime";
+    billingDurationLabel += ` + ${formatHours(remainingHours)} extra ${remainingHours === 1 ? "hour" : "hours"}`;
+    rows.push({
+      label: `${prefix}Extra hours`.trim(),
+      detail: `PHP ${Math.round(rates.extraHourRate).toLocaleString()} x ${formatHours(remainingHours)}`,
+      amount: extraAmount,
+    });
+  } else if (remainingHours > 6 && remainingHours <= 12) {
+    charge += rates.rate12Hr;
+    extensionType = "twelve_hour_extension";
+    billingDurationLabel += " + 12-hour extension";
+    rows.push({ label: `${prefix}12-hour extension`.trim(), amount: rates.rate12Hr });
+  } else if (remainingHours > 12) {
+    charge += rates.rate24Hr;
+    appliedCap = true;
+    extensionType = "full_day_extension";
+    billingDurationLabel = fullDaysLabel(full24Blocks + 1);
+    rows = [
+      {
+        label: fullDaysLabel(full24Blocks + 1),
+        detail: `PHP ${Math.round(rates.rate24Hr).toLocaleString()} x ${full24Blocks + 1}`,
+        amount: (full24Blocks + 1) * rates.rate24Hr,
+      },
+    ];
   }
 
   return {
@@ -159,8 +132,8 @@ function calculateTierPricing({
     rows: rows.map((row) => ({ ...row, amount: roundMoney(row.amount) })),
     appliedCap,
     extensionType,
-    full24Blocks: totalHours >= 24 ? Math.floor(totalHours / 24) : 0,
-    remainingHours: totalHours >= 24 ? totalHours % 24 : totalHours,
+    full24Blocks,
+    remainingHours,
   };
 }
 

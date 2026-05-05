@@ -7,7 +7,6 @@ import {
   Image,
   Platform,
   Keyboard,
-  TouchableWithoutFeedback,
   ScrollView,
   KeyboardAvoidingView,
   SafeAreaView,
@@ -17,6 +16,12 @@ import { Feather } from "@expo/vector-icons";
 import api from "../api/api";
 import { styles } from "../styles/authStyle";
 import LoadingOverlay from "../components/LoadingOverlay";
+import {
+  mapApiFieldError,
+  normalizeEmail,
+  normalizeUsername,
+  validateLoginIdentifier,
+} from "../utils/validation";
 
 const PENDING_GUEST_BOOKING_KEY = "pendingGuestBooking";
 
@@ -93,24 +98,52 @@ export default function LoginClient({ navigation }) {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [focusedField, setFocusedField] = useState("");
 
+  const clearFieldError = (field) => {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      return { ...prev, [field]: "" };
+    });
+  };
+
+  const updateField = (field, value, setter) => {
+    setter(value);
+    clearFieldError(field);
+    setMsg("");
+  };
+
+  const validateForm = () => {
+    const nextErrors = {
+      login: validateLoginIdentifier(login),
+      password: !password
+        ? "Password is required."
+        : password.length < 8
+        ? "Password must be at least 8 characters."
+        : "",
+    };
+
+    setFieldErrors(nextErrors);
+    return !Object.values(nextErrors).some(Boolean);
+  };
+
   const handleLogin = async () => {
+    if (loading) return;
     setMsg("");
     Keyboard.dismiss();
-
-    if (!login.trim() || !password.trim()) {
-      setMsg("Email/Username and password are required.");
-      return;
-    }
+    if (!validateForm()) return;
 
     try {
       setLoading(true);
+      const cleanLogin = login.includes("@")
+        ? normalizeEmail(login)
+        : normalizeUsername(login).toLowerCase();
 
       const res = await api.post("/client/login", {
-        login: login.trim().toLowerCase(),
+        login: cleanLogin,
         password,
       });
 
@@ -144,26 +177,35 @@ export default function LoginClient({ navigation }) {
 
       navigation.replace("MainApp");
     } catch (err) {
-      setMsg(err?.response?.data?.message || err.message || "Login failed.");
+      const message = err?.response?.data?.message || err.message || "Unable to sign in right now. Please try again.";
+      const mappedError = mapApiFieldError(message, "login");
+
+      if (mappedError?.field) {
+        setFieldErrors((prev) => ({ ...prev, [mappedError.field]: mappedError.message }));
+        setMsg("");
+      } else {
+        setMsg(message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
-        <SafeAreaView style={styles.container}>
-          <View style={styles.topGlow} />
-          <View style={styles.bottomCurve} />
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.scrollContent}
-          >
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
+      <SafeAreaView style={styles.container}>
+        <View pointerEvents="none" style={styles.topGlow} />
+        <View pointerEvents="none" style={styles.bottomCurve} />
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          contentContainerStyle={styles.scrollContent}
+        >
             <View style={styles.authTopSection}>
               <View style={styles.brandArea}>
                 <View style={styles.logoWrapper}>
@@ -223,6 +265,7 @@ export default function LoginClient({ navigation }) {
                   style={[
                     styles.inputWrapper,
                     focusedField === "login" && styles.inputWrapperFocused,
+                    fieldErrors.login && styles.inputWrapperError,
                   ]}
                 >
                   <Feather
@@ -236,19 +279,23 @@ export default function LoginClient({ navigation }) {
                     placeholder="Enter email or username"
                     placeholderTextColor="#98A2B3"
                     value={login}
-                    onChangeText={setLogin}
+                    onChangeText={(text) => updateField("login", text, setLogin)}
                     onFocus={() => setFocusedField("login")}
                     onBlur={() => setFocusedField("")}
                     autoCapitalize="none"
                     returnKeyType="next"
                   />
                 </View>
+                {!!fieldErrors.login && (
+                  <Text style={styles.fieldErrorText}>{fieldErrors.login}</Text>
+                )}
 
                 <Text style={styles.label}>Password</Text>
                 <View
                   style={[
                     styles.inputWrapper,
                     focusedField === "password" && styles.inputWrapperFocused,
+                    fieldErrors.password && styles.inputWrapperError,
                   ]}
                 >
                   <Feather
@@ -262,14 +309,18 @@ export default function LoginClient({ navigation }) {
                     placeholder="Enter your password"
                     placeholderTextColor="#98A2B3"
                     value={password}
-                    onChangeText={setPassword}
+                    onChangeText={(text) => updateField("password", text, setPassword)}
                     onFocus={() => setFocusedField("password")}
                     onBlur={() => setFocusedField("")}
                     secureTextEntry={!showPassword}
                     returnKeyType="done"
                     onSubmitEditing={handleLogin}
                   />
-                  <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    onPress={() => setShowPassword(!showPassword)}
+                  >
                     <Feather
                       name={showPassword ? "eye-off" : "eye"}
                       size={18}
@@ -277,6 +328,9 @@ export default function LoginClient({ navigation }) {
                     />
                   </TouchableOpacity>
                 </View>
+                {!!fieldErrors.password && (
+                  <Text style={styles.fieldErrorText}>{fieldErrors.password}</Text>
+                )}
 
                 <TouchableOpacity
                   style={styles.forgotPasswordWrap}
@@ -295,8 +349,8 @@ export default function LoginClient({ navigation }) {
                       styles.buttonText,
                       loading && styles.buttonTextDisabled,
                     ]}
-                  >
-                    {loading ? "Signing In..." : "Log In"}
+                    >
+                    {loading ? "Signing in..." : "Log In"}
                   </Text>
                 </TouchableOpacity>
 
@@ -314,11 +368,10 @@ export default function LoginClient({ navigation }) {
                 </Text>
               </View>
             </View>
-          </ScrollView>
+        </ScrollView>
 
-          <LoadingOverlay visible={loading} text="Signing you in..." />
-        </SafeAreaView>
-      </KeyboardAvoidingView>
-    </TouchableWithoutFeedback>
+        <LoadingOverlay visible={loading} text="Signing you in..." />
+      </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }

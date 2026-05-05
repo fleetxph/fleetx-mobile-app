@@ -70,7 +70,9 @@ export default function WelcomeScreen({ navigation }) {
         <View style={styles.contentShell} pointerEvents="box-none">
           <View style={styles.brandBlock}>
             <View style={styles.logoRow}>
-              <Image source={logoImage} style={styles.brandLogo} resizeMode="contain" />
+              <View style={styles.logoChip}>
+                <Image source={logoImage} style={styles.brandLogo} resizeMode="contain" />
+              </View>
               <Text style={styles.brandInlineText}>CAPT FleetX</Text>
             </View>
           </View>

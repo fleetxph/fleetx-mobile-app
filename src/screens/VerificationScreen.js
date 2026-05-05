@@ -13,7 +13,11 @@ import * as ImagePicker from "expo-image-picker";
 import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { clearClientSession, isUnauthorizedError } from "../api/api";
-import { getVerificationStatus, submitVerification } from "../api/clientApi";
+import {
+  getVerificationStatus,
+  removeVerificationDocument,
+  submitVerification,
+} from "../api/clientApi";
 import { styles } from "../styles/verificationStyle";
 import {
   formatReviewDate,
@@ -58,6 +62,13 @@ function getStatusTone(statusKey) {
   if (statusKey === "rejected") return "danger";
   if (statusKey === "selected") return "info";
   return "neutral";
+}
+
+function toDocumentReviewState(meta) {
+  if (meta?.key === "verified") return "approved";
+  if (meta?.key === "under_review") return "pending";
+  if (meta?.key === "rejected") return "rejected";
+  return "editable";
 }
 
 export default function VerificationScreen({ navigation }) {
@@ -143,25 +154,21 @@ export default function VerificationScreen({ navigation }) {
     () => getDocumentVerificationMeta(verification, "license"),
     [verification]
   );
-  const normalizedStatus = String(
-    verification?.overallVerificationStatus ||
-      verification?.overallStatus ||
-      verification?.verificationStatus ||
-      verification?.status ||
-      ""
-  ).toLowerCase();
   const isSubmitting = submitting || false;
-  const isPending = isSubmitting;
-  const isUnderReview = ["pending", "pending_review", "under_review", "submitted", "for_review"].includes(
-    normalizedStatus
-  );
-  const isApproved = ["approved", "verified", "basic_verified", "fully_verified"].includes(
-    normalizedStatus
-  );
-  const isRejected = ["rejected", "declined"].includes(normalizedStatus);
-  const isMissing =
-    !normalizedStatus ||
-    ["missing", "not_submitted", "none", "unverified"].includes(normalizedStatus);
+  const validIdReviewState = toDocumentReviewState(validIdMeta);
+  const licenseReviewState = toDocumentReviewState(licenseMeta);
+  const requestedDocumentId = requestedLevel === "self_drive" ? "license" : "validId";
+  const requestedDocumentState =
+    requestedDocumentId === "license" ? licenseReviewState : validIdReviewState;
+  const isPending = requestedDocumentState === "pending" || isSubmitting;
+  const isUnderReview = requestedDocumentState === "pending";
+  const isApproved = requestedDocumentState === "approved";
+  const isRejected = requestedDocumentState === "rejected";
+  const rejectionReason =
+    verification?.adminRemarks ||
+    verification?.rejectionReason ||
+    verification?.remarks ||
+    "";
 
   const getExistingImage = (key) => {
     if (key === "validIdFront") return verification?.validIdFront || verification?.validIdImage || "";
@@ -186,12 +193,18 @@ export default function VerificationScreen({ navigation }) {
     return { label: "Missing", key: "missing" };
   };
 
+  const getDocumentStateForSide = (key) => {
+    return key.startsWith("license") ? licenseReviewState : validIdReviewState;
+  };
+
   const isEditableSide = (key) => {
-    return !submitting;
+    const state = getDocumentStateForSide(key);
+    return !submitting && !["approved", "pending"].includes(state);
   };
 
   const canSubmit =
-    requestedLevel === "self_drive"
+    !["approved", "pending"].includes(requestedDocumentState) &&
+    (requestedLevel === "self_drive"
       ? Boolean(
           (documents.licenseFront || getExistingImage("licenseFront")) &&
             (documents.licenseBack || getExistingImage("licenseBack"))
@@ -199,9 +212,19 @@ export default function VerificationScreen({ navigation }) {
       : Boolean(
           (documents.validIdFront || getExistingImage("validIdFront")) &&
             (documents.validIdBack || getExistingImage("validIdBack"))
-        );
+        ));
 
   const openPicker = async (key, source) => {
+    const documentState = getDocumentStateForSide(key);
+    if (documentState === "approved") {
+      Alert.alert("Verification Locked", "Your verification is already approved and locked.");
+      return;
+    }
+    if (documentState === "pending") {
+      Alert.alert("Verification Under Review", "Your verification is already under review.");
+      return;
+    }
+
     try {
       const permission =
         source === "camera"
@@ -236,6 +259,16 @@ export default function VerificationScreen({ navigation }) {
   };
 
   const promptImageSource = (key) => {
+    const documentState = getDocumentStateForSide(key);
+    if (documentState === "approved") {
+      Alert.alert("Verification Locked", "Your verification is already approved and locked.");
+      return;
+    }
+    if (documentState === "pending") {
+      Alert.alert("Verification Under Review", "Your verification is already under review.");
+      return;
+    }
+
     Alert.alert("Upload document", "Choose how you want to add the image.", [
       { text: "Camera", onPress: () => openPicker(key, "camera") },
       { text: "Gallery", onPress: () => openPicker(key, "gallery") },
@@ -243,8 +276,40 @@ export default function VerificationScreen({ navigation }) {
     ]);
   };
 
-  const removeDocument = (key) => {
-    setDocuments((prev) => ({ ...prev, [key]: null }));
+  const removeDocument = async (key) => {
+    const documentState = getDocumentStateForSide(key);
+    if (documentState === "approved") {
+      Alert.alert("Verification Locked", "Your verification is already approved and locked.");
+      return;
+    }
+    if (documentState === "pending") {
+      Alert.alert("Verification Under Review", "Your verification is already under review.");
+      return;
+    }
+
+    if (documents[key]) {
+      setDocuments((prev) => ({ ...prev, [key]: null }));
+      return;
+    }
+
+    if (!getExistingImage(key)) return;
+
+    try {
+      setSubmitting(true);
+      setError("");
+      const data = await removeVerificationDocument(key);
+      setVerification(data || null);
+    } catch (err) {
+      if (isUnauthorizedError(err)) {
+        await clearClientSession();
+        navigation.replace("ClientLogin");
+        return;
+      }
+
+      setError(err?.response?.data?.message || "Failed to remove document.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const validateSubmission = () => {
@@ -264,6 +329,15 @@ export default function VerificationScreen({ navigation }) {
   };
 
   const handleSubmit = async () => {
+    if (requestedDocumentState === "approved") {
+      Alert.alert("Verification Locked", "Your verification is already approved and locked.");
+      return;
+    }
+    if (requestedDocumentState === "pending") {
+      Alert.alert("Verification Under Review", "Your verification is already under review.");
+      return;
+    }
+
     const validationError = validateSubmission();
     if (validationError) {
       setError(validationError);
@@ -344,12 +418,12 @@ export default function VerificationScreen({ navigation }) {
               <Text style={styles.uploadHint}>{hint}</Text>
               {hasBackendImage && !hasLocalReplacement ? (
                 <Text style={styles.uploadHint}>
-                  Already submitted files can be replaced by uploading a new image.
+                  Already submitted files can be replaced when this document is editable.
                 </Text>
               ) : null}
               {documentMeta.key === "rejected" ? (
                 <Text style={styles.uploadHint}>
-                  Your document was rejected. Please upload a clearer image.
+                  Your document was rejected. Please upload a clearer replacement or delete the stored copy first.
                 </Text>
               ) : null}
               {documentMeta.key === "under_review" && !hasLocalReplacement ? (
@@ -377,9 +451,9 @@ export default function VerificationScreen({ navigation }) {
             <TouchableOpacity
               style={[styles.uploadActionButton, styles.uploadDanger]}
               onPress={() => removeDocument(keyName)}
-              disabled={!localAsset || submitting}
+              disabled={(!localAsset && !hasBackendImage) || submitting || !canEdit}
             >
-              <Text style={styles.uploadDangerText}>Remove Selected</Text>
+              <Text style={styles.uploadDangerText}>{hasBackendImage && !localAsset ? "Delete Stored" : "Remove Selected"}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -450,6 +524,42 @@ export default function VerificationScreen({ navigation }) {
               <Text style={[badgeTextStyle, badgeTextToneStyle]}>{statusLabel}</Text>
             </View>
           </View>
+
+          {isApproved ? (
+            <View style={[styles.noticeCard, { marginTop: 16, backgroundColor: "#ECFDF3", borderColor: "#BBF7D0" }]}>
+              <Ionicons name="lock-closed-outline" size={20} color="#15803D" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.noticeText, { color: "#166534", fontWeight: "800" }]}>Verification Approved</Text>
+                <Text style={[styles.noticeText, { color: "#166534" }]}>
+                  Your submitted ID has been reviewed and approved. This section is now locked for your account security.
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          {isUnderReview ? (
+            <View style={[styles.noticeCard, { marginTop: 16, backgroundColor: "#FFFBEB", borderColor: "#FDE68A" }]}>
+              <Ionicons name="time-outline" size={20} color="#CA8A04" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.noticeText, { color: "#92400E", fontWeight: "800" }]}>Verification Under Review</Text>
+                <Text style={[styles.noticeText, { color: "#92400E" }]}>
+                  Your ID is being reviewed by FleetX.
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          {isRejected ? (
+            <View style={[styles.noticeCard, { marginTop: 16, backgroundColor: "#FEF2F2", borderColor: "#FECACA" }]}>
+              <Ionicons name="alert-circle-outline" size={20} color="#DC2626" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.noticeText, { color: "#991B1B", fontWeight: "800" }]}>Verification Rejected</Text>
+                <Text style={[styles.noticeText, { color: "#991B1B" }]}>
+                  {rejectionReason || "Your submission needs replacement before you can try again."}
+                </Text>
+              </View>
+            </View>
+          ) : null}
 
           <View style={styles.summaryGrid}>
             <View style={styles.summaryRow}>
@@ -557,7 +667,7 @@ export default function VerificationScreen({ navigation }) {
                 requestedLevel === "with_driver" && styles.segmentButtonActive,
               ]}
               onPress={() => setRequestedLevel("with_driver")}
-              disabled={isPending || submitting}
+              disabled={submitting}
             >
               <Text style={styles.segmentTitle}>With Driver</Text>
               <Text
@@ -576,7 +686,7 @@ export default function VerificationScreen({ navigation }) {
                 requestedLevel === "self_drive" && styles.segmentButtonActive,
               ]}
               onPress={() => setRequestedLevel("self_drive")}
-              disabled={isPending || submitting}
+              disabled={submitting}
             >
               <Text style={styles.segmentTitle}>Self-Drive</Text>
               <Text
@@ -654,7 +764,13 @@ export default function VerificationScreen({ navigation }) {
             <ActivityIndicator size="small" color="#ffffff" />
           ) : (
             <Text style={styles.submitButtonText}>
-              {submitting ? "Submitting..." : `Submit ${requestedLevel === "self_drive" ? "Driver's License" : "Valid ID"}`}
+              {submitting
+                ? "Submitting..."
+                : isApproved
+                ? "Verification Approved"
+                : isUnderReview
+                ? "Verification Under Review"
+                : `Submit ${requestedLevel === "self_drive" ? "Driver's License" : "Valid ID"}`}
             </Text>
           )}
         </TouchableOpacity>

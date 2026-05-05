@@ -135,6 +135,11 @@ export async function submitVerification(payload) {
   return response.data;
 }
 
+export async function removeVerificationDocument(side) {
+  const response = await api.patch("/client/verification/document/remove", { side });
+  return response.data;
+}
+
 export async function getNotifications(limit = 20) {
   const response = await api.get("/notifications", { params: { limit } });
   return response.data;

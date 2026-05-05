@@ -24,8 +24,6 @@ import {
 } from "../utils/rentalPricing";
 
 const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-const BLOCKING_STATUSES = ["confirmed", "booked_confirmed", "completed"];
-
 function toMidnight(value) {
   return normalizeDate(value);
 }
@@ -220,11 +218,7 @@ export default function VehicleDetails({ route, navigation }) {
 
         if (!isMounted) return;
 
-        setBookedRanges(
-          ranges.filter((item) =>
-            BLOCKING_STATUSES.includes(String(item?.status || "").toLowerCase())
-          )
-        );
+        setBookedRanges(ranges);
       } catch (error) {
         if (!isMounted) return;
         console.log("Vehicle booking availability error:", error?.response?.data || error?.message || error);

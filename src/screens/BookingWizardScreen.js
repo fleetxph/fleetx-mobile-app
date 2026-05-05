@@ -13,7 +13,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -31,6 +30,13 @@ import {
   getVerificationStatus,
   submitClientBookingDraft,
 } from "../api/clientApi";
+import {
+  geocodeAddress,
+  getPlaceDetails,
+  hasGooglePlacesApiKey,
+  reverseGeocode,
+  searchPlaces,
+} from "../api/publicApi";
 import LocationPickerModal from "../components/LocationPickerModal";
 import SuccessInfoModal from "../components/SuccessInfoModal";
 import { styles } from "../styles/bookingWizardStyle";
@@ -99,10 +105,14 @@ const PAYMENT_OPTIONS = [
 ];
 
 const PENDING_GUEST_BOOKING_KEY = "pendingGuestBooking";
+const MIN_LOCATION_QUERY_LENGTH = 3;
 const KEYBOARD_FOCUS_DELAY = 300;
 const KEYBOARD_RESYNC_DELAY = 60;
 const TOP_RESERVED_SPACE = 80;
 const BOTTOM_RESERVED_SPACE = 24;
+const SMALL_HIT_SLOP = { top: 10, bottom: 10, left: 10, right: 10 };
+const BOOKING_BOTTOM_PADDING = 220;
+const BOOKING_BOTTOM_PADDING_WITH_KEYBOARD = 320;
 
 function formatPeso(value) {
   return `PHP ${Number(value || 0).toLocaleString()}`;
@@ -118,7 +128,12 @@ function getVehicleSeatCapacity(vehicle) {
 
 function getVehicleDailyRate(vehicle) {
   const rawRate = Number(
-    vehicle?.dailyRate ?? vehicle?.price ?? vehicle?.rate ?? vehicle?.rentalPrice ?? NaN
+    vehicle?.rate24Hr ??
+      vehicle?.dailyRate ??
+      vehicle?.price ??
+      vehicle?.rate ??
+      vehicle?.rentalPrice ??
+      NaN
   );
 
   return Number.isFinite(rawRate) && rawRate > 0 ? rawRate : null;
@@ -184,6 +199,155 @@ function getPaymentOptionLabel(value) {
 
 function normalizePinnedLabel(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function isGenericLocationLabel(value) {
+  const normalized = normalizePinnedLabel(value);
+  return (
+    !normalized ||
+    normalized === "pinned destination" ||
+    normalized === "pinned pickup location" ||
+    normalized === "pinned location" ||
+    normalized === "selected map location" ||
+    normalized === "pinned location selected"
+  );
+}
+
+function getResolvedLocationLabel(location, fallbackText = "") {
+  const candidates = [
+    location?.formattedAddress,
+    location?.description,
+    location?.address,
+    location?.label,
+    location?.name,
+    fallbackText,
+  ];
+
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+    if (value && !isGenericLocationLabel(value)) {
+      return value;
+    }
+  }
+
+  return String(fallbackText || location?.address || location?.label || "").trim();
+}
+
+function normalizeCoordinatePayload(coord) {
+  if (!coord || typeof coord !== "object") return null;
+
+  const latitude = Number(coord.latitude ?? coord.lat);
+  const longitude = Number(coord.longitude ?? coord.lng ?? coord.lon ?? coord.long);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+  const normalized = {
+    lat: latitude,
+    lng: longitude,
+    latitude,
+    longitude,
+  };
+  const address = String(coord.address || coord.label || "").trim();
+  const placeId = String(coord.placeId || "").trim();
+
+  if (address) normalized.address = address;
+  if (placeId) normalized.placeId = placeId;
+  return normalized;
+}
+
+function buildLocationPin(coord, fallbackLabel = "") {
+  const normalized = normalizeCoordinatePayload(coord);
+  if (!normalized) return null;
+
+  const resolvedLabel = getResolvedLocationLabel(normalized, fallbackLabel);
+
+  return {
+    label: resolvedLabel || fallbackLabel || "Selected map location",
+    address: resolvedLabel || fallbackLabel || "Selected map location",
+    latitude: normalized.latitude,
+    longitude: normalized.longitude,
+    placeId: normalized.placeId || "",
+    source: "api",
+  };
+}
+
+function normalizeLocationSelection(selection = {}) {
+  const latitude = Number(
+    selection.latitude ?? selection.lat ?? selection.coords?.latitude ?? selection.coords?.lat
+  );
+  const longitude = Number(
+    selection.longitude ?? selection.lng ?? selection.coords?.longitude ?? selection.coords?.lng
+  );
+  const address = String(
+    selection.formattedAddress || selection.description || selection.address || selection.name || ""
+  ).trim();
+  const placeId = String(selection.placeId || selection.place_id || "").trim();
+
+  return {
+    address,
+    label: address,
+    latitude: Number.isFinite(latitude) ? latitude : null,
+    longitude: Number.isFinite(longitude) ? longitude : null,
+    placeId: placeId || null,
+    source: selection.source || "suggestion",
+  };
+}
+
+function normalizePlaceSuggestion(item = {}) {
+  const address = getResolvedLocationLabel(item, item?.secondaryText || "");
+  const latitude = Number(
+    item.latitude ??
+      item.lat ??
+      item.coords?.latitude ??
+      item.coords?.lat ??
+      item.raw?.geometry?.location?.lat
+  );
+  const longitude = Number(
+    item.longitude ??
+      item.lng ??
+      item.coords?.longitude ??
+      item.coords?.lng ??
+      item.raw?.geometry?.location?.lng
+  );
+
+  return {
+    id: String(item.id || item.placeId || item.place_id || address).trim(),
+    label: String(item.label || item.formattedAddress || address || "").trim(),
+    placeId: String(item.placeId || item.place_id || "").trim(),
+    description: String(item.description || item.formattedAddress || address || "").trim(),
+    name: String(item.name || "").trim(),
+    secondaryText: String(item.secondaryText || "").trim(),
+    formattedAddress: String(item.formattedAddress || address || "").trim(),
+    latitude: Number.isFinite(latitude) ? latitude : null,
+    longitude: Number.isFinite(longitude) ? longitude : null,
+    raw: item.raw || item,
+  };
+}
+
+function getSuggestionLabel(item = {}) {
+  const normalized = normalizePlaceSuggestion(item);
+  return (
+    normalized.label ||
+    normalized.formattedAddress ||
+    normalized.description ||
+    normalized.name ||
+    ""
+  );
+}
+
+function getSuggestionCoordinates(item = {}) {
+  const normalized = normalizePlaceSuggestion(item);
+  if (
+    !Number.isFinite(Number(normalized.latitude)) ||
+    !Number.isFinite(Number(normalized.longitude))
+  ) {
+    return null;
+  }
+
+  return {
+    latitude: Number(normalized.latitude),
+    longitude: Number(normalized.longitude),
+  };
 }
 
 async function readStorageItem(key) {
@@ -269,6 +433,7 @@ export default function BookingWizardScreen({ route, navigation }) {
   const fieldLayouts = useRef({});
   const focusedFieldRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
+  const locationSearchRequestRef = useRef({ destination: 0, pickupLocation: 0 });
   const { width } = useWindowDimensions();
   const isCompactScreen = width < 375;
   const incomingDraft = route?.params?.bookingDraft || null;
@@ -342,13 +507,38 @@ export default function BookingWizardScreen({ route, navigation }) {
   );
   const [hasEditedSchedule, setHasEditedSchedule] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [activeLocationField, setActiveLocationField] = useState("");
+  const [destinationSuggestions, setDestinationSuggestions] = useState([]);
+  const [pickupSuggestions, setPickupSuggestions] = useState([]);
+  const [isLoadingDestinationSuggestions, setIsLoadingDestinationSuggestions] = useState(false);
+  const [isLoadingPickupSuggestions, setIsLoadingPickupSuggestions] = useState(false);
+  const [locationSuggestionsError, setLocationSuggestionsError] = useState({
+    destination: "",
+    pickupLocation: "",
+  });
+  const [completedLocationQueries, setCompletedLocationQueries] = useState({
+    destination: "",
+    pickupLocation: "",
+  });
   const [locationPins, setLocationPins] = useState({
-    pickup: null,
-    destination: null,
+    pickup: buildLocationPin(
+      incomingTrip?.pickupCoords || incomingTrip?.pickupCoordinates || route?.params?.pickupCoords,
+      initialSchedule.pickupLocation
+    ),
+    destination: buildLocationPin(
+      incomingTrip?.destinationCoords ||
+        incomingTrip?.destinationCoordinates ||
+        route?.params?.destinationCoords,
+      initialSchedule.destination
+    ),
   });
   const [locationPicker, setLocationPicker] = useState({
     visible: false,
     mode: "destination",
+    location: null,
+    statusMessage: "",
+    errorMessage: "",
+    isResolving: false,
   });
 
   const [picker, setPicker] = useState(null);
@@ -379,6 +569,7 @@ export default function BookingWizardScreen({ route, navigation }) {
         rentalType: tripType,
         tripType,
         withDriver: tripType === "with-driver",
+        paymentOption,
       }),
     [
       incomingVehicle,
@@ -387,20 +578,30 @@ export default function BookingWizardScreen({ route, navigation }) {
       schedule.startDate,
       schedule.startTime,
       selectedVehicle,
+      paymentOption,
       tripType,
     ]
   );
   const totalPrice = Number(rentalPricing.subtotal || pricingPreview?.estimatedTotal || 0);
-  const downPayment = Number(totalPrice > 0 ? totalPrice * 0.5 : pricingPreview?.downPayment || 0);
-  const remainingBalance = Math.max(
-    0,
-    Number(totalPrice > 0 ? totalPrice - downPayment : pricingPreview?.remainingBalance || 0)
+  const defaultDeposit = Number(totalPrice > 0 ? totalPrice * 0.5 : pricingPreview?.downPayment || 0);
+  const invoiceAmountDue = Number(
+    paymentOption
+      ? rentalPricing.amountDue || 0
+      : totalPrice > 0
+      ? defaultDeposit
+      : pricingPreview?.downPayment || 0
   );
+  const remainingBalance = Number(
+    paymentOption
+      ? rentalPricing.remainingBalance || 0
+      : Math.max(0, Number(totalPrice > 0 ? totalPrice - defaultDeposit : pricingPreview?.remainingBalance || 0))
+  );
+  const downPayment = invoiceAmountDue;
   const scrollBottomPadding =
-    Math.max(260, keyboardHeight ? keyboardHeight + 120 : 180) + insets.bottom;
-
-  // TODO: Send pickup/destination coordinates once backend supports map pin fields.
-  // TODO: Replace placeholder with real MapView/geocoding when API is ready.
+    Math.max(
+      keyboardHeight ? keyboardHeight + 160 : BOOKING_BOTTOM_PADDING,
+      keyboardHeight ? BOOKING_BOTTOM_PADDING_WITH_KEYBOARD : BOOKING_BOTTOM_PADDING
+    ) + insets.bottom;
 
   const handleFieldLayout = (key, event) => {
     const { y = 0, height = 0 } = event?.nativeEvent?.layout || {};
@@ -654,7 +855,7 @@ export default function BookingWizardScreen({ route, navigation }) {
   const recommendedVehicles = useMemo(() => {
     const list = vehicles.filter((vehicle) => {
       const seats = Number(vehicle.seater || vehicle.seats || 0);
-      const rate = Number(vehicle.dailyRate || 0);
+      const rate = Number(getVehicleDailyRate(vehicle) || 0);
       const transmission = String(vehicle.transmission || "").toLowerCase();
       const status = String(vehicle.status || vehicle.availability || "").toLowerCase();
 
@@ -672,20 +873,112 @@ export default function BookingWizardScreen({ route, navigation }) {
       return true;
     });
 
-    return list.sort((a, b) => Number(a.dailyRate || 0) - Number(b.dailyRate || 0));
+    return list.sort((a, b) => Number(getVehicleDailyRate(a) || 0) - Number(getVehicleDailyRate(b) || 0));
   }, [vehicles, preferences]);
+
+  useEffect(() => {
+    const currentField =
+      activeLocationField === "destination" || activeLocationField === "pickupLocation"
+        ? activeLocationField
+        : "";
+
+    if (!currentField || !hasGooglePlacesApiKey()) {
+      if (currentField === "destination") {
+        setIsLoadingDestinationSuggestions(false);
+      }
+      if (currentField === "pickupLocation") {
+        setIsLoadingPickupSuggestions(false);
+      }
+      return undefined;
+    }
+
+    const query = String(
+      currentField === "destination" ? schedule.destination : schedule.pickupLocation
+    ).trim();
+
+    if (query.length < MIN_LOCATION_QUERY_LENGTH) {
+      if (currentField === "destination") {
+        setDestinationSuggestions([]);
+        setIsLoadingDestinationSuggestions(false);
+      } else {
+        setPickupSuggestions([]);
+        setIsLoadingPickupSuggestions(false);
+      }
+      setCompletedLocationQueries((prev) => ({ ...prev, [currentField]: "" }));
+      setLocationSuggestionsError((prev) => ({ ...prev, [currentField]: "" }));
+      return undefined;
+    }
+
+    const requestId = (locationSearchRequestRef.current[currentField] || 0) + 1;
+    locationSearchRequestRef.current[currentField] = requestId;
+    const setLoading =
+      currentField === "destination"
+        ? setIsLoadingDestinationSuggestions
+        : setIsLoadingPickupSuggestions;
+    const setSuggestions =
+      currentField === "destination" ? setDestinationSuggestions : setPickupSuggestions;
+
+    setLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const response = await searchPlaces(query);
+        if (locationSearchRequestRef.current[currentField] !== requestId) return;
+        setSuggestions(
+          Array.isArray(response?.suggestions)
+            ? response.suggestions.map(normalizePlaceSuggestion)
+            : []
+        );
+        setCompletedLocationQueries((prev) => ({ ...prev, [currentField]: query }));
+        setLocationSuggestionsError((prev) => ({ ...prev, [currentField]: "" }));
+      } catch (error) {
+        if (locationSearchRequestRef.current[currentField] !== requestId) return;
+        setSuggestions([]);
+        setCompletedLocationQueries((prev) => ({ ...prev, [currentField]: query }));
+        setLocationSuggestionsError((prev) => ({
+          ...prev,
+          [currentField]:
+            error?.code === "GOOGLE_MAPS_KEY_MISSING"
+              ? "Location suggestions are unavailable in this build."
+              : "Location suggestions are unavailable. You can still type manually.",
+        }));
+      } finally {
+        if (locationSearchRequestRef.current[currentField] === requestId) {
+          setLoading(false);
+        }
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [activeLocationField, schedule.destination, schedule.pickupLocation]);
+
+  const clearSuggestionState = (field) => {
+    if (field === "destination") {
+      setDestinationSuggestions([]);
+      setIsLoadingDestinationSuggestions(false);
+    } else {
+      setPickupSuggestions([]);
+      setIsLoadingPickupSuggestions(false);
+    }
+    setCompletedLocationQueries((prev) => ({ ...prev, [field]: "" }));
+  };
 
   const updateSchedule = (key, value) => {
     setHasEditedSchedule(true);
     if (key === "destination" || key === "pickupLocation") {
       const pinKey = key === "destination" ? "destination" : "pickup";
+      const currentPin = pinKey === "destination" ? locationPins.destination : locationPins.pickup;
+      const nextValue = String(value || "").trim();
       setLocationPins((prev) => ({
         ...prev,
         [pinKey]:
-          prev[pinKey] && normalizePinnedLabel(prev[pinKey]?.label) !== normalizePinnedLabel(value)
+          currentPin &&
+          normalizePinnedLabel(currentPin?.label || currentPin?.address) !==
+            normalizePinnedLabel(nextValue)
             ? null
-            : prev[pinKey],
+            : currentPin,
       }));
+      setCompletedLocationQueries((prev) => ({ ...prev, [key]: "" }));
+      setLocationSuggestionsError((prev) => ({ ...prev, [key]: "" }));
     }
     setSchedule((prev) => {
       const next = { ...prev, [key]: value };
@@ -701,35 +994,246 @@ export default function BookingWizardScreen({ route, navigation }) {
     setErrors((prev) => ({ ...prev, [key]: "", endDate: key === "startDate" ? "" : prev.endDate, endTime: "" }));
   };
 
-  const openLocationPicker = (mode) => {
-    setLocationPicker({ visible: true, mode });
+  const handleLocationTextChange = (key, value) => {
+    setActiveLocationField(key);
+    updateSchedule(key, value);
+  };
+
+  const handleSelectLocationSuggestion = async (fieldKey, suggestion) => {
+    try {
+      const normalizedSuggestion = normalizePlaceSuggestion(suggestion);
+      const details = normalizedSuggestion.placeId
+        ? await getPlaceDetails(normalizedSuggestion.placeId)
+        : null;
+      const geocodedFallback =
+        !details && getSuggestionLabel(normalizedSuggestion)
+          ? await geocodeAddress(getSuggestionLabel(normalizedSuggestion))
+          : null;
+      const suggestionCoords = getSuggestionCoordinates(normalizedSuggestion);
+      const selected = normalizeLocationSelection({
+        ...(details || geocodedFallback || normalizedSuggestion || {}),
+        description:
+          details?.formattedAddress ||
+          geocodedFallback?.formattedAddress ||
+          normalizedSuggestion.formattedAddress ||
+          normalizedSuggestion.description ||
+          normalizedSuggestion.name,
+        latitude: details?.latitude ?? geocodedFallback?.latitude ?? suggestionCoords?.latitude,
+        longitude:
+          details?.longitude ?? geocodedFallback?.longitude ?? suggestionCoords?.longitude,
+        placeId:
+          details?.placeId || geocodedFallback?.placeId || normalizedSuggestion.placeId,
+        source: "suggestion",
+      });
+      const pinKey = fieldKey === "destination" ? "destination" : "pickup";
+      const resolvedLabel = getResolvedLocationLabel(
+        selected,
+        getSuggestionLabel(normalizedSuggestion)
+      );
+
+      setHasEditedSchedule(true);
+      setSchedule((prev) => ({
+        ...prev,
+        [fieldKey]: resolvedLabel || prev[fieldKey],
+      }));
+      setLocationPins((prev) => ({
+        ...prev,
+        [pinKey]: selected.latitude != null && selected.longitude != null
+          ? {
+              label: resolvedLabel || "Selected map location",
+              address: resolvedLabel || "Selected map location",
+              latitude: selected.latitude,
+              longitude: selected.longitude,
+              placeId: selected.placeId || "",
+              source: selected.source,
+            }
+          : null,
+      }));
+      clearSuggestionState(fieldKey);
+      setLocationSuggestionsError((prev) => ({ ...prev, [fieldKey]: "" }));
+      setErrors((prev) => ({ ...prev, [fieldKey]: "" }));
+      setActiveLocationField("");
+    } catch (error) {
+      setLocationSuggestionsError((prev) => ({
+        ...prev,
+        [fieldKey]: "We could not load this place. You can still type the address manually.",
+      }));
+    }
+  };
+
+  const handleLocationBlur = async (fieldKey) => {
+    setTimeout(() => {
+      setActiveLocationField((prev) => (prev === fieldKey ? "" : prev));
+    }, 180);
+
+    const value = String(schedule[fieldKey] || "").trim();
+    if (!value) return;
+
+    const pinKey = fieldKey === "destination" ? "destination" : "pickup";
+    if (
+      locationPins[pinKey] &&
+      normalizePinnedLabel(locationPins[pinKey]?.label || locationPins[pinKey]?.address) ===
+        normalizePinnedLabel(value)
+    ) {
+      return;
+    }
+
+    if (!hasGooglePlacesApiKey()) return;
+
+    try {
+      const result = await geocodeAddress(value);
+      if (!result?.latitude || !result?.longitude) return;
+
+      setLocationPins((prev) => ({
+        ...prev,
+        [pinKey]: {
+          label: getResolvedLocationLabel(result, value) || value,
+          address: getResolvedLocationLabel(result, value) || value,
+          latitude: result.latitude,
+          longitude: result.longitude,
+          placeId: result.placeId || "",
+          source: "geocoded",
+        },
+      }));
+    } catch {
+      // Manual address remains valid even if geocoding fails.
+    }
+  };
+
+  const openLocationPicker = async (mode) => {
+    const scheduleKey = mode === "pickup" ? "pickupLocation" : "destination";
+    const existingPin = mode === "pickup" ? locationPins.pickup : locationPins.destination;
+    const manualText = String(schedule[scheduleKey] || "").trim();
+    const existingLabel = getResolvedLocationLabel(existingPin, manualText);
+    const shouldResolveTypedText =
+      Boolean(manualText) &&
+      (!existingPin ||
+        isGenericLocationLabel(existingPin?.label) ||
+        normalizePinnedLabel(existingLabel) !== normalizePinnedLabel(manualText));
+
+    setLocationPicker({
+      visible: true,
+      mode,
+      location:
+        existingPin && existingLabel
+          ? {
+              ...existingPin,
+              label: existingLabel,
+              address: existingLabel,
+            }
+          : existingPin,
+      statusMessage: "",
+      errorMessage: "",
+      isResolving: false,
+    });
+
+    if (!shouldResolveTypedText || !hasGooglePlacesApiKey()) {
+      return;
+    }
+
+    setLocationPicker((prev) => ({
+      ...prev,
+      visible: true,
+      mode,
+      isResolving: true,
+      statusMessage: "Searching for this address on the map...",
+      errorMessage: "",
+    }));
+
+    try {
+      const resolved = await geocodeAddress(manualText);
+      const selection = normalizeLocationSelection({
+        ...(resolved || {}),
+        description: resolved?.formattedAddress || manualText,
+        source: "geocoded",
+      });
+
+      setLocationPicker((prev) => ({
+        ...prev,
+        location:
+          selection.latitude != null && selection.longitude != null
+            ? {
+                label: getResolvedLocationLabel(selection, manualText) || manualText,
+                address: getResolvedLocationLabel(selection, manualText) || manualText,
+                latitude: selection.latitude,
+                longitude: selection.longitude,
+                placeId: selection.placeId || "",
+                source: selection.source,
+              }
+            : null,
+        statusMessage:
+          selection.latitude != null && selection.longitude != null
+            ? "Resolved the typed address to map coordinates."
+            : "",
+        errorMessage:
+          selection.latitude != null && selection.longitude != null
+            ? ""
+            : "We could not locate this address on the map. You can still continue with the typed address.",
+        isResolving: false,
+      }));
+    } catch {
+      setLocationPicker((prev) => ({
+        ...prev,
+        isResolving: false,
+        statusMessage: "",
+        errorMessage:
+          "We could not locate this address on the map. You can still continue with the typed address.",
+      }));
+    }
   };
 
   const closeLocationPicker = () => {
-    setLocationPicker((prev) => ({ ...prev, visible: false }));
+    setLocationPicker((prev) => ({
+      ...prev,
+      visible: false,
+      location: null,
+      statusMessage: "",
+      errorMessage: "",
+      isResolving: false,
+    }));
   };
 
-  const handleConfirmLocationPin = (pin) => {
+  const handleConfirmLocationPin = async (pin) => {
     const isPickup = locationPicker.mode === "pickup";
     const pinKey = isPickup ? "pickup" : "destination";
     const scheduleKey = isPickup ? "pickupLocation" : "destination";
-    const fallbackLabel = isPickup ? "Pinned pickup location" : "Pinned destination";
+    const fallbackLabel = String(schedule[scheduleKey] || "").trim();
+    const nextLabel = getResolvedLocationLabel(pin, fallbackLabel);
+    let nextAddress = nextLabel;
+
+    if (pin?.latitude != null && pin?.longitude != null && hasGooglePlacesApiKey()) {
+      try {
+        const reverseResult = await reverseGeocode(pin.latitude, pin.longitude);
+        if (reverseResult?.formattedAddress) {
+          nextAddress = reverseResult.formattedAddress;
+        }
+      } catch {
+        nextAddress = nextLabel || fallbackLabel || "Selected map location";
+      }
+    }
+
+    const normalizedPin = buildLocationPin(
+      {
+        latitude: pin?.latitude,
+        longitude: pin?.longitude,
+        address: nextAddress,
+        placeId: pin?.placeId,
+      },
+      nextAddress
+    );
 
     setLocationPins((prev) => ({
       ...prev,
-      [pinKey]: {
-        label: pin?.label || fallbackLabel,
-        latitude: pin?.latitude ?? null,
-        longitude: pin?.longitude ?? null,
-        source: pin?.source || "placeholder",
-      },
+      [pinKey]: normalizedPin,
     }));
 
     setSchedule((prev) => ({
       ...prev,
-      [scheduleKey]: prev[scheduleKey]?.trim() ? prev[scheduleKey] : pin?.label || fallbackLabel,
+      [scheduleKey]: nextAddress || fallbackLabel || prev[scheduleKey],
     }));
 
+    clearSuggestionState(scheduleKey);
+    setLocationSuggestionsError((prev) => ({ ...prev, [scheduleKey]: "" }));
     setErrors((prev) => ({ ...prev, [scheduleKey]: "" }));
     closeLocationPicker();
   };
@@ -772,44 +1276,64 @@ export default function BookingWizardScreen({ route, navigation }) {
     };
   }, []);
 
-  const buildPendingGuestBooking = () => ({
-    selectedVehicle,
-    vehicleId: selectedVehicle?._id || selectedVehicle?.id || incomingVehicleId || route?.params?.vehicleId || "",
-    entryMode,
-    mode: route?.params?.mode || (isDirectBooking ? "direct" : ""),
-    pickupDate: schedule.startDate ? new Date(`${schedule.startDate}T00:00:00`).toISOString() : pickupDate || "",
-    returnDate: schedule.endDate ? new Date(`${schedule.endDate}T00:00:00`).toISOString() : returnDate || "",
-    pricingPreview: {
-      totalHours: rentalPricing.totalHours || 0,
-      billingLabel: rentalPricing.billingLabel || "",
-      estimatedTotal: totalPrice || 0,
-      downPayment: downPayment || 0,
-      remainingBalance: remainingBalance || 0,
-      vehicleTotal: rentalPricing.vehicleTotal || 0,
-      driverTotal: rentalPricing.driverTotal || 0,
-    },
-    tripData: {
-      ...(incomingTrip || {}),
-      destination: schedule.destination,
-      pickupLocation: schedule.pickupLocation,
-      startDate: schedule.startDate,
-      endDate: schedule.endDate,
-      startTime: schedule.startTime,
-      endTime: schedule.endTime,
-      passengers: preferences.passengers,
-      numberOfPax: preferences.passengers,
-      luggageBags: preferences.luggageBags,
-      transmission: preferences.transmission,
-      tripPurpose: preferences.tripPurpose,
-      purposeOfTravel,
-      withDriver: tripType === "with-driver",
-      tripType,
-    },
-    paymentMethod,
-    paymentOption,
-    selectedPaymentMethodId,
-    currentStep: currentStep >= 4 ? "review" : "payment",
-  });
+  const buildPendingGuestBooking = () => {
+    const pickupCoords = normalizeCoordinatePayload(locationPins.pickup);
+    const destinationCoords = normalizeCoordinatePayload(locationPins.destination);
+
+    return {
+      selectedVehicle,
+      vehicleId: selectedVehicle?._id || selectedVehicle?.id || incomingVehicleId || route?.params?.vehicleId || "",
+      entryMode,
+      mode: route?.params?.mode || (isDirectBooking ? "direct" : ""),
+      pickupDate: schedule.startDate ? new Date(`${schedule.startDate}T00:00:00`).toISOString() : pickupDate || "",
+      returnDate: schedule.endDate ? new Date(`${schedule.endDate}T00:00:00`).toISOString() : returnDate || "",
+      pricingPreview: {
+        totalHours: rentalPricing.totalHours || 0,
+        billingLabel: rentalPricing.billingLabel || "",
+        estimatedTotal: totalPrice || 0,
+        downPayment: downPayment || 0,
+        remainingBalance: remainingBalance || 0,
+        vehicleTotal: rentalPricing.vehicleTotal || 0,
+        driverTotal: rentalPricing.driverTotal || 0,
+      },
+      tripData: {
+        ...(incomingTrip || {}),
+        destination: schedule.destination,
+        pickupLocation: schedule.pickupLocation,
+        ...(pickupCoords
+          ? {
+              pickupCoords,
+              pickupCoordinates: pickupCoords,
+              pickupPlaceId: locationPins.pickup?.placeId || "",
+            }
+          : {}),
+        ...(destinationCoords
+          ? {
+              destinationCoords,
+              destinationCoordinates: destinationCoords,
+              destinationPlaceId: locationPins.destination?.placeId || "",
+            }
+          : {}),
+        startDate: schedule.startDate,
+        endDate: schedule.endDate,
+        startTime: schedule.startTime,
+        endTime: schedule.endTime,
+        passengers: preferences.passengers,
+        numberOfPax: preferences.passengers,
+        luggageBags: preferences.luggageBags,
+        transmission: preferences.transmission,
+        tripPurpose: preferences.tripPurpose,
+        purposeOfTravel,
+        withDriver: tripType === "with-driver",
+        tripType,
+      },
+      paymentMethod,
+      selectedPaymentMethodName: paymentMethod,
+      paymentOption,
+      selectedPaymentMethodId,
+      currentStep: currentStep >= 4 ? "review" : "payment",
+    };
+  };
 
   const savePendingGuestBooking = async () => {
     await writeStorageItem(
@@ -981,6 +1505,9 @@ export default function BookingWizardScreen({ route, navigation }) {
       throw error;
     }
 
+    const pickupCoords = normalizeCoordinatePayload(locationPins.pickup);
+    const destinationCoords = normalizeCoordinatePayload(locationPins.destination);
+
     return {
       vehicleId: selectedVehicle?._id || selectedVehicle?.id,
       destination: schedule.destination,
@@ -1000,6 +1527,18 @@ export default function BookingWizardScreen({ route, navigation }) {
       paymentMethod,
       paymentOption,
       currentStep: "submitted",
+      ...(pickupCoords
+        ? {
+            pickupCoords,
+            pickupPlaceId: locationPins.pickup?.placeId || "",
+          }
+        : {}),
+      ...(destinationCoords
+        ? {
+            destinationCoords,
+            destinationPlaceId: locationPins.destination?.placeId || "",
+          }
+        : {}),
     };
   };
 
@@ -1321,6 +1860,8 @@ export default function BookingWizardScreen({ route, navigation }) {
           <TouchableOpacity
             style={styles.changeVehicleButton}
             onPress={handleChangeVehicle}
+            hitSlop={SMALL_HIT_SLOP}
+            activeOpacity={0.85}
           >
             <Text style={styles.changeVehicleButtonText}>Change Vehicle</Text>
           </TouchableOpacity>
@@ -1382,11 +1923,13 @@ export default function BookingWizardScreen({ route, navigation }) {
           <Feather name="map-pin" size={18} color="#98A2B3" />
           <TextInput
             value={schedule.destination}
-            onChangeText={(value) => updateSchedule("destination", value)}
+            onChangeText={(value) => handleLocationTextChange("destination", value)}
             placeholder="e.g. Tagaytay, Batangas, Baguio"
             placeholderTextColor="#98A2B3"
             style={styles.input}
             returnKeyType="next"
+            onFocus={() => setActiveLocationField("destination")}
+            onBlur={() => handleLocationBlur("destination")}
           />
           <TouchableOpacity
             style={[
@@ -1395,6 +1938,7 @@ export default function BookingWizardScreen({ route, navigation }) {
             ]}
             activeOpacity={0.9}
             onPress={() => openLocationPicker("destination")}
+            hitSlop={SMALL_HIT_SLOP}
           >
             <Ionicons
               name="location"
@@ -1403,16 +1947,65 @@ export default function BookingWizardScreen({ route, navigation }) {
             />
           </TouchableOpacity>
         </View>
-        <Text
-          style={[
-            styles.locationStatusText,
-            locationPins.destination && styles.locationStatusTextActive,
-          ]}
-        >
-          {locationPins.destination ? "Destination pin selected" : "Manual entry only"}
-        </Text>
+        {activeLocationField === "destination" && isLoadingDestinationSuggestions ? (
+          <View style={styles.suggestionStateCard}>
+            <Text style={styles.suggestionStateText}>Searching locations...</Text>
+          </View>
+        ) : null}
+        {activeLocationField === "destination" &&
+        !isLoadingDestinationSuggestions &&
+        destinationSuggestions.length ? (
+          <View style={styles.suggestionsCard}>
+            {destinationSuggestions.map((item) => (
+              <TouchableOpacity
+                key={`${item.id || item.placeId || item.description}-${item.secondaryText || ""}`}
+                style={styles.suggestionRow}
+                activeOpacity={0.85}
+                onPress={() => handleSelectLocationSuggestion("destination", item)}
+              >
+                <Ionicons name="location-outline" size={16} color="#F47C20" />
+                <View style={styles.suggestionTextWrap}>
+                  <Text style={styles.suggestionTitle}>
+                    {item.label || item.name || getSuggestionLabel(item)}
+                  </Text>
+                  {item.secondaryText ? (
+                    <Text style={styles.suggestionSubtitle}>{item.secondaryText}</Text>
+                  ) : item.description && item.description !== item.name ? (
+                    <Text style={styles.suggestionSubtitle}>{item.description}</Text>
+                  ) : null}
+                </View>
+              </TouchableOpacity>
+            ))}
+            <View style={styles.suggestionFooter}>
+              <Text style={styles.suggestionFooterText}>Suggestions powered by Google</Text>
+            </View>
+          </View>
+        ) : null}
+        {activeLocationField === "destination" &&
+        !isLoadingDestinationSuggestions &&
+        !destinationSuggestions.length &&
+        schedule.destination.trim().length >= MIN_LOCATION_QUERY_LENGTH &&
+        completedLocationQueries.destination === schedule.destination.trim() &&
+        !locationSuggestionsError.destination ? (
+          <View style={styles.suggestionStateCard}>
+            <Text style={styles.suggestionStateText}>No matching locations found.</Text>
+          </View>
+        ) : null}
+        {!!locationSuggestionsError.destination ? (
+          <Text style={styles.locationHelperErrorText}>{locationSuggestionsError.destination}</Text>
+        ) : null}
+        {locationPins.destination ? (
+          <Text
+            style={[
+              styles.locationStatusText,
+              locationPins.destination && styles.locationStatusTextActive,
+            ]}
+          >
+            Pinned location selected
+          </Text>
+        ) : null}
         <Text style={styles.locationHelperText}>
-          Optional: use the pin button if you prefer selecting on a map.
+          Optional: type an address or use the pin button.
         </Text>
         {!!errors.destination && <Text style={styles.errorText}>{errors.destination}</Text>}
       </View>
@@ -1437,16 +2030,19 @@ export default function BookingWizardScreen({ route, navigation }) {
           <Feather name="navigation" size={18} color="#98A2B3" />
           <TextInput
             value={schedule.pickupLocation}
-            onChangeText={(value) => updateSchedule("pickupLocation", value)}
+            onChangeText={(value) => handleLocationTextChange("pickupLocation", value)}
             placeholder="Enter full pickup address"
             placeholderTextColor="#98A2B3"
             style={[styles.input, styles.multilineInput]}
             multiline
+            onFocus={() => setActiveLocationField("pickupLocation")}
+            onBlur={() => handleLocationBlur("pickupLocation")}
           />
           <TouchableOpacity
             style={[styles.locationPinButton, locationPins.pickup && styles.locationPinButtonActive]}
             activeOpacity={0.9}
             onPress={() => openLocationPicker("pickup")}
+            hitSlop={SMALL_HIT_SLOP}
           >
             <Ionicons
               name="location"
@@ -1455,16 +2051,65 @@ export default function BookingWizardScreen({ route, navigation }) {
             />
           </TouchableOpacity>
         </View>
-        <Text
-          style={[
-            styles.locationStatusText,
-            locationPins.pickup && styles.locationStatusTextActive,
-          ]}
-        >
-          {locationPins.pickup ? "Pickup pin selected" : "Manual entry only"}
-        </Text>
+        {activeLocationField === "pickupLocation" && isLoadingPickupSuggestions ? (
+          <View style={styles.suggestionStateCard}>
+            <Text style={styles.suggestionStateText}>Searching locations...</Text>
+          </View>
+        ) : null}
+        {activeLocationField === "pickupLocation" &&
+        !isLoadingPickupSuggestions &&
+        pickupSuggestions.length ? (
+          <View style={styles.suggestionsCard}>
+            {pickupSuggestions.map((item) => (
+              <TouchableOpacity
+                key={`${item.id || item.placeId || item.description}-${item.secondaryText || ""}`}
+                style={styles.suggestionRow}
+                activeOpacity={0.85}
+                onPress={() => handleSelectLocationSuggestion("pickupLocation", item)}
+              >
+                <Ionicons name="location-outline" size={16} color="#F47C20" />
+                <View style={styles.suggestionTextWrap}>
+                  <Text style={styles.suggestionTitle}>
+                    {item.label || item.name || getSuggestionLabel(item)}
+                  </Text>
+                  {item.secondaryText ? (
+                    <Text style={styles.suggestionSubtitle}>{item.secondaryText}</Text>
+                  ) : item.description && item.description !== item.name ? (
+                    <Text style={styles.suggestionSubtitle}>{item.description}</Text>
+                  ) : null}
+                </View>
+              </TouchableOpacity>
+            ))}
+            <View style={styles.suggestionFooter}>
+              <Text style={styles.suggestionFooterText}>Suggestions powered by Google</Text>
+            </View>
+          </View>
+        ) : null}
+        {activeLocationField === "pickupLocation" &&
+        !isLoadingPickupSuggestions &&
+        !pickupSuggestions.length &&
+        schedule.pickupLocation.trim().length >= MIN_LOCATION_QUERY_LENGTH &&
+        completedLocationQueries.pickupLocation === schedule.pickupLocation.trim() &&
+        !locationSuggestionsError.pickupLocation ? (
+          <View style={styles.suggestionStateCard}>
+            <Text style={styles.suggestionStateText}>No matching locations found.</Text>
+          </View>
+        ) : null}
+        {!!locationSuggestionsError.pickupLocation ? (
+          <Text style={styles.locationHelperErrorText}>{locationSuggestionsError.pickupLocation}</Text>
+        ) : null}
+        {locationPins.pickup ? (
+          <Text
+            style={[
+              styles.locationStatusText,
+              locationPins.pickup && styles.locationStatusTextActive,
+            ]}
+          >
+            Pinned location selected
+          </Text>
+        ) : null}
         <Text style={styles.locationHelperText}>
-          Optional: use the pin button if you prefer selecting on a map.
+          Optional: type an address or use the pin button.
         </Text>
         {!!errors.pickupLocation && <Text style={styles.errorText}>{errors.pickupLocation}</Text>}
       </View>
@@ -1484,6 +2129,7 @@ export default function BookingWizardScreen({ route, navigation }) {
             <TouchableOpacity
               style={styles.pickerButton}
               onPress={() => openPicker(key)}
+              activeOpacity={0.85}
             >
               <Text style={value === "Not set" ? styles.placeholderText : styles.pickerText}>
                 {value}
@@ -1508,23 +2154,26 @@ export default function BookingWizardScreen({ route, navigation }) {
 
   const renderInlineActions = () => (
     <View style={[styles.inlineActionRow, isCompactScreen && styles.inlineActionRowStacked]}>
-      <TouchableOpacity
-        style={[styles.secondaryButton, isCompactScreen && styles.inlineActionButtonFull]}
-        onPress={handleBack}
-      >
+          <TouchableOpacity
+            style={[styles.secondaryButton, isCompactScreen && styles.inlineActionButtonFull]}
+            onPress={handleBack}
+            activeOpacity={0.85}
+          >
         <Text style={styles.secondaryButtonText}>Back</Text>
       </TouchableOpacity>
       {currentStep < 4 ? (
-        <TouchableOpacity
-          style={[styles.primaryButton, isCompactScreen && styles.inlineActionButtonFull]}
-          onPress={handleNext}
-        >
+          <TouchableOpacity
+            style={[styles.primaryButton, isCompactScreen && styles.inlineActionButtonFull]}
+            onPress={handleNext}
+            activeOpacity={0.9}
+          >
           <Text style={styles.primaryButtonText}>Continue</Text>
         </TouchableOpacity>
       ) : (
         <TouchableOpacity
           style={[styles.primaryButton, isCompactScreen && styles.inlineActionButtonFull]}
           onPress={() => (isDirectBooking ? setReviewVisible(true) : setCurrentStep(3))}
+          activeOpacity={0.9}
         >
           <Text style={styles.primaryButtonText}>
             {isDirectBooking ? "Review Booking" : "Edit Trip Details"}
@@ -1634,11 +2283,12 @@ export default function BookingWizardScreen({ route, navigation }) {
       <Text style={styles.label}>Luggage Bags</Text>
       <View style={styles.compactGrid}>
         {Array.from({ length: 10 }, (_, index) => index + 1).map((count) => (
-          <TouchableOpacity
-            key={count}
-            style={[styles.compactOption, preferences.luggageBags === count && styles.compactOptionActive]}
-            onPress={() => updatePreference("luggageBags", count)}
-          >
+            <TouchableOpacity
+              key={count}
+              style={[styles.compactOption, preferences.luggageBags === count && styles.compactOptionActive]}
+              onPress={() => updatePreference("luggageBags", count)}
+              activeOpacity={0.85}
+            >
             <MaterialCommunityIcons name="bag-suitcase-outline" size={17} color={preferences.luggageBags === count ? "#F47C20" : "#667085"} />
             <Text style={[styles.compactOptionText, preferences.luggageBags === count && styles.compactOptionTextActive]}>
               {count}
@@ -1650,11 +2300,12 @@ export default function BookingWizardScreen({ route, navigation }) {
       <Text style={styles.label}>Transmission Preference</Text>
       <View style={styles.segmentRow}>
         {TRANSMISSION_OPTIONS.map((item) => (
-          <TouchableOpacity
-            key={item.id}
-            style={[styles.segment, preferences.transmission === item.id && styles.segmentActive]}
-            onPress={() => updatePreference("transmission", item.id)}
-          >
+            <TouchableOpacity
+              key={item.id}
+              style={[styles.segment, preferences.transmission === item.id && styles.segmentActive]}
+              onPress={() => updatePreference("transmission", item.id)}
+              activeOpacity={0.85}
+            >
             <Text style={[styles.segmentText, preferences.transmission === item.id && styles.segmentTextActive]}>
               {item.label}
             </Text>
@@ -1669,6 +2320,7 @@ export default function BookingWizardScreen({ route, navigation }) {
             key={purpose}
             style={[styles.purposeOption, preferences.tripPurpose === purpose && styles.purposeOptionActive]}
             onPress={() => updatePreference("tripPurpose", purpose)}
+            activeOpacity={0.85}
           >
             <Text style={[styles.purposeText, preferences.tripPurpose === purpose && styles.purposeTextActive]}>
               {purpose}
@@ -1722,7 +2374,9 @@ export default function BookingWizardScreen({ route, navigation }) {
         <Text style={styles.vehicleMeta}>
           {vehicle.category || "Vehicle"} - {vehicle.seater || vehicle.seats || "N/A"} seater - {vehicle.transmission || "N/A"}
         </Text>
-        <Text style={styles.vehicleRate}>{formatPeso(vehicle.dailyRate)}/day</Text>
+        <Text style={styles.vehicleRate}>
+          {getVehicleDailyRate(vehicle) ? `${formatPeso(getVehicleDailyRate(vehicle))}/day` : "Rate unavailable"}
+        </Text>
         <TouchableOpacity
           style={styles.bookButton}
           onPress={() => {
@@ -1822,8 +2476,8 @@ export default function BookingWizardScreen({ route, navigation }) {
       <View style={styles.summaryCard}>
         <Text style={styles.summaryLabel}>Estimated Total</Text>
         <Text style={styles.summaryValue}>{formatPeso(totalPrice)}</Text>
-        <Text style={styles.summaryLabel}>Down Payment</Text>
-        <Text style={styles.summaryValue}>{formatPeso(downPayment)}</Text>
+        <Text style={styles.summaryLabel}>Amount Due</Text>
+        <Text style={styles.summaryValue}>{formatPeso(invoiceAmountDue)}</Text>
         <Text style={styles.summaryLabel}>Remaining Balance</Text>
         <Text style={styles.summaryValue}>{formatPeso(remainingBalance)}</Text>
       </View>
@@ -1842,9 +2496,9 @@ export default function BookingWizardScreen({ route, navigation }) {
       <View style={styles.successIcon}>
         <Ionicons name="checkmark" size={28} color="#FFFFFF" />
       </View>
-      <Text style={styles.successTitle}>Booking request submitted</Text>
+      <Text style={styles.successTitle}>Booking Request Submitted</Text>
       <Text style={styles.successSubtitle}>
-        Your booking is now pending FleetX review. Verification is reviewed before approval.
+        Your booking request has been sent to FleetX. Our team will review your booking details before issuing an invoice.
       </Text>
       <View style={styles.summaryCard}>
         <Text style={styles.summaryValue}>{success?.bookingReference || "Pending Reference"}</Text>
@@ -1860,10 +2514,18 @@ export default function BookingWizardScreen({ route, navigation }) {
   );
 
   const summaryRows = [
+    ["Selected Vehicle", getVehicleName(selectedVehicle || incomingVehicle)],
     ["Trip Type", getTripTypeLabel(tripType)],
-    ["Pickup Location", schedule.pickupLocation],
-    ["Destination", schedule.destination],
-    ["Schedule", `${formatDate(schedule.startDate)} ${formatTime(schedule.startTime)} to ${formatDate(schedule.endDate)} ${formatTime(schedule.endTime)}`],
+    [
+      "Pickup Location",
+      `${schedule.pickupLocation || "Not set"}${locationPins.pickup ? " (Pinned)" : " (Manual)"}`,
+    ],
+    [
+      "Destination",
+      `${schedule.destination || "Not set"}${locationPins.destination ? " (Pinned)" : " (Manual)"}`,
+    ],
+    ["Start", `${formatDate(schedule.startDate)} ${formatTime(schedule.startTime)}`],
+    ["End", `${formatDate(schedule.endDate)} ${formatTime(schedule.endTime)}`],
     ["Duration", rentalPricing.totalHours > 0 ? formatRentalHours(rentalPricing.totalHours) : "Not set"],
     ["Billing", rentalPricing.totalHours > 0 ? rentalPricing.billingLabel : "Not set"],
     ["Passengers", `${preferences.passengers}`],
@@ -1873,13 +2535,12 @@ export default function BookingWizardScreen({ route, navigation }) {
     ["Payment Method", paymentMethod || "Not selected"],
     ["Payment Option", paymentOption === "full_payment" ? "Full Payment" : paymentOption === "down_payment_50" ? "50% Down Payment" : "Not selected"],
     ["Estimated Total", formatPeso(totalPrice)],
-    ["Down Payment", formatPeso(downPayment)],
+    ["Required Down Payment / Deposit", formatPeso(invoiceAmountDue)],
     ["Remaining Balance", formatPeso(remainingBalance)],
     ["Verification", `${verificationLabel}. Verification is reviewed before approval.`],
   ];
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
           style={styles.container}
@@ -1890,7 +2551,6 @@ export default function BookingWizardScreen({ route, navigation }) {
             visible={successModalVisible}
             title="Booking Request Submitted"
             message="Your booking request has been sent to FleetX. Our team will review your booking details before issuing an invoice."
-            note="Updates usually appear within a few minutes to an hour."
             steps={[
               "FleetX will review your booking details.",
               "Once approved, your invoice will appear in My Bookings.",
@@ -1899,12 +2559,17 @@ export default function BookingWizardScreen({ route, navigation }) {
             ]}
             reference={success?.bookingReference || success?.referenceNo || "Pending Reference"}
             primaryActionLabel="View My Bookings"
-            secondaryActionLabel="Stay Here"
+            secondaryActionLabel={isDirectBooking ? "Browse Vehicles" : "Stay Here"}
             onPrimary={() => {
               setSuccessModalVisible(false);
               navigation.navigate("Bookings");
             }}
-            onSecondary={() => setSuccessModalVisible(false)}
+            onSecondary={() => {
+              setSuccessModalVisible(false);
+              if (isDirectBooking) {
+                navigation.navigate("BrowseMain");
+              }
+            }}
             onClose={() => setSuccessModalVisible(false)}
           />
           <LocationPickerModal
@@ -1915,11 +2580,14 @@ export default function BookingWizardScreen({ route, navigation }) {
                 ? locationPins.pickup
                 : locationPins.destination
             }
+            resolvedLocation={locationPicker.location}
             initialLabel={
               locationPicker.mode === "pickup"
                 ? schedule.pickupLocation
                 : schedule.destination
             }
+            statusMessage={locationPicker.statusMessage}
+            errorMessage={locationPicker.errorMessage}
             onClose={closeLocationPicker}
             onConfirm={handleConfirmLocationPin}
           />
@@ -1929,6 +2597,7 @@ export default function BookingWizardScreen({ route, navigation }) {
             keyboardDismissMode="interactive"
             showsVerticalScrollIndicator={false}
             contentInsetAdjustmentBehavior="automatic"
+            nestedScrollEnabled
             contentContainerStyle={[
               styles.contentContainer,
               { paddingBottom: scrollBottomPadding },
@@ -1941,7 +2610,11 @@ export default function BookingWizardScreen({ route, navigation }) {
                 {isDirectBooking ? "Book Selected Vehicle" : "Plan My Trip"}
               </Text>
             </View>
-            <TouchableOpacity onPress={() => navigation.navigate("Home")}>
+            <TouchableOpacity
+              onPress={() => navigation.navigate("Home")}
+              hitSlop={SMALL_HIT_SLOP}
+              activeOpacity={0.85}
+            >
               <Text style={styles.exitText}>Exit</Text>
             </TouchableOpacity>
           </View>
@@ -1985,11 +2658,13 @@ export default function BookingWizardScreen({ route, navigation }) {
           />
         )}
 
-          <Modal visible={reviewVisible} animationType="slide" transparent>
+          <Modal visible={reviewVisible} animationType="slide" transparent onRequestClose={() => setReviewVisible(false)}>
           <View style={styles.modalOverlay}>
             <View style={styles.reviewModal}>
               <ScrollView
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
                 contentContainerStyle={styles.reviewScrollContent}
               >
                 <Text style={styles.cardTitle}>Review Booking</Text>
@@ -2042,6 +2717,7 @@ export default function BookingWizardScreen({ route, navigation }) {
                                 setSelectedPaymentMethodId(method?._id || "");
                                 setPaymentMethod(method?.name || "");
                               }}
+                              activeOpacity={0.85}
                             >
                               <Text
                                 style={[
@@ -2076,6 +2752,7 @@ export default function BookingWizardScreen({ route, navigation }) {
                             isSelected && styles.paymentOptionCardSelected,
                           ]}
                           onPress={() => setPaymentOption(option.value)}
+                          activeOpacity={0.85}
                         >
                           <Text
                             style={[
@@ -2118,6 +2795,7 @@ export default function BookingWizardScreen({ route, navigation }) {
                       setReviewVisible(false);
                       setCurrentStep(isDirectBooking ? 2 : 3);
                     }}
+                    activeOpacity={0.85}
                   >
                     <Text style={styles.secondaryButtonText}>Edit Trip</Text>
                   </TouchableOpacity>
@@ -2128,6 +2806,7 @@ export default function BookingWizardScreen({ route, navigation }) {
                   ]}
                     onPress={submitBooking}
                     disabled={submitLoading || !acceptedTerms || Boolean(activeGate)}
+                    activeOpacity={0.9}
                   >
                     <Text style={styles.primaryButtonText}>
                       {submitLoading ? "Submitting..." : "Submit Booking"}
@@ -2138,6 +2817,7 @@ export default function BookingWizardScreen({ route, navigation }) {
                 <TouchableOpacity
                   style={styles.modalClose}
                   onPress={() => setReviewVisible(false)}
+                  activeOpacity={0.85}
                 >
                   <Text style={styles.modalCloseText}>
                     {isDirectBooking ? "Back to Booking" : "Back to Vehicles"}
@@ -2149,6 +2829,5 @@ export default function BookingWizardScreen({ route, navigation }) {
           </Modal>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </TouchableWithoutFeedback>
   );
 }

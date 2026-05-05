@@ -19,7 +19,7 @@ const BOOKING_STATUS_GROUPS = {
     label: "Awaiting Payment",
     subtext: "Complete your payment to proceed",
     tone: "payment",
-    statuses: ["pending_payment", "awaiting_payment", "invoice_issued"],
+    statuses: ["pending_payment", "awaiting_payment", "invoice_issued", "payment_rejected"],
   },
   under_review: {
     label: "Under Review",
@@ -43,7 +43,7 @@ const BOOKING_STATUS_GROUPS = {
     label: "Cancelled",
     subtext: "This booking has been cancelled",
     tone: "cancelled",
-    statuses: ["rejected", "cancelled", "cancelled_conflict", "expired", "payment_rejected"],
+    statuses: ["rejected", "cancelled", "cancelled_conflict", "expired"],
   },
 };
 

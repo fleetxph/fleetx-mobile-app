@@ -10,6 +10,7 @@ import {
   Image,
   SafeAreaView,
   ScrollView,
+  useWindowDimensions,
 } from "react-native";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { getVehicles } from "../api/clientApi";
@@ -107,6 +108,7 @@ function hasVehicleFeature(vehicle, feature) {
 }
 
 export default function BrowseVehicles({ navigation, route }) {
+  const { width } = useWindowDimensions();
   const tripData = route?.params?.tripData || null;
   const selectedCategoryFromRoute = route?.params?.selectedCategory || "All Types";
   const normalizedRouteCategory = VEHICLE_TYPE_OPTIONS.find(
@@ -125,6 +127,7 @@ export default function BrowseVehicles({ navigation, route }) {
   );
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [failedImages, setFailedImages] = useState({});
+  const isCompactHero = width < 380;
 
   const loadVehicles = async () => {
     try {
@@ -416,6 +419,8 @@ export default function BrowseVehicles({ navigation, route }) {
     const vehicleId = item?._id || item?.id || item?.plateNo;
     const imageUrl = getVehicleImageUrl(item);
     const failedKey = `vehicle-${vehicleId}`;
+    const vehicleName = `${item?.make || ""} ${item?.model || ""}`.trim() || "Vehicle";
+    const vehicleMeta = `${item?.year || "N/A"} • ${item?.location || "N/A"}`;
 
     return (
       <TouchableOpacity
@@ -428,41 +433,83 @@ export default function BrowseVehicles({ navigation, route }) {
           })
         }
       >
-        {imageUrl && !failedImages[failedKey] ? (
-          <Image
-            key={`${vehicleId || "vehicle"}-${imageUrl}`}
-            source={{ uri: imageUrl }}
-            style={styles.image}
-            onError={() => setFailedImages((prev) => ({ ...prev, [failedKey]: true }))}
-          />
-        ) : (
-          <View style={styles.imageFallback}>
-            <Text style={styles.imageFallbackText}>FleetDrive</Text>
-          </View>
-        )}
+        <View style={styles.cardAccentBar} />
 
-      <View style={styles.cardBody}>
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{item.category || "Vehicle"}</Text>
+        <View style={styles.imageWrap}>
+          {imageUrl && !failedImages[failedKey] ? (
+            <Image
+              key={`${vehicleId || "vehicle"}-${imageUrl}`}
+              source={{ uri: imageUrl }}
+              style={styles.image}
+              resizeMode="contain"
+              onError={() => setFailedImages((prev) => ({ ...prev, [failedKey]: true }))}
+            />
+          ) : (
+            <View style={styles.imageFallback}>
+              <Text style={styles.imageFallbackText}>FleetDrive</Text>
+            </View>
+          )}
         </View>
 
-        <Text style={styles.title}>
-          {item.make} {item.model}
-        </Text>
+        <View style={styles.cardBody}>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{item.category || "Vehicle"}</Text>
+          </View>
 
-        <Text style={styles.meta}>
-          {item.year || "N/A"} | {item.location || "N/A"}
-        </Text>
+          <View style={styles.cardTextBlock}>
+            <Text style={styles.title} numberOfLines={2}>
+              {vehicleName}
+            </Text>
 
-        <Text style={styles.price}>PHP {getVehicleRate(item).toLocaleString()}/day</Text>
-      </View>
-    </TouchableOpacity>
+            <Text style={styles.meta} numberOfLines={2}>
+              {vehicleMeta}
+            </Text>
+          </View>
+
+          <View style={styles.priceRow}>
+            <Text style={styles.price}>PHP {getVehicleRate(item).toLocaleString()}/day</Text>
+          </View>
+        </View>
+      </TouchableOpacity>
     );
   };
 
   const renderHeader = () => (
     <View style={styles.listHeader}>
-      <Text style={styles.header}>Browse Cars</Text>
+      <View style={styles.heroHeaderCard}>
+        <View style={styles.heroHeaderGlow} />
+        <View style={styles.heroHeaderAccent} />
+        <View
+          style={[
+            styles.heroHeaderContentRow,
+            isCompactHero && styles.heroHeaderContentStack,
+          ]}
+        >
+          <View style={styles.heroHeaderTextBlock}>
+            <View style={styles.heroHeaderBadge}>
+              <Ionicons name="car-sport-outline" size={14} color="#F97316" />
+              <Text style={styles.heroHeaderBadgeText}>PREMIUM VEHICLE SELECTION</Text>
+            </View>
+
+            <Text style={styles.header}>Browse Cars</Text>
+            <Text style={styles.headerSubtext}>Find the right ride for your next trip.</Text>
+          </View>
+
+          <View
+            style={[
+              styles.heroVehicleWrap,
+              isCompactHero && styles.heroVehicleWrapCompact,
+            ]}
+          >
+            <View style={styles.heroVehiclePlate} />
+            <Image
+              source={require("../../assets/Inovva.png")}
+              style={styles.heroVehicleImage}
+              resizeMode="contain"
+            />
+          </View>
+        </View>
+      </View>
 
       {tripData && (
         <View style={styles.tripSummaryCard}>
@@ -574,10 +621,12 @@ export default function BrowseVehicles({ navigation, route }) {
         ) : null}
       </View>
 
-      <Text style={styles.resultText}>
-        {filteredVehicles.length} result
-        {filteredVehicles.length !== 1 ? "s" : ""}
-      </Text>
+      <View style={styles.resultRow}>
+        <Text style={styles.resultText}>
+          {filteredVehicles.length} result
+          {filteredVehicles.length !== 1 ? "s" : ""}
+        </Text>
+      </View>
     </View>
   );
 
