@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "mobile-app-clean",
+    "name": "FleetX",
     "slug": "mobile-app-clean",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "mobileappclean",
+    "icon": "./assets/logo.png",
+    "scheme": "fleetx",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -13,28 +13,26 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#ffffff",
+        "foregroundImage": "./assets/logo.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.fleetx.app"
     },
     "web": {
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/logo.png"
     },
     "plugins": [
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#ffffff"
           }
         }
       ],
@@ -45,8 +43,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "ef0ea81f-c0e8-490e-9f80-a7c56bc2d668"
+        "projectId": "9d86bbdb-e7aa-4a47-9657-69be890919a6"
       }
-    }
+    },
+    "owner": "ash060505"
   }
 }
