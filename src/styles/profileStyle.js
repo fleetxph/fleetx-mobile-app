@@ -156,6 +156,14 @@ export const styles = StyleSheet.create({
     marginLeft: 65,
   },
 
+  notificationNotice: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#c2410c",
+  },
+
   smallBadge: {
     paddingHorizontal: 10,
     paddingVertical: 5,

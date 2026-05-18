@@ -27,6 +27,10 @@ import {
   isAwaitingPaymentBooking,
 } from "../utils/bookingPaymentDisplay";
 import { openPdf, showPdfError } from "../utils/pdfUtils";
+import {
+  notifyWithVibration,
+  syncStoredBookingStatusSnapshot,
+} from "../services/notificationService";
 
 function getVehicle(booking) {
   return booking?.vehicleId || booking?.vehicle || {};
@@ -403,6 +407,20 @@ export default function BookedVehicleDetails({ navigation, route }) {
                   prev?.cancellationReason ||
                   "Cancelled from mobile app.",
               }));
+              await syncStoredBookingStatusSnapshot([
+                updatedBooking
+                  ? { ...booking, ...updatedBooking }
+                  : { ...booking, status: "cancelled", bookingStatus: "cancelled" },
+              ]);
+              await notifyWithVibration({
+                title: "Booking cancelled",
+                body: "Your booking has been cancelled.",
+                data: {
+                  bookingId,
+                  bookingReference: bookingRef,
+                  notificationType: "booking_cancelled",
+                },
+              });
             } catch (err) {
               if (__DEV__) {
                 console.log("[BookingCancel][response]", {

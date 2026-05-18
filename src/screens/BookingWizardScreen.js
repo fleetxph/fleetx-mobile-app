@@ -26,6 +26,7 @@ import {
   estimateRouteMinimumDuration,
   getClientProfile,
   getPublicPaymentMethods,
+  getVehicleBookings,
   getVehicles,
   getVehicleById,
   getVerificationStatus,
@@ -43,6 +44,17 @@ import {
 import LocationPickerModal from "../components/LocationPickerModal";
 import SuccessInfoModal from "../components/SuccessInfoModal";
 import { styles } from "../styles/bookingWizardStyle";
+import {
+  addDays,
+  buildUnavailableDateKeys,
+  doesRangeContainBookedDate,
+  getCalendarMarkedDates,
+  getDateKey,
+  getMonthLabel,
+  getMonthStart,
+  isDateBooked,
+  toMidnight,
+} from "../utils/bookingCalendar";
 import {
   ceilDateToThirtyMinutes,
   combineDateAndTime,
@@ -76,6 +88,15 @@ import {
   formatPaymentMethodName,
   getPaymentMethodSelectionKey,
 } from "../utils/paymentMethods";
+import {
+  notifyWithVibration,
+  syncStoredBookingStatusSnapshot,
+} from "../services/notificationService";
+import {
+  clearStoredBookingIntent,
+  PENDING_GUEST_BOOKING_KEY,
+  saveStoredBookingIntent,
+} from "../utils/bookingState";
 
 const TRIP_TYPES = [
   {
@@ -159,7 +180,6 @@ const PICKUP_OPTION_OPTIONS = [
   },
 ];
 
-const PENDING_GUEST_BOOKING_KEY = "pendingGuestBooking";
 const MIN_LOCATION_QUERY_LENGTH = 2;
 const KEYBOARD_FOCUS_DELAY = 300;
 const KEYBOARD_RESYNC_DELAY = 60;
@@ -625,15 +645,6 @@ async function readStorageItem(key) {
   return (await AsyncStorage.getItem(key)) || "";
 }
 
-async function writeStorageItem(key, value) {
-  if (Platform.OS === "web") {
-    window.localStorage.setItem(key, value);
-    return;
-  }
-
-  await AsyncStorage.setItem(key, value);
-}
-
 function createEmptyLocationRestrictions() {
   return {
     destination: {
@@ -888,6 +899,14 @@ export default function BookingWizardScreen({ route, navigation }) {
   const returnDate = route?.params?.returnDate;
   const pricingPreview = route?.params?.pricingPreview || route?.params?.bookingPreview || null;
   const entryMode = route?.params?.entryMode || route?.params?.mode || "";
+  const hasExplicitVehicleSelectionIntent = Boolean(
+    entryMode === "directVehicle" ||
+      entryMode === "direct" ||
+      route?.params?.mode === "direct" ||
+      route?.params?.selectedVehicle ||
+      route?.params?.vehicle ||
+      route?.params?.vehicleId
+  );
   const isDirectBooking =
     entryMode === "directVehicle" ||
     entryMode === "direct" ||
@@ -927,6 +946,8 @@ export default function BookingWizardScreen({ route, navigation }) {
   const [verificationLabel, setVerificationLabel] = useState("Not Verified");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [failedImages, setFailedImages] = useState({});
+  const [availabilityNotice, setAvailabilityNotice] = useState("");
+  const [bookedRanges, setBookedRanges] = useState([]);
   const [paymentMethods, setPaymentMethods] = useState([]);
   const [paymentMethodsLoading, setPaymentMethodsLoading] = useState(false);
   const [paymentMethodsError, setPaymentMethodsError] = useState("");
@@ -1043,6 +1064,12 @@ export default function BookingWizardScreen({ route, navigation }) {
 
   const [picker, setPicker] = useState(null);
   const [schedule, setSchedule] = useState(initialSchedule);
+  const [activeCalendarField, setActiveCalendarField] = useState(
+    initialSchedule.startDate && !initialSchedule.endDate ? "endDate" : "startDate"
+  );
+  const [calendarMonth, setCalendarMonth] = useState(
+    getMonthStart(initialSchedule.startDate || new Date())
+  );
   const incomingTripPurpose =
     incomingTrip?.tripPurpose || incomingTrip?.purpose || incomingTrip?.purposeOfTravel || "";
   const resolvedTripPurpose = PURPOSE_OPTIONS.includes(incomingTripPurpose)
@@ -1082,6 +1109,12 @@ export default function BookingWizardScreen({ route, navigation }) {
   const effectiveBudget = isDirectBooking
     ? selectedVehicleRate ?? normalizeOptionalNumber(preferences.budget)
     : normalizeOptionalNumber(preferences.budget);
+  const selectedVehicleId =
+    selectedVehicle?._id ||
+    selectedVehicle?.id ||
+    incomingVehicleId ||
+    route?.params?.vehicleId ||
+    "";
   const rentalPricing = useMemo(
     () =>
       calculateRentalPricing({
@@ -1206,8 +1239,10 @@ export default function BookingWizardScreen({ route, navigation }) {
       blockerReason = "Select a destination.";
     } else if (!hasPickup) {
       blockerReason = "Select a pickup location.";
-    } else if (!hasStartDate || !hasStartTime || !hasEndDate || !hasEndTime) {
-      blockerReason = "Select valid start and end date/time.";
+    } else if (!hasStartDate || !hasEndDate) {
+      blockerReason = "Select your start and end dates.";
+    } else if (!hasStartTime || !hasEndTime) {
+      blockerReason = "Select valid start and end time.";
     } else if (scheduleDateError) {
       blockerReason = scheduleDateError.message || "Select valid start and end date/time.";
     } else if (locationRestrictions.destination?.isRestricted) {
@@ -1268,6 +1303,99 @@ export default function BookingWizardScreen({ route, navigation }) {
     scheduleDateError,
   ]);
   const shouldDisableContinue = currentStep === 2 ? !step2ValidationState.canContinue : false;
+  const selectedStartDateValue = useMemo(
+    () => (schedule.startDate ? toMidnight(new Date(`${schedule.startDate}T00:00:00`)) : null),
+    [schedule.startDate]
+  );
+  const selectedEndDateValue = useMemo(
+    () => (schedule.endDate ? toMidnight(new Date(`${schedule.endDate}T00:00:00`)) : null),
+    [schedule.endDate]
+  );
+  const unavailableDateKeys = useMemo(() => buildUnavailableDateKeys(bookedRanges), [bookedRanges]);
+  const calendarMarkedDates = useMemo(
+    () => getCalendarMarkedDates(bookedRanges, selectedStartDateValue, selectedEndDateValue),
+    [bookedRanges, selectedEndDateValue, selectedStartDateValue]
+  );
+  const calendarDays = useMemo(() => {
+    const monthStart = getMonthStart(calendarMonth);
+    const gridStart = addDays(monthStart, -monthStart.getDay());
+    return Array.from({ length: 42 }, (_, index) => addDays(gridStart, index));
+  }, [calendarMonth]);
+  const today = useMemo(() => toMidnight(new Date()), []);
+  const bookingCalendarStatus = useMemo(() => {
+    if (!schedule.startDate || !schedule.endDate) {
+      return {
+        tone: "neutral",
+        icon: "calendar-outline",
+        message: "Select your start and end dates.",
+      };
+    }
+
+    if (scheduleDateError) {
+      return {
+        tone: "error",
+        icon: "alert-circle-outline",
+        message: scheduleDateError.message || "Return date must be after pickup date.",
+      };
+    }
+
+    if (
+      selectedStartDateValue &&
+      selectedEndDateValue &&
+      doesRangeContainBookedDate(selectedStartDateValue, selectedEndDateValue, unavailableDateKeys)
+    ) {
+      return {
+        tone: "error",
+        icon: "alert-circle-outline",
+        message: "Selected range includes unavailable dates.",
+      };
+    }
+
+    if (
+      selectedRentalDuration.isComplete &&
+      selectedRentalDuration.rentalDays > 0 &&
+      selectedRentalDuration.rentalDays < destinationGuidance.minimumRentalDays
+    ) {
+      return {
+        tone: "error",
+        icon: "alert-circle-outline",
+        message: "Selected duration does not meet the minimum rental period.",
+      };
+    }
+
+    if (
+      schedule.startDate &&
+      schedule.endDate &&
+      schedule.startTime &&
+      schedule.endTime &&
+      rentalPricing.totalHours > 0
+    ) {
+      return {
+        tone: "success",
+        icon: "checkmark-circle",
+        message: "Valid date and time selected.",
+      };
+    }
+
+    return {
+      tone: "neutral",
+      icon: "calendar-outline",
+      message: "Select valid start and end time.",
+    };
+  }, [
+    destinationGuidance.minimumRentalDays,
+    rentalPricing.totalHours,
+    schedule.endDate,
+    schedule.endTime,
+    schedule.startDate,
+    schedule.startTime,
+    scheduleDateError,
+    selectedEndDateValue,
+    selectedRentalDuration.isComplete,
+    selectedRentalDuration.rentalDays,
+    selectedStartDateValue,
+    unavailableDateKeys,
+  ]);
   const scrollBottomPadding =
     Math.max(
       keyboardHeight ? keyboardHeight + 160 : BOOKING_BOTTOM_PADDING,
@@ -1837,6 +1965,85 @@ export default function BookingWizardScreen({ route, navigation }) {
   ]);
 
   useEffect(() => {
+    let isMounted = true;
+
+    const loadBookedRanges = async () => {
+      if (!selectedVehicleId) {
+        if (!isMounted) return;
+        setBookedRanges([]);
+        setAvailabilityNotice("");
+        if (__DEV__) {
+          console.log("[BookingCalendar][availability]", {
+            vehicleId: "",
+            unavailableCount: 0,
+            rangesCount: 0,
+          });
+        }
+        return;
+      }
+
+      try {
+        setAvailabilityNotice("");
+        const response = await getVehicleBookings(selectedVehicleId);
+        const ranges = Array.isArray(response?.bookings) ? response.bookings : [];
+        if (!isMounted) return;
+
+        setBookedRanges(ranges);
+        if (__DEV__) {
+          console.log("[BookingCalendar][availability]", {
+            vehicleId: selectedVehicleId,
+            unavailableCount: buildUnavailableDateKeys(ranges).size,
+            rangesCount: ranges.length,
+          });
+        }
+      } catch (error) {
+        if (!isMounted) return;
+        setBookedRanges([]);
+        setAvailabilityNotice(
+          "Booked dates could not be loaded right now. Please review your dates carefully before continuing."
+        );
+        if (__DEV__) {
+          console.log("[BookingCalendar][availability]", {
+            vehicleId: selectedVehicleId,
+            unavailableCount: 0,
+            rangesCount: 0,
+          });
+        }
+      }
+    };
+
+    loadBookedRanges();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedVehicleId]);
+
+  useEffect(() => {
+    if (selectedStartDateValue) {
+      setCalendarMonth(getMonthStart(selectedStartDateValue));
+    }
+  }, [selectedStartDateValue]);
+
+  useEffect(() => {
+    if (selectedStartDateValue && isDateBooked(selectedStartDateValue, unavailableDateKeys)) {
+      updateSchedule("startDate", "");
+      updateSchedule("endDate", "");
+      setActiveCalendarField("startDate");
+      return;
+    }
+
+    if (
+      selectedStartDateValue &&
+      selectedEndDateValue &&
+      doesRangeContainBookedDate(selectedStartDateValue, selectedEndDateValue, unavailableDateKeys)
+    ) {
+      updateSchedule("endDate", "");
+      setActiveCalendarField("endDate");
+    }
+  }, [selectedEndDateValue, selectedStartDateValue, unavailableDateKeys]);
+
+  useEffect(() => {
     if (currentStep !== 2) return;
 
     console.log("[BookingStep2][canContinue]", {
@@ -2385,7 +2592,101 @@ export default function BookingWizardScreen({ route, navigation }) {
     closeLocationPicker();
   };
 
+  const openBookingCalendar = (mode) => {
+    const resolvedMode = mode === "endDate" ? "endDate" : "startDate";
+    setActiveCalendarField(resolvedMode);
+
+    if (__DEV__) {
+      console.log("[BookingCalendar][open]", {
+        source: "BookingWizard",
+        mode: resolvedMode,
+        hasSelectedVehicle: Boolean(selectedVehicleId),
+        vehicleId: selectedVehicleId || "",
+      });
+    }
+  };
+
+  const handleBookingCalendarSelect = (selectedDate) => {
+    const nextDate = toMidnight(selectedDate);
+    if (!nextDate) return;
+
+    let blockedReason = "";
+
+    if (nextDate < today) {
+      blockedReason = "past_date";
+    } else if (selectedVehicleId && isDateBooked(nextDate, unavailableDateKeys)) {
+      blockedReason = "unavailable_date";
+    } else if (activeCalendarField === "endDate" && !selectedStartDateValue) {
+      blockedReason = "missing_start_date";
+    } else if (
+      activeCalendarField === "endDate" &&
+      selectedStartDateValue &&
+      nextDate <= selectedStartDateValue
+    ) {
+      blockedReason = "invalid_date_order";
+    } else if (
+      activeCalendarField === "endDate" &&
+      selectedStartDateValue &&
+      selectedVehicleId &&
+      doesRangeContainBookedDate(selectedStartDateValue, nextDate, unavailableDateKeys)
+    ) {
+      blockedReason = "range_has_unavailable_dates";
+    }
+
+    if (blockedReason === "past_date") {
+      Alert.alert("Unavailable date", "Past dates cannot be selected.");
+    } else if (blockedReason === "unavailable_date") {
+      Alert.alert("Unavailable date", "That date is already booked for this vehicle.");
+    } else if (blockedReason === "missing_start_date") {
+      Alert.alert("Start date required", "Please select a start date first.");
+      setActiveCalendarField("startDate");
+    } else if (blockedReason === "invalid_date_order") {
+      Alert.alert("Invalid return date", "Return date must be after pickup date.");
+    } else if (blockedReason === "range_has_unavailable_dates") {
+      Alert.alert("Date range unavailable", "Selected range includes unavailable dates.");
+    } else if (activeCalendarField === "startDate") {
+      updateSchedule("startDate", toDateInput(nextDate));
+      if (
+        selectedEndDateValue &&
+        (selectedEndDateValue <= nextDate ||
+          (selectedVehicleId &&
+            doesRangeContainBookedDate(nextDate, selectedEndDateValue, unavailableDateKeys)))
+      ) {
+        updateSchedule("endDate", "");
+      }
+      setActiveCalendarField("endDate");
+    } else {
+      updateSchedule("endDate", toDateInput(nextDate));
+    }
+
+    if (__DEV__) {
+      console.log("[BookingCalendar][select]", {
+        source: "BookingWizard",
+        selectedStartDate:
+          activeCalendarField === "startDate"
+            ? toDateInput(nextDate)
+            : schedule.startDate || "",
+        selectedEndDate:
+          activeCalendarField === "endDate" && !blockedReason
+            ? toDateInput(nextDate)
+            : activeCalendarField === "startDate" &&
+              selectedEndDateValue &&
+              selectedEndDateValue > nextDate &&
+              !(selectedVehicleId && doesRangeContainBookedDate(nextDate, selectedEndDateValue, unavailableDateKeys))
+            ? schedule.endDate || ""
+            : "",
+        rangeValid: !blockedReason,
+        blockedReason,
+      });
+    }
+  };
+
   const openPicker = (key) => {
+    if (key === "startDate" || key === "endDate") {
+      openBookingCalendar(key);
+      return;
+    }
+
     setPicker(key);
   };
 
@@ -2537,9 +2838,186 @@ export default function BookingWizardScreen({ route, navigation }) {
   };
 
   const savePendingGuestBooking = async () => {
-    await writeStorageItem(
-      PENDING_GUEST_BOOKING_KEY,
-      JSON.stringify(buildPendingGuestBooking())
+    await saveStoredBookingIntent(buildPendingGuestBooking(), PENDING_GUEST_BOOKING_KEY);
+  };
+
+  const resetBookingWizardState = async (reason) => {
+    const clearedSelectedVehicle = Boolean(selectedVehicle || incomingVehicle || incomingVehicleId);
+    const clearedDraft = Boolean(incomingDraft || currentStep > 1 || reviewVisible);
+
+    setCurrentStep(1);
+    setTripType("");
+    setErrors({});
+    setVehicles([]);
+    setSelectedVehicle(null);
+    setReviewVisible(false);
+    setSubmitLoading(false);
+    setActiveGate(null);
+    setSuccess(null);
+    setSuccessModalVisible(false);
+    setAcceptedTerms(false);
+    setAvailabilityNotice("");
+    setBookedRanges([]);
+    setSelectedPaymentMethodId("");
+    setPaymentMethod("");
+    setPaymentOption("");
+    setVehicleHandoffOption("");
+    setReturnArrangementType("");
+    setReturnPickupAddress("");
+    setReturnPickupCoordinates(null);
+    setReturnPickupFee("");
+    setReturnPickupFeeStatus("");
+    setReturnNotes("");
+    setPromoCode("");
+    setPromoFeedback({
+      status: "idle",
+      message: "Promo code will be validated before invoice issuance.",
+    });
+    setHasEditedSchedule(false);
+    setDestinationSuggestions([]);
+    setPickupSuggestions([]);
+    setLocationSuggestionsError({
+      destination: "",
+      pickupLocation: "",
+    });
+    setCompletedLocationQueries({
+      destination: "",
+      pickupLocation: "",
+    });
+    setLocationPins({
+      pickup: null,
+      destination: null,
+    });
+    setLocationPicker({
+      visible: false,
+      mode: "destination",
+      location: null,
+      statusMessage: "",
+      errorMessage: "",
+      isResolving: false,
+    });
+    setRestrictedAreaRules([]);
+    setRestrictedAreasMeta({
+      isLoading: false,
+      error: "",
+      source: "idle",
+    });
+    setLocationRestrictions(createEmptyLocationRestrictions());
+    setRouteValidation(createRouteValidationState());
+    setPicker(null);
+    setActiveCalendarField("startDate");
+    setCalendarMonth(getMonthStart(new Date()));
+    setSchedule(
+      resolveInitialSchedule({
+        route: { params: {} },
+        incomingTrip: {},
+        pickupDate: "",
+        returnDate: "",
+        isDirectBooking: false,
+      })
+    );
+    setPreferences({
+      passengers: 2,
+      budget: "",
+      luggageBags: 0,
+      luggageSize: "",
+      luggageWeightKg: "",
+      transmission: "any",
+      tripPurpose: "",
+      customPurpose: "",
+    });
+
+    if (route?.params) {
+      navigation.setParams?.({
+        selectedVehicle: undefined,
+        vehicle: undefined,
+        vehicleId: undefined,
+        bookingDraft: undefined,
+        tripData: undefined,
+        planData: undefined,
+        pickupDate: undefined,
+        returnDate: undefined,
+        pricingPreview: undefined,
+        bookingPreview: undefined,
+        paymentMethod: undefined,
+        paymentOption: undefined,
+        selectedPaymentMethodId: undefined,
+        entryMode: undefined,
+        mode: undefined,
+      });
+    }
+
+    await clearStoredBookingIntent({ reason, skipLog: true });
+
+    if (__DEV__) {
+      console.log("[BookingState][reset]", {
+        reason: reason || "wizard-reset",
+        clearedSelectedVehicle,
+        clearedDraft,
+      });
+    }
+  };
+
+  const hasUnsavedWizardInputs = Boolean(
+    currentStep > 1 ||
+      reviewVisible ||
+      hasEditedSchedule ||
+      schedule.destination.trim() ||
+      schedule.pickupLocation.trim() ||
+      paymentMethod ||
+      paymentOption ||
+      selectedPaymentMethodId ||
+      promoCode.trim() ||
+      returnPickupAddress.trim() ||
+      returnNotes.trim()
+  );
+
+  const openBrowseRoot = () => {
+    const currentRouteNames = navigation.getState?.()?.routeNames || [];
+
+    if (currentRouteNames.includes("BrowseMain")) {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "BrowseMain" }],
+      });
+      return;
+    }
+
+    navigation.navigate("Browse", {
+      screen: "BrowseMain",
+    });
+  };
+
+  const handleExitBookingWizard = (target = "Home") => {
+    const leaveWizard = async () => {
+      await resetBookingWizardState(`exit-to-${String(target || "home").toLowerCase()}`);
+
+      if (target === "Browse") {
+        openBrowseRoot();
+        return;
+      }
+
+      navigation.navigate("Home");
+    };
+
+    if (!hasUnsavedWizardInputs) {
+      leaveWizard();
+      return;
+    }
+
+    Alert.alert(
+      "Discard booking progress?",
+      "Your unsaved booking details will be cleared.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Discard",
+          style: "destructive",
+          onPress: () => {
+            leaveWizard();
+          },
+        },
+      ]
     );
   };
 
@@ -2719,6 +3197,11 @@ export default function BookingWizardScreen({ route, navigation }) {
 
   const handleBack = () => {
     if (currentStep === 1) {
+      if (hasExplicitVehicleSelectionIntent) {
+        handleExitBookingWizard("Browse");
+        return;
+      }
+
       navigation.goBack?.();
       return;
     }
@@ -3000,8 +3483,22 @@ export default function BookingWizardScreen({ route, navigation }) {
       const res = incomingDraft?._id
         ? await submitClientBookingDraft(incomingDraft._id, payload)
         : await createBooking(payload);
+      const submittedBooking = res?.booking || res;
+      await syncStoredBookingStatusSnapshot(submittedBooking ? [submittedBooking] : []);
+      await notifyWithVibration({
+        title: "Booking submitted",
+        body: "Your booking request has been submitted for review.",
+        data: {
+          bookingId:
+            submittedBooking?._id || submittedBooking?.id || submittedBooking?.bookingId || "",
+          bookingReference:
+            submittedBooking?.bookingReference || submittedBooking?.bookingCode || "",
+          notificationType: "booking_submitted",
+        },
+      });
+      await clearStoredBookingIntent({ reason: "booking-submitted" });
       setReviewVisible(false);
-      setSuccess(res?.booking || res);
+      setSuccess(submittedBooking);
       setSuccessModalVisible(true);
     } catch (err) {
       if (err?.code === "MISSING_CONTACT") {
@@ -3318,36 +3815,13 @@ export default function BookingWizardScreen({ route, navigation }) {
   );
 
   const handleChangeVehicle = () => {
-    if (!isDirectBooking) return;
+    if (!hasExplicitVehicleSelectionIntent) return;
 
-    navigation.navigate("BrowseMain", {
-      tripData: {
-        ...incomingTrip,
-        ...schedule,
-        passengers: preferences.passengers,
-        budget: preferences.budget,
-        transmission: preferences.transmission,
-        luggageCount: preferences.luggageBags,
-        luggageBags: preferences.luggageBags,
-        bagCount: preferences.luggageBags,
-        bags: preferences.luggageBags,
-        luggageSize: preferences.luggageSize,
-        luggageWeightKg: preferences.luggageWeightKg,
-        tripPurpose: preferences.tripPurpose,
-        customPurpose: preferences.customPurpose,
-        purposeOfTravel,
-        locationRestrictions,
-        routeValidation,
-        restrictedAreaRules:
-          restrictedAreasMeta.source === "backend" ? restrictedAreaRules : [],
-        promoCode,
-        promoFeedback,
-      },
-    });
+    handleExitBookingWizard("Browse");
   };
 
   const renderDirectVehicleCard = () => {
-    if (!isDirectBooking || !selectedVehicle) return null;
+    if (!hasExplicitVehicleSelectionIntent || !selectedVehicle) return null;
 
     return (
       <View style={styles.card}>
@@ -3663,11 +4137,151 @@ export default function BookingWizardScreen({ route, navigation }) {
         </View>
       ) : null}
 
+      {availabilityNotice ? (
+        <View style={styles.inlineNoticeWarning}>
+          <Ionicons name="calendar-outline" size={18} color="#B45309" />
+          <Text style={styles.inlineNoticeWarningText}>{availabilityNotice}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.dateFieldRow}>
+        <TouchableOpacity
+          onPress={() => openBookingCalendar("startDate")}
+          style={[
+            styles.dateFieldCard,
+            activeCalendarField === "startDate" && styles.dateFieldCardActive,
+          ]}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.label}>Start Date</Text>
+          <Text style={schedule.startDate ? styles.inputText : styles.placeholderText}>
+            {schedule.startDate ? formatDate(schedule.startDate) : "Select start date"}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => openBookingCalendar("endDate")}
+          style={[
+            styles.dateFieldCard,
+            activeCalendarField === "endDate" && styles.dateFieldCardActive,
+          ]}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.label}>End Date</Text>
+          <Text style={schedule.endDate ? styles.inputText : styles.placeholderText}>
+            {schedule.endDate ? formatDate(schedule.endDate) : "Select end date"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+      {!!errors.startDate && <Text style={styles.errorText}>{errors.startDate}</Text>}
+      {!!errors.endDate && <Text style={styles.errorText}>{errors.endDate}</Text>}
+
+      <View style={styles.calendarCard}>
+        <View style={styles.calendarHeader}>
+          <TouchableOpacity
+            style={styles.calendarNavButton}
+            onPress={() =>
+              setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
+            }
+            activeOpacity={0.85}
+          >
+            <Text style={styles.calendarNavText}>{"<"}</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.calendarMonthText}>{getMonthLabel(calendarMonth)}</Text>
+
+          <TouchableOpacity
+            style={styles.calendarNavButton}
+            onPress={() =>
+              setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
+            }
+            activeOpacity={0.85}
+          >
+            <Text style={styles.calendarNavText}>{">"}</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.calendarHint}>
+          {activeCalendarField === "startDate"
+            ? "Select your start date."
+            : selectedVehicleId
+            ? "Select your end date. Unavailable dates are blocked."
+            : "Select your end date."}
+        </Text>
+
+        <View style={styles.calendarWeekRow}>
+          {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day) => (
+            <Text key={day} style={styles.calendarWeekLabel}>
+              {day}
+            </Text>
+          ))}
+        </View>
+
+        <View style={styles.calendarGrid}>
+          {calendarDays.map((day) => {
+            const dayKey = getDateKey(day);
+            const isCurrentMonth = day.getMonth() === calendarMonth.getMonth();
+            const isPast = day < today;
+            const markerType = calendarMarkedDates[dayKey];
+            const blocked = selectedVehicleId && isDateBooked(day, unavailableDateKeys);
+            const beforeStart =
+              activeCalendarField === "endDate" &&
+              selectedStartDateValue &&
+              day <= selectedStartDateValue;
+            const disabled = isPast || blocked || beforeStart;
+            const isStart = markerType === "pickup";
+            const isEnd = markerType === "return";
+            const isInRange = markerType === "range";
+
+            return (
+              <TouchableOpacity
+                key={dayKey}
+                activeOpacity={disabled ? 1 : 0.85}
+                onPress={() => !disabled && handleBookingCalendarSelect(day)}
+                style={[
+                  styles.calendarDay,
+                  !isCurrentMonth && styles.calendarDayMuted,
+                  blocked && styles.calendarDayBlocked,
+                  isInRange && styles.calendarDayInRange,
+                  (isStart || isEnd) && styles.calendarDaySelected,
+                  disabled && styles.calendarDayDisabled,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.calendarDayText,
+                    !isCurrentMonth && styles.calendarDayTextMuted,
+                    blocked && styles.calendarDayTextBlocked,
+                    (isStart || isEnd) && styles.calendarDayTextSelected,
+                  ]}
+                >
+                  {day.getDate()}
+                </Text>
+                {blocked ? <View style={styles.calendarBlockedDot} /> : null}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={styles.calendarLegendRow}>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendSwatch, styles.legendSwatchSelected]} />
+            <Text style={styles.legendText}>Selected</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendSwatch, styles.legendSwatchRange]} />
+            <Text style={styles.legendText}>Range</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendSwatch, styles.legendSwatchBlocked]} />
+            <Text style={styles.legendText}>Unavailable</Text>
+          </View>
+        </View>
+      </View>
+
       <View style={styles.twoColumn}>
         {[
-          ["startDate", "Start Date", formatDate(schedule.startDate), "date"],
           ["startTime", "Start Time", formatTime(schedule.startTime), "time"],
-          ["endDate", "End Date", formatDate(schedule.endDate), "date"],
           ["endTime", "End Time", formatTime(schedule.endTime), "time"],
         ].map(([key, label, value, mode]) => (
           <View
@@ -3690,14 +4304,43 @@ export default function BookingWizardScreen({ route, navigation }) {
         ))}
       </View>
 
-      <View style={styles.durationBox}>
-        <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
-        <Text style={styles.durationText}>
-          {rentalPricing.totalHours > 0
+      <View
+        style={[
+          styles.durationBox,
+          bookingCalendarStatus.tone === "error" && styles.durationBoxError,
+          bookingCalendarStatus.tone === "neutral" && styles.durationBoxNeutral,
+        ]}
+      >
+        <Ionicons
+          name={bookingCalendarStatus.icon}
+          size={18}
+          color={
+            bookingCalendarStatus.tone === "success"
+              ? "#16A34A"
+              : bookingCalendarStatus.tone === "error"
+              ? "#DC2626"
+              : "#475569"
+          }
+        />
+        <Text
+          style={[
+            styles.durationText,
+            bookingCalendarStatus.tone === "error" && styles.durationTextError,
+            bookingCalendarStatus.tone === "neutral" && styles.durationTextNeutral,
+          ]}
+        >
+          {bookingCalendarStatus.tone === "success"
             ? `${formatRentalHours(rentalPricing.totalHours)} • ${rentalPricing.billingLabel}`
-            : "Select valid date and time"}
+            : bookingCalendarStatus.message}
         </Text>
       </View>
+
+      {bookingCalendarStatus.tone === "success" ? (
+        <View style={styles.inlineNoticeSuccess}>
+          <Ionicons name="checkmark-circle-outline" size={18} color="#15803D" />
+          <Text style={styles.inlineNoticeSuccessText}>{bookingCalendarStatus.message}</Text>
+        </View>
+      ) : null}
 
       {step2ValidationState.isRouteChecking ? (
         <View style={styles.inlineNoticeInfo}>
@@ -4408,11 +5051,13 @@ export default function BookingWizardScreen({ route, navigation }) {
                 {isDirectBooking ? "Book Selected Vehicle" : "Plan My Trip"}
               </Text>
             </View>
-            <TouchableOpacity
-              onPress={() => navigation.navigate("Home")}
-              hitSlop={SMALL_HIT_SLOP}
-              activeOpacity={0.85}
-            >
+          <TouchableOpacity
+            onPress={() =>
+              handleExitBookingWizard(hasExplicitVehicleSelectionIntent ? "Browse" : "Home")
+            }
+            hitSlop={SMALL_HIT_SLOP}
+            activeOpacity={0.85}
+          >
               <Text style={styles.exitText}>Exit</Text>
             </TouchableOpacity>
           </View>

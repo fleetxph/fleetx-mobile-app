@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -11,11 +11,17 @@ import {
   KeyboardAvoidingView,
   SafeAreaView,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
 import { loginClient } from "../api/clientApi";
 import { styles } from "../styles/authStyle";
 import LoadingOverlay from "../components/LoadingOverlay";
+import { useAuth } from "../context/AuthContext";
+import {
+  clearStoredBookingIntent,
+  getBookingIntentMeta,
+  getStoredBookingIntent,
+  PENDING_GUEST_BOOKING_KEY,
+} from "../utils/bookingState";
 import {
   mapApiFieldError,
   normalizeEmail,
@@ -23,35 +29,7 @@ import {
   validateLoginIdentifier,
 } from "../utils/validation";
 
-const PENDING_GUEST_BOOKING_KEY = "pendingGuestBooking";
-
-async function getStoredItem(key) {
-  if (Platform.OS === "web") {
-    return window.localStorage.getItem(key) || "";
-  }
-
-  return (await AsyncStorage.getItem(key)) || "";
-}
-
-async function removeStoredItem(key) {
-  if (Platform.OS === "web") {
-    window.localStorage.removeItem(key);
-    return;
-  }
-
-  await AsyncStorage.removeItem(key);
-}
-
-function buildGuestResumeTarget(pendingRaw) {
-  if (!pendingRaw) return null;
-
-  let pending = null;
-  try {
-    pending = JSON.parse(pendingRaw);
-  } catch {
-    return null;
-  }
-
+function buildGuestResumeTarget(pending) {
   if (!pending) return null;
 
   const wizardParams = {
@@ -96,7 +74,7 @@ function buildGuestResumeTarget(pendingRaw) {
 
 function getFriendlyLoginMessage(error) {
   if (!error?.response) {
-    return "No Network";
+    return "Connection problem. Please check your internet and try again.";
   }
 
   const status = error.response?.status;
@@ -137,7 +115,8 @@ function getFriendlyLoginMessage(error) {
   return rawMessage || "Unable to sign in right now. Please try again.";
 }
 
-export default function LoginClient({ navigation }) {
+export default function LoginClient({ navigation, route }) {
+  const { saveSession } = useAuth();
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState("");
@@ -145,6 +124,13 @@ export default function LoginClient({ navigation }) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [focusedField, setFocusedField] = useState("");
+
+  useEffect(() => {
+    if (route?.params?.sessionExpired) {
+      setMsg("Your session expired. Please log in again.");
+      navigation.setParams?.({ sessionExpired: undefined });
+    }
+  }, [navigation, route?.params?.sessionExpired]);
 
   const clearFieldError = (field) => {
     setFieldErrors((prev) => {
@@ -196,30 +182,66 @@ export default function LoginClient({ navigation }) {
       const name = user?.name || "";
       const userEmail = user?.email || "";
 
-      if (Platform.OS === "web") {
-        window.localStorage.setItem("clientToken", token);
-        window.localStorage.setItem("token", token);
-        window.localStorage.setItem("clientName", name);
-        window.localStorage.setItem("clientEmail", userEmail);
-        window.localStorage.setItem("clientUser", JSON.stringify(user));
-      } else {
-        await AsyncStorage.setItem("clientToken", token);
-        await AsyncStorage.setItem("token", token);
-        await AsyncStorage.setItem("clientName", name);
-        await AsyncStorage.setItem("clientEmail", userEmail);
-        await AsyncStorage.setItem("clientUser", JSON.stringify(user));
+      await saveSession({
+        token,
+        user: {
+          ...user,
+          name: user?.name || name,
+          email: user?.email || userEmail,
+        },
+      });
+
+      const hasPendingBookingIntent = Boolean(route?.params?.resumeGuestBooking);
+      const pendingBookingKey = route?.params?.pendingBookingKey || PENDING_GUEST_BOOKING_KEY;
+      const pendingGuestBooking = hasPendingBookingIntent
+        ? await getStoredBookingIntent(pendingBookingKey)
+        : null;
+      const pendingBookingMeta = getBookingIntentMeta(pendingGuestBooking);
+      const resumeTarget = hasPendingBookingIntent
+        ? buildGuestResumeTarget(pendingGuestBooking)
+        : null;
+
+      if (__DEV__) {
+        console.log("[BookingState][restore]", {
+          hasSelectedVehicle: pendingBookingMeta.hasSelectedVehicle,
+          hasDraft: pendingBookingMeta.hasDraft,
+          openedWizard: Boolean(resumeTarget),
+          reason: hasPendingBookingIntent ? "explicit-login-resume" : "normal-login",
+        });
       }
 
-      const pendingGuestBooking = await getStoredItem(PENDING_GUEST_BOOKING_KEY);
-      const resumeTarget = buildGuestResumeTarget(pendingGuestBooking);
-
       if (resumeTarget) {
-        await removeStoredItem(PENDING_GUEST_BOOKING_KEY);
-        navigation.replace("MainApp", resumeTarget);
+        await clearStoredBookingIntent({
+          reason: "login-resume-consumed",
+          key: pendingBookingKey,
+        });
+        if (__DEV__) {
+          console.log("[Navigation][postLogin]", {
+            targetRoute: "BookingWizard",
+            hadPendingBookingIntent: true,
+          });
+        }
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "MainApp", params: resumeTarget }],
+        });
         return;
       }
 
-      navigation.replace("MainApp");
+      await clearStoredBookingIntent({
+        reason: hasPendingBookingIntent ? "login-resume-missing-intent" : "login-clear-stale-draft",
+        key: pendingBookingKey,
+      });
+      if (__DEV__) {
+        console.log("[Navigation][postLogin]", {
+          targetRoute: "Home",
+          hadPendingBookingIntent: hasPendingBookingIntent,
+        });
+      }
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "MainApp", params: { screen: "Home" } }],
+      });
     } catch (err) {
       const message = getFriendlyLoginMessage(err);
       const mappedError = mapApiFieldError(message, "login");

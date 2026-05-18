@@ -39,6 +39,11 @@ import {
   getBookingReceiptDetails,
   isAwaitingPaymentBooking,
 } from "../utils/bookingPaymentDisplay";
+import {
+  detectBookingStatusChanges,
+  notifyWithVibration,
+  syncStoredBookingStatusSnapshot,
+} from "../services/notificationService";
 
 function getBookingId(item) {
   return item?._id || item?.id || "";
@@ -129,7 +134,9 @@ export default function MyBookings({ navigation }) {
 
         setHasToken(true);
         const res = await getClientBookings();
-        setBookings(res?.bookings || []);
+        const nextBookings = Array.isArray(res?.bookings) ? res.bookings : [];
+        setBookings(nextBookings);
+        await detectBookingStatusChanges(nextBookings);
       } catch (err) {
         if (isUnauthorizedError(err)) {
           navigation.replace("ClientLogin");
@@ -227,8 +234,24 @@ export default function MyBookings({ navigation }) {
         style: "destructive",
         onPress: async () => {
           try {
-            await cancelClientBooking(bookingId, {
+            const response = await cancelClientBooking(bookingId, {
               cancellationReason: "Cancelled from mobile app.",
+            });
+            const updatedBooking =
+              response?.booking || response?.updatedBooking || response?.data?.booking || null;
+            await syncStoredBookingStatusSnapshot([
+              updatedBooking
+                ? { ...booking, ...updatedBooking }
+                : { ...booking, status: "cancelled", bookingStatus: "cancelled" },
+            ]);
+            await notifyWithVibration({
+              title: "Booking cancelled",
+              body: "Your booking has been cancelled.",
+              data: {
+                bookingId,
+                bookingReference: getReferenceNo(booking),
+                notificationType: "booking_cancelled",
+              },
             });
             await loadBookings("refresh");
           } catch (err) {

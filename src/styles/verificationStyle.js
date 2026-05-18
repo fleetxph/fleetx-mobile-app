@@ -179,6 +179,11 @@ export const styles = StyleSheet.create({
     borderColor: "#fdba74",
     backgroundColor: "#fff7ed",
   },
+  eligibilityCardSelected: {
+    borderColor: "#f97316",
+    borderWidth: 2,
+    backgroundColor: "#fff7ed",
+  },
   eligibilityLabel: {
     fontSize: 13,
     color: "#64748b",
@@ -372,6 +377,19 @@ export const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
   },
+  slotHelperText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#64748b",
+    marginTop: 10,
+  },
+  slotErrorText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#dc2626",
+    fontWeight: "700",
+    marginTop: 10,
+  },
   noticeCard: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -383,11 +401,32 @@ export const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 14,
   },
+  noticeCardDanger: {
+    backgroundColor: "#fef2f2",
+    borderColor: "#fecaca",
+  },
+  noticeCardWarning: {
+    backgroundColor: "#fff7ed",
+    borderColor: "#fed7aa",
+  },
+  noticeCardSuccess: {
+    backgroundColor: "#f0fdf4",
+    borderColor: "#bbf7d0",
+  },
   noticeText: {
     flex: 1,
     fontSize: 13,
     lineHeight: 19,
     color: "#9a3412",
+  },
+  noticeTextDanger: {
+    color: "#b91c1c",
+  },
+  noticeTextWarning: {
+    color: "#9a3412",
+  },
+  noticeTextSuccess: {
+    color: "#166534",
   },
   errorText: {
     fontSize: 13,

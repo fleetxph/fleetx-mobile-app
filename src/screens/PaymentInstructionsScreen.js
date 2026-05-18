@@ -1,26 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  DeviceEventEmitter,
   Image,
   Modal,
   SafeAreaView,
   ScrollView,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { BACKEND_ORIGIN, BASE_URL } from "../api/api";
 import {
-  acceptBookingContract,
-  getBookingContract,
-  getBookingContractPdfUrl,
   getClientInvoiceUrl,
-  getContractTemplate,
   getPublicPaymentMethods,
   submitPaymentProof,
 } from "../api/clientApi";
@@ -32,24 +27,19 @@ import {
   getInvoicePdfSource,
   getReferenceNo,
 } from "../utils/bookingDocuments";
-import {
-  extractContractContent,
-  getContractContentDiagnostics,
-  getContractAcceptanceState,
-  htmlToReadableText,
-} from "../utils/bookingContractDisplay";
+import { getContractAcceptanceState } from "../utils/bookingContractDisplay";
 import { getBookingStatusLabel, getBookingStatusMeta } from "../utils/bookingStatusDisplay";
 import { resolveImageUrl } from "../utils/imageUrl";
 import { dedupePaymentMethods, getPaymentMethodSelectionKey } from "../utils/paymentMethods";
 import { openPdf, showPdfError } from "../utils/pdfUtils";
+import {
+  notifyWithVibration,
+  syncStoredBookingStatusSnapshot,
+} from "../services/notificationService";
 
 function valueOrFallback(value, fallback = "Not available") {
   if (value === undefined || value === null || value === "") return fallback;
   return String(value);
-}
-
-function getBookingId(booking) {
-  return booking?._id || booking?.id || booking?.bookingId || "";
 }
 
 function normalizeMethod(value) {
@@ -416,58 +406,6 @@ function formatPaymentOption(option) {
   return valueOrFallback(option, "Not selected");
 }
 
-function getContractFriendlyError(type) {
-  if (type === "accept") return "Unable to accept contract. Please try again.";
-  if (type === "load") return "Unable to load contract. Please try again.";
-  return "Contract is not available yet.";
-}
-
-function getContractEndpoint(bookingId) {
-  return bookingId ? `/api/client/bookings/${bookingId}/contract` : "/api/client/bookings/:id/contract";
-}
-
-function getFriendlyContractErrorMessage(error, fallbackMessage) {
-  const status = Number(error?.response?.status || 0);
-  const responseData = error?.response?.data || {};
-  const backendMessage = String(
-    responseData?.message ||
-      responseData?.error ||
-      responseData?.detail ||
-      responseData?.data?.message ||
-      ""
-  ).trim();
-
-  if (status === 404) return "Contract is not available yet.";
-  if (status === 401 || status === 403) return "Please sign in again to view the contract.";
-  if (status === 400) return backendMessage || fallbackMessage || getContractFriendlyError("load");
-  if (!error?.response) return "Unable to connect. Please try again.";
-  return backendMessage || fallbackMessage || getContractFriendlyError("load");
-}
-
-function shouldShowPendingContractReview(message) {
-  return /contract.*not accepted|not accepted yet|review and accept|accept the rental contract/i.test(
-    String(message || "")
-  );
-}
-
-function getContractPdfPendingMessage() {
-  return "Contract PDF will be available after you accept the rental contract.";
-}
-
-function getContractTemplateNotice() {
-  return "This is the current rental contract template. Booking-specific PDF will be available after accepting the contract.";
-}
-
-function getHeaderValue(headers, key) {
-  if (!headers) return "";
-
-  const matchedKey = Object.keys(headers).find(
-    (headerKey) => String(headerKey).toLowerCase() === String(key || "").toLowerCase()
-  );
-
-  return matchedKey ? String(headers[matchedKey] || "") : "";
-}
-
 function logBookingDocsError(type, error) {
   if (!__DEV__) return;
 
@@ -489,20 +427,42 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
   const [qrPreviewVisible, setQrPreviewVisible] = useState(false);
   const [proofSuccessVisible, setProofSuccessVisible] = useState(false);
   const [proofError, setProofError] = useState("");
-  const [contractModalVisible, setContractModalVisible] = useState(false);
-  const [contractRecord, setContractRecord] = useState(null);
-  const [contractTemplate, setContractTemplate] = useState(null);
-  const [contractLoading, setContractLoading] = useState(false);
-  const [contractAccepting, setContractAccepting] = useState(false);
-  const [contractError, setContractError] = useState("");
   const [contractAcceptError, setContractAcceptError] = useState("");
-  const [contractNotice, setContractNotice] = useState("");
-  const [contractAgreementChecked, setContractAgreementChecked] = useState(false);
-  const [signatureName, setSignatureName] = useState("");
   const [qrImageLoadFailed, setQrImageLoadFailed] = useState(false);
   const [countdownText, setCountdownText] = useState(
     getCountdownText(route?.params?.booking?.paymentDueAt || route?.params?.booking?.paymentDeadline)
   );
+  const invoiceNotificationShownRef = useRef({});
+  const contractPromptShownRef = useRef({});
+
+  useEffect(() => {
+    if (route?.params?.booking) {
+      setBooking(route.params.booking);
+    }
+  }, [route?.params?.booking]);
+
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener("contractAccepted", (event) => {
+      const acceptedBookingId = event?.bookingId || "";
+      if (!acceptedBookingId || acceptedBookingId !== bookingId) return;
+
+      if (event?.updatedBooking) {
+        setBooking((prev) => ({ ...(prev || {}), ...event.updatedBooking, contractAccepted: true }));
+      } else {
+        setBooking((prev) => ({
+          ...(prev || {}),
+          contractAccepted: true,
+          contractAcceptedAt: event?.acceptedAt || prev?.contractAcceptedAt,
+          contractStatus: "accepted",
+        }));
+      }
+
+      setContractAcceptError("");
+      setProofError("");
+    });
+
+    return () => subscription.remove();
+  }, [bookingId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -632,19 +592,8 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
           booking?.invoiceNumber)
     );
   }, [booking?.invoiceNumber, booking?.invoiceReference, booking?.paymentStatus, booking?.status, bookingId]);
-  const contractAcceptanceState = useMemo(
-    () => getContractAcceptanceState(booking, contractRecord),
-    [booking, contractRecord]
-  );
-  const contractDisplay = useMemo(
-    () => extractContractContent(contractRecord || contractTemplate || booking?.contract || booking?.contractData || {}),
-    [booking, contractRecord, contractTemplate]
-  );
-  const requiresContract = Boolean(
-    contractAcceptanceState.requiresContract ||
-      (shouldAttemptContractFlow &&
-        (contractDisplay.content || contractDisplay.pdfUrl || contractRecord || contractTemplate))
-  );
+  const contractAcceptanceState = useMemo(() => getContractAcceptanceState(booking, null), [booking]);
+  const requiresContract = Boolean(contractAcceptanceState.requiresContract || shouldAttemptContractFlow);
   const showContractSection = Boolean(
     shouldAttemptContractFlow ||
       requiresContract ||
@@ -656,11 +605,7 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
       booking?.contractAccepted ||
       booking?.contractAcceptedAt ||
       booking?.contractStatus ||
-      contractRecord ||
-      contractTemplate ||
-      /accept the rental contract/i.test(
-        `${contractAcceptError || ""} ${proofError || ""} ${contractError || ""}`
-      )
+      /accept the rental contract/i.test(`${proofError || ""}`)
   );
   const contractGateRequired = Boolean(
     requiresContract ||
@@ -670,42 +615,14 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
       booking?.contractAccepted ||
       booking?.contractAcceptedAt ||
       booking?.contractStatus ||
-      contractRecord ||
-      /accept the rental contract/i.test(
-        `${contractAcceptError || ""} ${proofError || ""} ${contractError || ""}`
-      )
+      /accept the rental contract/i.test(`${proofError || ""}`)
   );
   const contractAccepted = contractAcceptanceState.contractAccepted;
   const acceptedContractAt = contractAcceptanceState.acceptedAt;
-  const contractReadableText = useMemo(
-    () => htmlToReadableText(contractDisplay.textContent || contractDisplay.htmlContent || contractDisplay.content),
-    [contractDisplay.content, contractDisplay.htmlContent, contractDisplay.textContent]
-  );
-  const contractPdfSource = contractDisplay.pdfUrl || (bookingId ? getBookingContractPdfUrl(bookingId) : "");
   const invoicePdfSource =
     getInvoicePdfSource(booking, true) ||
     getInvoicePdfSource(booking, false) ||
     (bookingId ? getClientInvoiceUrl(bookingId, true) : "");
-  const hasContractReviewContent = Boolean(
-    contractReadableText ||
-      contractDisplay.textContent ||
-      contractDisplay.htmlContent ||
-      contractDisplay.content
-  );
-  const hasContractPdfAvailable = Boolean(contractPdfSource);
-  const showContractPdfButton = Boolean(contractAccepted && hasContractPdfAvailable);
-  const canAcceptContract = Boolean(!contractAccepted && contractGateRequired);
-  const canSubmitContractAcceptance = Boolean(
-    canAcceptContract &&
-      hasContractReviewContent &&
-      contractAgreementChecked &&
-      signatureName.trim()
-  );
-  const effectiveContractError =
-    contractError ||
-    (!contractLoading && !hasContractReviewContent && requiresContract
-      ? "Contract details could not be loaded in-app. Please try again."
-      : "");
   const paymentProofEligibility = useMemo(
     () => getPaymentProofEligibility(booking),
     [booking]
@@ -714,6 +631,23 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
   const canSelectOrSubmitPaymentProof =
     paymentProofEligibility.isEligible && canUploadPaymentProof;
   const showContractGateWarning = showContractSection && !contractAccepted;
+
+  useEffect(() => {
+    if (!bookingId || !paymentProofEligibility.hasInvoiceOrPaymentDetails) return;
+    if (invoiceNotificationShownRef.current[bookingId]) return;
+
+    invoiceNotificationShownRef.current[bookingId] = true;
+
+    notifyWithVibration({
+      title: "Invoice ready",
+      body: "Your invoice is available. Please review payment instructions.",
+      data: {
+        bookingId,
+        bookingReference,
+        notificationType: "invoice_ready",
+      },
+    }).catch(() => {});
+  }, [bookingId, bookingReference, paymentProofEligibility.hasInvoiceOrPaymentDetails]);
 
   useEffect(() => {
     if (__DEV__) {
@@ -746,263 +680,14 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
   }, [qrUrl]);
 
   useEffect(() => {
-    setSignatureName((prev) => prev || booking?.clientName || booking?.customerName || "");
-  }, [booking?.clientName, booking?.customerName]);
-
-  useEffect(() => {
     if (!__DEV__) return;
 
     console.log("[ContractUX][state]", {
       contractAccepted,
-      hasContractContent: hasContractReviewContent,
-      showPdfButton: showContractPdfButton,
-      canAccept: canSubmitContractAcceptance,
       canUploadProof: canUploadPaymentProof,
+      contractGateRequired,
     });
-  }, [
-    canSubmitContractAcceptance,
-    canUploadPaymentProof,
-    contractAccepted,
-    hasContractReviewContent,
-    showContractPdfButton,
-  ]);
-
-  const loadContractTemplateFallback = async ({ fallbackReason = "" } = {}) => {
-    try {
-      const templateResponse = await getContractTemplate({ rawResponse: true });
-      const templatePayload = templateResponse?.data || {};
-      const diagnostics = getContractContentDiagnostics(templatePayload);
-      const templateNotice = fallbackReason || getContractTemplateNotice();
-
-      if (__DEV__) {
-        console.log("[ContractAPI][fetch:response]", {
-          status: templateResponse?.status || null,
-          contentType: getHeaderValue(templateResponse?.headers, "content-type"),
-          dataKeys: diagnostics.dataKeys,
-          nestedKeys: diagnostics.nestedKeys,
-          hasHtml: diagnostics.hasHtml,
-          hasText: diagnostics.hasText,
-          hasTemplate: diagnostics.hasTemplate,
-          hasContractTemplate: diagnostics.hasContractTemplate,
-          hasContractObject: diagnostics.hasContractObject,
-          message: diagnostics.message,
-        });
-        console.log("[ContractAPI][template:parsed]", {
-          hasContractTemplate: diagnostics.hasContractTemplate,
-          templateType: diagnostics.templateType,
-          extractedContentLength: diagnostics.extractedContentLength,
-          usedFallbackTemplate: true,
-        });
-      }
-
-      setContractRecord(null);
-      setContractTemplate(templatePayload);
-      setContractNotice(templateNotice);
-      setContractError("");
-      return templatePayload;
-    } catch (templateError) {
-      const templateMessage = getFriendlyContractErrorMessage(
-        templateError,
-        getContractFriendlyError("missing")
-      );
-      setContractError((prev) => prev || templateMessage);
-      return null;
-    }
-  };
-
-  const fetchContractRecord = async ({
-    activeBookingId,
-    allowTemplateFallback = true,
-    clearExistingError = true,
-  } = {}) => {
-    const resolvedBookingId =
-      activeBookingId ||
-      route?.params?.booking?._id ||
-      route?.params?.booking?.id ||
-      route?.params?.booking?.bookingId ||
-      route?.params?.bookingId ||
-      bookingId;
-
-    if (!resolvedBookingId) {
-      setContractError(getContractFriendlyError("missing"));
-      return { record: null, template: null };
-    }
-
-    const endpoint = getContractEndpoint(resolvedBookingId);
-    const hasToken = Boolean(await AsyncStorage.getItem("clientToken"));
-
-    if (clearExistingError) {
-      setContractError("");
-      setContractNotice("");
-    }
-
-    if (__DEV__) {
-      console.log("[ContractAPI][fetch:start]", {
-        bookingId: resolvedBookingId,
-        endpoint,
-        hasToken,
-      });
-    }
-
-    try {
-      const response = await getBookingContract(resolvedBookingId, { rawResponse: true });
-      const responseData = response?.data || {};
-      const diagnostics = getContractContentDiagnostics(responseData);
-
-      if (__DEV__) {
-        console.log("[ContractAPI][fetch:response]", {
-          status: response?.status || null,
-          contentType: getHeaderValue(response?.headers, "content-type"),
-          dataKeys: diagnostics.dataKeys,
-          nestedKeys: diagnostics.nestedKeys,
-          hasHtml: diagnostics.hasHtml,
-          hasText: diagnostics.hasText,
-          hasTemplate: diagnostics.hasTemplate,
-          hasContractTemplate: diagnostics.hasContractTemplate,
-          hasContractObject: diagnostics.hasContractObject,
-          message: diagnostics.message,
-        });
-        console.log("[ContractAPI][template:parsed]", {
-          hasContractTemplate: diagnostics.hasContractTemplate,
-          templateType: diagnostics.templateType,
-          extractedContentLength: diagnostics.extractedContentLength,
-          usedFallbackTemplate: false,
-        });
-      }
-
-      setContractRecord(responseData);
-      setContractTemplate(null);
-      setContractNotice("");
-      if (diagnostics.hasHtml || diagnostics.hasText) {
-        setContractError("");
-        return { record: responseData, template: null };
-      }
-
-      if (allowTemplateFallback) {
-        const template = await loadContractTemplateFallback({
-          fallbackReason: getContractTemplateNotice(),
-        });
-        if (template) {
-          setContractError("");
-          return { record: null, template };
-        }
-      }
-
-      setContractError("Contract details could not be loaded in-app. Please try again.");
-      return { record: responseData, template: null };
-    } catch (error) {
-      logBookingDocsError("contract", error);
-      if (__DEV__) {
-        console.log("[ContractAPI][fetch:error]", {
-          bookingId: resolvedBookingId,
-          endpoint,
-          reachedResponse: Boolean(error?.response),
-          status: error?.response?.status || null,
-          code: error?.code || null,
-          message: error?.message || "Unknown error",
-          responseData: error?.response?.data || null,
-        });
-      }
-
-      const status = Number(error?.response?.status || 0);
-      const message = getFriendlyContractErrorMessage(error, getContractFriendlyError("load"));
-      const responseData = error?.response?.data || null;
-      const inlineContract = extractContractContent(responseData || {});
-      const diagnostics = getContractContentDiagnostics(responseData || {});
-
-      if (__DEV__ && error?.response) {
-        console.log("[ContractAPI][fetch:response]", {
-          status: error?.response?.status || null,
-          contentType: getHeaderValue(error?.response?.headers, "content-type"),
-          dataKeys: diagnostics.dataKeys,
-          nestedKeys: diagnostics.nestedKeys,
-          hasHtml: diagnostics.hasHtml,
-          hasText: diagnostics.hasText,
-          hasTemplate: diagnostics.hasTemplate,
-          hasContractTemplate: diagnostics.hasContractTemplate,
-          hasContractObject: diagnostics.hasContractObject,
-          message: diagnostics.message || String(message || "").slice(0, 80),
-        });
-        console.log("[ContractAPI][template:parsed]", {
-          hasContractTemplate: diagnostics.hasContractTemplate,
-          templateType: diagnostics.templateType,
-          extractedContentLength: diagnostics.extractedContentLength,
-          usedFallbackTemplate: false,
-        });
-      }
-
-      const hasInlineContractContent = Boolean(
-        inlineContract.content || inlineContract.htmlContent || inlineContract.textContent
-      );
-
-      if (hasInlineContractContent) {
-        setContractRecord(responseData);
-        setContractTemplate(null);
-        setContractNotice(message);
-        setContractError("");
-        return { record: responseData, template: null };
-      }
-
-      if (
-        allowTemplateFallback &&
-        (status === 404 || (status === 400 && shouldShowPendingContractReview(message)))
-      ) {
-        const template = await loadContractTemplateFallback({
-          fallbackReason: shouldShowPendingContractReview(message)
-            ? getContractTemplateNotice()
-            : getContractTemplateNotice(),
-        });
-        if (template) {
-          setContractRecord(null);
-          setContractError("");
-          return { record: null, template };
-        }
-      }
-
-      setContractError(message);
-      setContractRecord(null);
-
-      if (allowTemplateFallback && !error?.response) {
-        const template = await loadContractTemplateFallback();
-        if (template) {
-          setContractError("");
-          return { record: null, template };
-        }
-      }
-
-      return { record: null, template: null };
-    }
-  };
-
-  useEffect(() => {
-    if (!shouldAttemptContractFlow) return;
-
-    let isMounted = true;
-
-    const loadContractPreview = async () => {
-      if (!bookingId) return;
-
-      try {
-        setContractLoading(true);
-        if (!isMounted) return;
-        await fetchContractRecord({
-          activeBookingId: bookingId,
-          allowTemplateFallback: true,
-          clearExistingError: true,
-        });
-      } finally {
-        if (isMounted) {
-          setContractLoading(false);
-        }
-      }
-    };
-
-    loadContractPreview();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [bookingId, shouldAttemptContractFlow]);
+  }, [canUploadPaymentProof, contractAccepted, contractGateRequired]);
 
   const pickPaymentProof = async (source) => {
     const permission =
@@ -1090,6 +775,13 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
 
       const updatedBooking =
         response?.booking || response?.updatedBooking || response?.data?.booking || null;
+      const nextBooking = updatedBooking
+        ? { ...booking, ...updatedBooking }
+        : {
+            ...booking,
+            paymentStatus: "submitted",
+            status: "pending_approval",
+          };
 
       if (updatedBooking) {
         setBooking((prev) => ({ ...prev, ...updatedBooking }));
@@ -1101,6 +793,16 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
         }));
       }
 
+      await syncStoredBookingStatusSnapshot([nextBooking]);
+      await notifyWithVibration({
+        title: "Payment proof submitted",
+        body: "Your payment proof is now under review.",
+        data: {
+          bookingId,
+          bookingReference,
+          notificationType: "payment_proof_submitted",
+        },
+      });
       setPaymentAsset(null);
       setProofSuccessVisible(true);
     } catch (error) {
@@ -1155,189 +857,26 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
   };
 
   const openContractReview = async () => {
-    setContractModalVisible(true);
     setContractAcceptError("");
 
-    if (hasContractReviewContent) {
-      return;
-    }
-
-    if (!bookingId) {
-      setContractError(getContractFriendlyError("missing"));
-      return;
-    }
-
-    try {
-      setContractLoading(true);
-      await fetchContractRecord({
-        activeBookingId: bookingId,
-        allowTemplateFallback: true,
-        clearExistingError: true,
-      });
-    } finally {
-      setContractLoading(false);
-    }
-  };
-
-  const retryLoadContract = async () => {
-    if (!bookingId) {
-      setContractError(getContractFriendlyError("missing"));
-      return;
-    }
-
-    try {
-      setContractLoading(true);
-      await fetchContractRecord({
-        activeBookingId: bookingId,
-        allowTemplateFallback: true,
-        clearExistingError: true,
-      });
-    } finally {
-      setContractLoading(false);
-    }
-  };
-
-  const handleOpenContractPdf = async () => {
-    if (!contractPdfSource) {
-      setContractError(getContractFriendlyError("missing"));
-      return;
-    }
-
-    if (__DEV__) {
-      console.log("[BookingDocs][contractPdf]", {
-        bookingIdSource: bookingIdSource || "none",
-        urlBuilt: Boolean(contractPdfSource),
-        canOpen: Boolean(contractPdfSource),
-      });
-    }
-
-    try {
-      await openPdf({
-        source: contractPdfSource,
-        fileName: `FleetX-Contract-${bookingReference || getBookingId(booking) || "booking"}.pdf`,
-        title: "Rental Contract",
-        bookingReference,
-        documentReference: invoiceReference,
-        type: "contract",
-      });
-    } catch (error) {
-      logBookingDocsError("contractPdf", error);
-      const message =
-        error?.code === "CONTRACT_NOT_ACCEPTED"
-          ? getContractPdfPendingMessage()
-          : String(error?.message || "").trim();
-
-      if (message) {
-        setContractError(message);
-      }
-
-      if (error?.code === "CONTRACT_NOT_ACCEPTED" || shouldShowPendingContractReview(message)) {
-        setContractModalVisible(true);
-
-        if (!hasContractReviewContent && bookingId) {
-          try {
-            setContractLoading(true);
-            await fetchContractRecord({
-              activeBookingId: bookingId,
-              allowTemplateFallback: true,
-              clearExistingError: false,
-            });
-          } finally {
-            setContractLoading(false);
-          }
-        }
-
-        return;
-      }
-
-      showPdfError(
-        error,
-        "Contract PDF requires secure access. Please use the in-app contract view or try again."
-      );
-    }
-  };
-
-  const handleAcceptContract = async () => {
-    if (!bookingId) {
-      setContractAcceptError(getContractFriendlyError("accept"));
-      return;
-    }
-
-    if (!hasContractReviewContent) {
-      setContractAcceptError("Please load and review the rental contract before accepting.");
-      return;
-    }
-
-    if (!contractAgreementChecked || !signatureName.trim()) {
-      return;
-    }
-
-    try {
-      setContractAccepting(true);
-      setContractAcceptError("");
-      const payload = {
-        accepted: true,
-        signatureName: signatureName.trim(),
-        acceptedAt: new Date().toISOString(),
-      };
-      const response = await acceptBookingContract(bookingId, payload);
-      const updatedBooking =
-        response?.booking || response?.updatedBooking || response?.data?.booking || null;
-      const acceptedAt =
-        response?.contract?.acceptedAt ||
-        response?.acceptedAt ||
-        response?.data?.acceptedAt ||
-        payload.acceptedAt;
-
-      if (updatedBooking) {
-        setBooking((prev) => ({ ...prev, ...updatedBooking, contractAccepted: true }));
-      } else {
-        setBooking((prev) => ({
-          ...prev,
-          contractAccepted: true,
-          contractAcceptedAt: acceptedAt,
-          contractStatus: "accepted",
-          requiresContract: true,
-          contract: {
-            ...(prev?.contract || {}),
-            accepted: true,
-            acceptedAt,
-            status: "accepted",
-          },
-        }));
-      }
-
-      setContractRecord((prev) => ({
-        ...(prev || {}),
-        ...response,
-        contract: {
-          ...(prev?.contract || {}),
-          ...(response?.contract || {}),
-          accepted: true,
-          acceptedAt,
-          status: "accepted",
-          signatureName: signatureName.trim(),
+    if (bookingId && !contractAccepted && !contractPromptShownRef.current[bookingId]) {
+      contractPromptShownRef.current[bookingId] = true;
+      notifyWithVibration({
+        title: "Contract required",
+        body: "Please review and accept your rental contract before uploading payment proof.",
+        data: {
+          bookingId,
+          bookingReference,
+          notificationType: "contract_required",
         },
-      }));
-      if (__DEV__) {
-        console.log("[ContractAPI][accept:success]", {
-          bookingIdSource: bookingIdSource || "none",
-          contractAccepted: true,
-        });
-      }
-      setContractError("");
-      setContractNotice("");
-      setContractModalVisible(false);
-      setContractAgreementChecked(false);
-      setPaymentAsset(null);
-    } catch (error) {
-      logBookingDocsError("contractAccept", error);
-      setContractAcceptError(
-        getFriendlyContractErrorMessage(error, getContractFriendlyError("accept"))
-      );
-    } finally {
-      setContractAccepting(false);
+      }).catch(() => {});
     }
+    navigation.navigate("ContractReview", {
+      booking,
+      bookingId,
+      bookingReference,
+      sourceRoute: "PaymentInstructions",
+    });
   };
 
   return (
@@ -1481,9 +1020,6 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
                 Accepted on {formatBookingDateTime(acceptedContractAt)}
               </Text>
             ) : null}
-            {effectiveContractError ? (
-              <Text style={styles.inlineErrorText}>{effectiveContractError}</Text>
-            ) : null}
             <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.9} onPress={openContractReview}>
               <Text style={styles.secondaryButtonText}>
                 {contractAccepted ? "View Contract" : "Review Contract"}
@@ -1596,153 +1132,6 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
             {qrUrl ? <Image source={{ uri: qrUrl }} style={styles.previewImage} resizeMode="contain" /> : null}
           </View>
         </TouchableOpacity>
-      </Modal>
-
-      <Modal
-        visible={contractModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setContractModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.contractModalCard}>
-            <View style={styles.contractModalHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.contractModalTitle}>
-                  {contractDisplay.title || "Rental Contract"}
-                </Text>
-                <Text style={styles.contractModalSubtitle}>{bookingReference}</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.modalCloseButton}
-                onPress={() => setContractModalVisible(false)}
-              >
-                <Ionicons name="close" size={20} color="#64748B" />
-              </TouchableOpacity>
-            </View>
-
-            {contractLoading ? (
-              <View style={styles.loadingBox}>
-                <ActivityIndicator size="small" color="#F47C20" />
-                <Text style={styles.loadingText}>Loading contract...</Text>
-              </View>
-            ) : (
-              <>
-                <ScrollView
-                  style={styles.contractScroll}
-                  contentContainerStyle={styles.contractScrollContent}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {contractReadableText ? (
-                    <Text style={styles.contractText}>{contractReadableText}</Text>
-                  ) : contractAccepted && hasContractPdfAvailable ? (
-                    <Text style={styles.placeholderText}>
-                      Contract text is not available in-app right now. You can open the contract PDF below.
-                    </Text>
-                  ) : (
-                    <Text style={styles.placeholderText}>
-                      {effectiveContractError || "Contract details could not be loaded in-app. Please try again."}
-                    </Text>
-                  )}
-                </ScrollView>
-
-                {contractNotice ? (
-                  <Text style={styles.contractHelperText}>{contractNotice}</Text>
-                ) : null}
-                {effectiveContractError && hasContractReviewContent ? (
-                  <Text style={styles.inlineErrorText}>{effectiveContractError}</Text>
-                ) : null}
-                {contractAcceptError ? (
-                  <Text style={styles.inlineErrorText}>{contractAcceptError}</Text>
-                ) : null}
-                {!hasContractReviewContent ? (
-                  <TouchableOpacity
-                    style={styles.secondaryButton}
-                    activeOpacity={0.9}
-                    onPress={retryLoadContract}
-                  >
-                    <Text style={styles.secondaryButtonText}>Retry Load Contract</Text>
-                  </TouchableOpacity>
-                ) : null}
-                {!contractAccepted ? (
-                  <Text style={styles.contractHelperText}>
-                    PDF will be available after accepting the contract.
-                  </Text>
-                ) : null}
-                {showContractPdfButton ? (
-                  <TouchableOpacity
-                    style={styles.secondaryButton}
-                    activeOpacity={0.9}
-                    onPress={handleOpenContractPdf}
-                  >
-                    <Text style={styles.secondaryButtonText}>View Contract PDF</Text>
-                  </TouchableOpacity>
-                ) : null}
-
-                {!contractAccepted && canAcceptContract ? (
-                  <>
-                    {!hasContractReviewContent ? (
-                      <Text style={styles.contractHelperText}>
-                        Please load and review the rental contract before accepting.
-                      </Text>
-                    ) : null}
-                    <TouchableOpacity
-                      style={styles.checkboxRow}
-                      activeOpacity={0.85}
-                      onPress={() => setContractAgreementChecked((prev) => !prev)}
-                    >
-                      <View
-                        style={[
-                          styles.checkbox,
-                          contractAgreementChecked && styles.checkboxChecked,
-                        ]}
-                      >
-                        {contractAgreementChecked ? (
-                          <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-                        ) : null}
-                      </View>
-                      <Text style={styles.checkboxText}>
-                        I have reviewed the rental contract and agree to its terms.
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TextInput
-                      value={signatureName}
-                      onChangeText={setSignatureName}
-                      placeholder="Type your full name"
-                      placeholderTextColor="#98A2B3"
-                      style={styles.signatureInput}
-                    />
-
-                    <TouchableOpacity
-                      style={[
-                        styles.primaryButton,
-                        (!canSubmitContractAcceptance || contractAccepting) &&
-                          styles.buttonDisabled,
-                      ]}
-                      activeOpacity={0.9}
-                      disabled={!canSubmitContractAcceptance || contractAccepting}
-                      onPress={handleAcceptContract}
-                    >
-                      <Text style={styles.primaryButtonText}>
-                        {contractAccepting ? "Accepting..." : "Accept Contract"}
-                      </Text>
-                    </TouchableOpacity>
-                  </>
-                ) : contractAccepted ? (
-                  <View style={styles.contractAcceptedCard}>
-                    <Text style={styles.contractAcceptedText}>Rental contract accepted.</Text>
-                    {acceptedContractAt ? (
-                      <Text style={styles.contractAcceptedSubtext}>
-                        Accepted on {formatBookingDateTime(acceptedContractAt)}
-                      </Text>
-                    ) : null}
-                  </View>
-                ) : null}
-              </>
-            )}
-          </View>
-        </View>
       </Modal>
 
       <SuccessInfoModal

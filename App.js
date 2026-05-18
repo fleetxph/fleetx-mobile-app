@@ -1,9 +1,21 @@
-import React from "react";
-import { View, TouchableOpacity, StyleSheet } from "react-native";
-import { NavigationContainer } from "@react-navigation/native";
+import React, { useEffect } from "react";
+import {
+  ActivityIndicator,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import {
+  NavigationContainer,
+  createNavigationContainerRef,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons, Feather } from "@expo/vector-icons";
+import { AuthProvider, useAuth } from "./src/context/AuthContext";
+import { configureNotifications } from "./src/services/notificationService";
 
 // Auth screens
 import WelcomeScreen from "./src/screens/WelcomeScreen";
@@ -31,11 +43,13 @@ import NotificationsScreen from "./src/screens/NotificationsScreen";
 import BookingReceiptScreen from "./src/screens/BookingReceiptScreen";
 import BookingInvoiceScreen from "./src/screens/BookingInvoiceScreen";
 import BookedVehicleDetails from "./src/screens/BookedVehicleDetails";
+import ContractReviewScreen from "./src/screens/ContractReviewScreen";
 import PaymentInstructionsScreen from "./src/screens/PaymentInstructionsScreen";
 
 const RootStack = createNativeStackNavigator();
 const BrowseStackNav = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+const navigationRef = createNavigationContainerRef();
 
 function BrowseStack() {
   return (
@@ -48,6 +62,51 @@ function BrowseStack() {
       />
     </BrowseStackNav.Navigator>
   );
+}
+
+function AuthRequiredScreen({ navigation, message = "Please log in to continue." }) {
+  return (
+    <SafeAreaView style={styles.authRequiredSafe}>
+      <View style={styles.authRequiredCard}>
+        <Ionicons name="lock-closed-outline" size={30} color="#F47C20" />
+        <Text style={styles.authRequiredTitle}>Login Required</Text>
+        <Text style={styles.authRequiredText}>{message}</Text>
+        <TouchableOpacity
+          style={styles.authRequiredPrimary}
+          onPress={() => navigation.replace("ClientLogin")}
+        >
+          <Text style={styles.authRequiredPrimaryText}>Log In</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.authRequiredSecondary}
+          onPress={() => navigation.replace("MainApp", { screen: "Home" })}
+        >
+          <Text style={styles.authRequiredSecondaryText}>Back to Home</Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function withAuth(Component, message) {
+  return function ProtectedComponent(props) {
+    const { isAuthenticated, isRestoring } = useAuth();
+
+    if (isRestoring) {
+      return (
+        <SafeAreaView style={styles.restoreSafe}>
+          <ActivityIndicator size="large" color="#F47C20" />
+          <Text style={styles.restoreText}>Restoring session...</Text>
+        </SafeAreaView>
+      );
+    }
+
+    if (!isAuthenticated) {
+      return <AuthRequiredScreen navigation={props.navigation} message={message} />;
+    }
+
+    return <Component {...props} />;
+  };
 }
 
 function TabIcon({ routeName, focused, color }) {
@@ -92,6 +151,15 @@ function CustomPlanTabButton({ children, onPress }) {
 }
 
 function MainTabs() {
+  const ProtectedBookings = withAuth(
+    MyBookings,
+    "Please log in to manage your bookings."
+  );
+  const ProtectedProfile = withAuth(
+    ProfileScreen,
+    "Please log in to manage your profile and verification."
+  );
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -139,7 +207,15 @@ function MainTabs() {
         component={BrowseStack}
         options={{
           tabBarLabel: "Browse",
+          popToTopOnBlur: true,
         }}
+        listeners={({ navigation }) => ({
+          tabPress: () => {
+            navigation.navigate("Browse", {
+              screen: "BrowseMain",
+            });
+          },
+        })}
       />
 
       <Tab.Screen
@@ -160,7 +236,7 @@ function MainTabs() {
 
       <Tab.Screen
         name="Bookings"
-        component={MyBookings}
+        component={ProtectedBookings}
         options={{
           tabBarLabel: "Bookings",
         }}
@@ -168,7 +244,7 @@ function MainTabs() {
 
       <Tab.Screen
         name="Profile"
-        component={ProfileScreen}
+        component={ProtectedProfile}
         options={{
           tabBarLabel: "Profile",
         }}
@@ -177,11 +253,93 @@ function MainTabs() {
   );
 }
 
-export default function App() {
+function AppNavigator() {
+  const { authEvent, isAuthenticated, isRestoring } = useAuth();
+  const ProtectedChangePassword = withAuth(
+    ChangePasswordScreen,
+    "Please log in to change your password."
+  );
+  const ProtectedVerification = withAuth(
+    VerificationScreen,
+    "Please log in to manage account verification."
+  );
+  const ProtectedPersonalInfo = withAuth(
+    PersonalInfoScreen,
+    "Please log in to edit your personal information."
+  );
+  const ProtectedNotifications = withAuth(
+    NotificationsScreen,
+    "Please log in to view notifications."
+  );
+  const ProtectedBookingReceipt = withAuth(
+    BookingReceiptScreen,
+    "Please log in to view booking receipts."
+  );
+  const ProtectedBookingInvoice = withAuth(
+    BookingInvoiceScreen,
+    "Please log in to view booking invoices."
+  );
+  const ProtectedBookedVehicleDetails = withAuth(
+    BookedVehicleDetails,
+    "Please log in to view booking details."
+  );
+  const ProtectedPaymentInstructions = withAuth(
+    PaymentInstructionsScreen,
+    "Please log in to view payment instructions."
+  );
+  const ProtectedContractReview = withAuth(
+    ContractReviewScreen,
+    "Please log in to review your rental contract."
+  );
+
+  useEffect(() => {
+    configureNotifications().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!navigationRef.isReady()) return;
+
+    if (authEvent?.type === "expired") {
+      navigationRef.resetRoot({
+        index: 0,
+        routes: [
+          {
+            name: "ClientLogin",
+            params: { sessionExpired: true },
+          },
+        ],
+      });
+    }
+  }, [authEvent]);
+
+  useEffect(() => {
+    if (!navigationRef.isReady()) return;
+    if (authEvent?.type !== "restore" || !isAuthenticated) return;
+
+    navigationRef.resetRoot({
+      index: 0,
+      routes: [
+        {
+          name: "MainApp",
+          params: { screen: "Home" },
+        },
+      ],
+    });
+  }, [authEvent, isAuthenticated]);
+
+  if (isRestoring) {
+    return (
+      <SafeAreaView style={styles.restoreSafe}>
+        <ActivityIndicator size="large" color="#F47C20" />
+        <Text style={styles.restoreText}>Restoring session...</Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <RootStack.Navigator
-        initialRouteName="Welcome"
+        initialRouteName={isAuthenticated ? "MainApp" : "Welcome"}
         screenOptions={{ headerShown: false }}
       >
         <RootStack.Screen name="Welcome" component={WelcomeScreen} />
@@ -210,18 +368,27 @@ export default function App() {
         />
         <RootStack.Screen
           name="ChangePassword"
-          component={ChangePasswordScreen}
+          component={ProtectedChangePassword}
         />
         <RootStack.Screen name="MainApp" component={MainTabs} />
-        <RootStack.Screen name="Verification" component={VerificationScreen} />
-        <RootStack.Screen name="PersonalInfo" component={PersonalInfoScreen} />
-        <RootStack.Screen name="Notifications" component={NotificationsScreen} />
-        <RootStack.Screen name="BookingReceipt" component={BookingReceiptScreen} />
-        <RootStack.Screen name="BookingInvoice" component={BookingInvoiceScreen} />
-        <RootStack.Screen name="BookedVehicleDetails" component={BookedVehicleDetails} />
-        <RootStack.Screen name="PaymentInstructions" component={PaymentInstructionsScreen} />
+        <RootStack.Screen name="Verification" component={ProtectedVerification} />
+        <RootStack.Screen name="PersonalInfo" component={ProtectedPersonalInfo} />
+        <RootStack.Screen name="Notifications" component={ProtectedNotifications} />
+        <RootStack.Screen name="BookingReceipt" component={ProtectedBookingReceipt} />
+        <RootStack.Screen name="BookingInvoice" component={ProtectedBookingInvoice} />
+        <RootStack.Screen name="BookedVehicleDetails" component={ProtectedBookedVehicleDetails} />
+        <RootStack.Screen name="PaymentInstructions" component={ProtectedPaymentInstructions} />
+        <RootStack.Screen name="ContractReview" component={ProtectedContractReview} />
       </RootStack.Navigator>
     </NavigationContainer>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppNavigator />
+    </AuthProvider>
   );
 }
 
@@ -231,7 +398,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   planButton: {
     width: 58,
     height: 58,
@@ -244,5 +410,77 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 8,
     elevation: 8,
+  },
+  restoreSafe: {
+    flex: 1,
+    backgroundColor: "#F8FAFC",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  restoreText: {
+    marginTop: 12,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#475569",
+  },
+  authRequiredSafe: {
+    flex: 1,
+    backgroundColor: "#F8FAFC",
+    padding: 20,
+    justifyContent: "center",
+  },
+  authRequiredCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  authRequiredTitle: {
+    marginTop: 12,
+    fontSize: 20,
+    fontWeight: "900",
+    color: "#0F172A",
+  },
+  authRequiredText: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+    color: "#64748B",
+  },
+  authRequiredPrimary: {
+    marginTop: 18,
+    minHeight: 48,
+    alignSelf: "stretch",
+    borderRadius: 16,
+    backgroundColor: "#F47C20",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  authRequiredPrimaryText: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#FFFFFF",
+  },
+  authRequiredSecondary: {
+    marginTop: 10,
+    minHeight: 46,
+    alignSelf: "stretch",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#FED7AA",
+    backgroundColor: "#FFF7ED",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  authRequiredSecondaryText: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#C2410C",
   },
 });

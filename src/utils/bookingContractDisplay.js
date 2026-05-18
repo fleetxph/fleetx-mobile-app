@@ -454,3 +454,165 @@ export function htmlToReadableText(value) {
     .replace(/[ \t]{2,}/g, " ")
     .trim();
 }
+
+function formatReadableDate(value) {
+  if (!value) return "Not specified";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not specified";
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatReadableMoney(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return "Not specified";
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+    minimumFractionDigits: 2,
+  }).format(amount);
+}
+
+function replacePlaceholders(template, fieldMap) {
+  const source = String(template || "");
+  const placeholderCountBefore = (source.match(/{{\s*[\w.]+\s*}}/g) || []).length;
+
+  let rendered = source.replace(/{{\s*([\w.]+)\s*}}/g, (_, rawKey) => {
+    const normalizedKey = String(rawKey || "").trim();
+    return normalizeText(fieldMap[normalizedKey]) || "Not specified";
+  });
+
+  rendered = rendered.replace(/{{\s*[\w.]+\s*}}/g, "Not specified");
+  const placeholderCountAfter = (rendered.match(/{{\s*[\w.]+\s*}}/g) || []).length;
+
+  return {
+    rendered,
+    placeholderCountBefore,
+    placeholderCountAfter,
+  };
+}
+
+export function buildContractRenderFields(booking = {}) {
+  const vehicle = booking?.vehicle || booking?.vehicleData || booking?.selectedVehicle || {};
+  const user = booking?.user || booking?.customer || booking?.client || {};
+  const vehicleName =
+    vehicle?.name ||
+    [vehicle?.year, vehicle?.make, vehicle?.model].filter(Boolean).join(" ") ||
+    booking?.vehicleName ||
+    booking?.vehicleLabel ||
+    "Selected vehicle";
+  const customerName =
+    user?.fullName ||
+    user?.name ||
+    booking?.fullName ||
+    booking?.customerFullName ||
+    booking?.customerName ||
+    booking?.customer?.name ||
+    booking?.clientName ||
+    booking?.name ||
+    "Customer";
+  const bookingReference =
+    booking?.bookingReference || booking?.reference || booking?.bookingCode || booking?.referenceNo || "Not specified";
+  const amountDue =
+    booking?.amountDue ??
+    booking?.amountToPay ??
+    booking?.invoice?.amountDue ??
+    booking?.invoiceAmount ??
+    booking?.downPayment ??
+    0;
+  const totalAmount =
+    booking?.totalAmount ??
+    booking?.totalPrice ??
+    booking?.invoice?.totalAmount ??
+    booking?.invoice?.amount ??
+    0;
+  const rawTripType = normalizeLower(
+    firstPresent(booking?.rentalType, booking?.tripTypeLabel, booking?.tripType, booking?.serviceType)
+  );
+  const rentalType = rawTripType.includes("self")
+    ? "Self-Drive"
+    : rawTripType.includes("driver") || rawTripType.includes("chauffeur")
+    ? "With Driver"
+    : normalizeText(firstPresent(booking?.rentalType, booking?.tripTypeLabel, booking?.tripType)) ||
+      "Not specified";
+  const pickupLocation =
+    booking?.pickupLocation ||
+    booking?.pickupAddress ||
+    booking?.originAddress ||
+    booking?.origin ||
+    booking?.pickup?.address ||
+    booking?.pickup?.name ||
+    "Not specified";
+  const destination =
+    booking?.destination ||
+    booking?.dropoffLocation ||
+    booking?.dropoffAddress ||
+    booking?.returnLocation ||
+    booking?.destinationAddress ||
+    booking?.dropoff?.address ||
+    booking?.dropoff?.name ||
+    "Not specified";
+  const paymentMethod =
+    booking?.invoice?.paymentMethod ||
+    booking?.paymentMethodName ||
+    booking?.selectedPaymentMethodName ||
+    booking?.paymentMethod ||
+    booking?.paymentChannel ||
+    "Not specified";
+  const paymentOption =
+    booking?.invoice?.paymentOption || booking?.paymentOption || booking?.paymentPlan || "Not specified";
+
+  return {
+    customerName,
+    renterName: customerName,
+    bookingReference,
+    vehicleName,
+    vehicle: vehicleName,
+    plateNumber: vehicle?.plateNumber || booking?.plateNumber || "Not specified",
+    rentalType,
+    tripType: rentalType,
+    startDate: formatReadableDate(booking?.startDate || booking?.pickupDate || booking?.fromDate),
+    endDate: formatReadableDate(booking?.endDate || booking?.returnDate || booking?.toDate),
+    pickupLocation,
+    destination,
+    paymentMethod,
+    paymentOption,
+    amountDue: formatReadableMoney(amountDue),
+    totalAmount: formatReadableMoney(totalAmount),
+    totalPrice: formatReadableMoney(totalAmount),
+    invoiceReference:
+      booking?.invoiceReference || booking?.invoiceNumber || booking?.invoice?.invoiceNumber || "Not specified",
+    returnArrangement: booking?.returnArrangement || booking?.returnArrangementType || "Not specified",
+    companyName: "FleetX Transport Services",
+    effectiveDate: formatReadableDate(new Date().toISOString()),
+    contractVersion: booking?.contractVersion || booking?.contract?.version || "Not specified",
+  };
+}
+
+export function renderContractContentWithBooking(payload = {}, booking = {}) {
+  const extracted = extractContractContent(payload);
+  const renderFields = buildContractRenderFields(booking);
+  const rawContent = extracted.htmlContent || extracted.textContent || extracted.content || "";
+  const replacement = replacePlaceholders(rawContent, renderFields);
+  const content = normalizeText(replacement.rendered);
+  const sourcePath = extracted.sourcePath || "";
+  const usedTemplateFallback =
+    sourcePath.startsWith("contractTemplate") || sourcePath.startsWith("data.contractTemplate");
+
+  return {
+    ...extracted,
+    htmlContent: extracted.htmlContent ? content : "",
+    textContent: extracted.htmlContent ? "" : content,
+    content,
+    renderFields,
+    placeholderCountBefore: replacement.placeholderCountBefore,
+    placeholderCountAfter: replacement.placeholderCountAfter,
+    usedTemplateFallback,
+    bookingSpecificLoaded: Boolean(content && !usedTemplateFallback),
+  };
+}

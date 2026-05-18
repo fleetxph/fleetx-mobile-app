@@ -25,6 +25,13 @@
     },
     "plugins": [
       [
+        "expo-notifications",
+        {
+          "color": "#F47C20",
+          "defaultChannel": "default"
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/logo.png",

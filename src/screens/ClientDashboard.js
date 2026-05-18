@@ -15,10 +15,14 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { getClientProfile, getNotifications, getVehicles } from "../api/clientApi";
+import { getClientBookings, getClientProfile, getNotifications, getVehicles } from "../api/clientApi";
 import NotificationIcon from "../components/NotificationIcon";
 import { styles } from "../styles/clientDashboardStyle";
 import { getProfileImageUrl, getVehicleImageUrl } from "../utils/imageUrl";
+import {
+  detectBookingStatusChanges,
+  getUnreadLocalNotificationCount,
+} from "../services/notificationService";
 
 const vehicleTypes = [
   { key: "suv", label: "SUV" },
@@ -113,10 +117,17 @@ export default function ClientDashboard({ navigation }) {
     try {
       setVehiclesLoading(true);
       await loadCachedProfile();
-      const [profileResult, vehicleResult, notificationResult] = await Promise.allSettled([
-        getClientProfile(),
+      const token =
+        Platform.OS === "web"
+          ? window.localStorage.getItem("clientToken") || window.localStorage.getItem("token")
+          : (await AsyncStorage.getItem("clientToken")) || (await AsyncStorage.getItem("token"));
+      const hasToken = Boolean(token);
+      const localUnreadCount = hasToken ? await getUnreadLocalNotificationCount() : 0;
+      const [profileResult, vehicleResult, notificationResult, bookingsResult] = await Promise.allSettled([
+        hasToken ? getClientProfile() : Promise.resolve(null),
         getVehicles(),
-        getNotifications(50),
+        hasToken ? getNotifications(50) : Promise.resolve({ unreadCount: 0, notifications: [] }),
+        hasToken ? getClientBookings() : Promise.resolve({ bookings: [] }),
       ]);
 
       const profileRes =
@@ -127,6 +138,8 @@ export default function ClientDashboard({ navigation }) {
         notificationResult.status === "fulfilled"
           ? notificationResult.value
           : { unreadCount: 0, notifications: [] };
+      const bookingsRes =
+        bookingsResult.status === "fulfilled" ? bookingsResult.value : { bookings: [] };
 
       const profileUser = profileRes?.user || null;
       if (profileUser) {
@@ -154,12 +167,18 @@ export default function ClientDashboard({ navigation }) {
       );
       setDashboardVehicles(backendVehicles);
       setFeaturedVehicles(backendVehicles.slice(0, 8));
-      setUnreadCount(getUnreadCountFromResponse(notificationRes));
+      setUnreadCount(getUnreadCountFromResponse(notificationRes) + localUnreadCount);
+
+      if (hasToken) {
+        await detectBookingStatusChanges(
+          Array.isArray(bookingsRes?.bookings) ? bookingsRes.bookings : []
+        );
+      }
     } catch (err) {
       console.log("Load dashboard data error:", err?.response?.data || err.message);
       setDashboardVehicles([]);
       setFeaturedVehicles([]);
-      setUnreadCount(0);
+      setUnreadCount(await getUnreadLocalNotificationCount());
     } finally {
       setVehiclesLoading(false);
     }

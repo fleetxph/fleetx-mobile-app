@@ -10,10 +10,21 @@ import {
 import { getVehicleBookings } from "../api/clientApi";
 import { styles } from "../styles/vehicleDetailsStyle";
 import {
+  addDays,
+  buildUnavailableDateKeys,
+  doesRangeContainBookedDate,
+  formatDisplayDate,
+  getCalendarMarkedDates,
+  getDateKey,
+  getMonthLabel,
+  getMonthStart,
+  isDateBooked,
+  toMidnight,
+} from "../utils/bookingCalendar";
+import {
   formatLocalDate,
   getDateRangeError,
   isBeforeToday,
-  normalizeDate,
 } from "../utils/dateValidation";
 import { getVehicleImageGallery } from "../utils/imageUrl";
 import {
@@ -25,114 +36,11 @@ import {
 import { formatLuggageSummary, getVehicleLuggageFit } from "../utils/luggageFit";
 
 const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-function toMidnight(value) {
-  return normalizeDate(value);
-}
-
-function getDateKey(value) {
-  const date = toMidnight(value);
-  if (!date) return "";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function addDays(value, days) {
-  const date = toMidnight(value);
-  if (!date) return null;
-  date.setDate(date.getDate() + days);
-  return date;
-}
-
-function getMonthStart(value) {
-  const date = toMidnight(value) || new Date();
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
-function getMonthLabel(value) {
-  const date = getMonthStart(value);
-  return date.toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-  });
-}
 
 function formatCurrency(amount) {
   const value = Number(amount);
   if (!Number.isFinite(value)) return "Rate unavailable";
   return `\u20b1${Math.round(value).toLocaleString("en-PH")}`;
-}
-
-function formatDisplayDate(date) {
-  const parsed = toMidnight(date);
-  if (!parsed) return "Not set";
-
-  return parsed.toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function isDateBooked(date, unavailableDates) {
-  const key = getDateKey(date);
-  if (!key) return false;
-
-  if (unavailableDates instanceof Set) {
-    return unavailableDates.has(key);
-  }
-
-  return Array.isArray(unavailableDates) ? unavailableDates.includes(key) : false;
-}
-
-function doesRangeContainBookedDate(startDate, endDate, unavailableDates) {
-  const start = toMidnight(startDate);
-  const end = toMidnight(endDate);
-
-  if (!start || !end || end < start) return false;
-
-  let cursor = new Date(start);
-  while (cursor <= end) {
-    if (isDateBooked(cursor, unavailableDates)) {
-      return true;
-    }
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  return false;
-}
-
-function getCalendarMarkedDates(bookedRanges = [], pickupDate, returnDate) {
-  const marked = {};
-
-  bookedRanges.forEach((booking) => {
-    const start = toMidnight(booking?.startDate);
-    const end = toMidnight(booking?.endDate);
-    if (!start || !end || end < start) return;
-
-    let cursor = new Date(start);
-    while (cursor <= end) {
-      marked[getDateKey(cursor)] = "booked";
-      cursor.setDate(cursor.getDate() + 1);
-    }
-  });
-
-  const pickupKey = getDateKey(pickupDate);
-  const returnKey = getDateKey(returnDate);
-  if (pickupKey) marked[pickupKey] = "pickup";
-  if (returnKey) marked[returnKey] = "return";
-
-  if (pickupDate && returnDate) {
-    let cursor = addDays(pickupDate, 1);
-    while (cursor && cursor < returnDate) {
-      const key = getDateKey(cursor);
-      if (!marked[key]) marked[key] = "range";
-      cursor = addDays(cursor, 1);
-    }
-  }
-
-  return marked;
 }
 
 export default function VehicleDetails({ route, navigation }) {
@@ -246,24 +154,7 @@ export default function VehicleDetails({ route, navigation }) {
     [bookedRanges, pickupDate, returnDate]
   );
 
-  const unavailableDateKeys = useMemo(() => {
-    const keys = new Set();
-
-    bookedRanges.forEach((booking) => {
-      const start = toMidnight(booking?.startDate);
-      const end = toMidnight(booking?.endDate);
-
-      if (!start || !end || end < start) return;
-
-      let cursor = new Date(start);
-      while (cursor <= end) {
-        keys.add(getDateKey(cursor));
-        cursor.setDate(cursor.getDate() + 1);
-      }
-    });
-
-    return keys;
-  }, [bookedRanges]);
+  const unavailableDateKeys = useMemo(() => buildUnavailableDateKeys(bookedRanges), [bookedRanges]);
 
   const calendarDays = useMemo(() => {
     const monthStart = getMonthStart(calendarMonth);

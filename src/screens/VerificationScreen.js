@@ -20,17 +20,29 @@ import {
 } from "../api/clientApi";
 import { styles } from "../styles/verificationStyle";
 import {
+  doesLicenseSatisfyValidId,
   formatReviewDate,
   getBookingEligibility,
   getVerificationBadgeLabel,
   getVerificationGroupMeta,
+  getVerificationServerFieldDebug,
   getVerificationStatusTone,
+  getValidIdEquivalentDisplay,
+  isVerificationGroupEditable,
 } from "../utils/verification";
+import { formatExpiryDate } from "../utils/documentExpiry";
+import {
+  getVerificationStatusTone as getNormalizedStatusTone,
+  isVerificationApproved,
+  isVerificationPending,
+  isVerificationRejected,
+  normalizeVerificationStatus,
+} from "../utils/verificationStatus";
 
 const INITIAL_DOCUMENTS = {
   validIdFront: null,
   validIdBack: null,
-  idSelfie: null,
+  validIdSelfie: null,
   licenseFront: null,
   licenseBack: null,
   licenseSelfie: null,
@@ -59,7 +71,7 @@ const VERIFICATION_GROUPS = [
         sourcePrompt: "Upload Valid ID back",
       },
       {
-        keyName: "idSelfie",
+        keyName: "validIdSelfie",
         slotKey: "selfie",
         title: "Current Selfie",
         hint: "Take a clear selfie so we can match you with the submitted document.",
@@ -123,37 +135,75 @@ function toBase64DataUri(asset) {
   return `data:${mimeType};base64,${asset.base64}`;
 }
 
-function getLocalSelectionStatus(asset) {
-  return asset ? { label: "Selected", tone: "info" } : null;
+function getSlotStatusTone(statusKey) {
+  if (statusKey === "under_review") return "warning";
+  if (statusKey === "selected") return "info";
+  return getNormalizedStatusTone(statusKey);
 }
 
-function getSlotStatusTone(statusKey) {
-  if (statusKey === "approved") return "success";
-  if (statusKey === "pending") return "warning";
-  if (statusKey === "rejected" || statusKey === "needs_update") return "danger";
-  if (statusKey === "selected") return "info";
-  return "neutral";
+function mapRequestedTypeToGroupKey(requestedType) {
+  if (requestedType === "self_drive") return "license";
+  if (requestedType === "with_driver") return "validId";
+  return "";
+}
+
+function getGroupPriority(meta) {
+  if (!meta) return 999;
+  if (meta.isRejected || meta.needsUpdate) return 1;
+  if (meta.key === "not_submitted" || meta.isIncomplete) return 2;
+  if (meta.isPending) return 3;
+  if (meta.groupKey === "validId") return 4;
+  return 5;
+}
+
+function getDefaultSelectedGroup(validIdMeta, licenseMeta, requestedType) {
+  const requestedGroup = mapRequestedTypeToGroupKey(requestedType);
+  if (requestedGroup) return requestedGroup;
+
+  return [validIdMeta, licenseMeta]
+    .filter(Boolean)
+    .sort((left, right) => getGroupPriority(left) - getGroupPriority(right))[0]?.groupKey || "validId";
+}
+
+function getSlotDisplayStatus(groupMeta, slotMeta, localAsset) {
+  if (localAsset) {
+    return { key: "selected", label: "Selected" };
+  }
+
+  if (slotMeta.uri) {
+    if (isVerificationApproved(slotMeta.key) || isVerificationApproved(groupMeta.key)) {
+      return { key: "approved", label: "Approved" };
+    }
+
+    if (isVerificationPending(slotMeta.key) || isVerificationPending(groupMeta.key)) {
+      return { key: "under_review", label: "Under Review" };
+    }
+
+    if (isVerificationRejected(slotMeta.key) || ["rejected", "missing", "incomplete"].includes(slotMeta.key)) {
+      return { key: "needs_update", label: "Needs Update" };
+    }
+
+    return { key: "under_review", label: "Under Review" };
+  }
+
+  if (groupMeta.isRejected || groupMeta.needsUpdate || isVerificationRejected(groupMeta.key)) {
+    return { key: "needs_update", label: "Needs Update" };
+  }
+
+  return { key: "not_submitted", label: "Not submitted" };
 }
 
 export default function VerificationScreen({ navigation, route }) {
   const [verification, setVerification] = useState(null);
   const [documents, setDocuments] = useState(INITIAL_DOCUMENTS);
+  const [slotErrors, setSlotErrors] = useState({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [submittingGroup, setSubmittingGroup] = useState("");
   const [error, setError] = useState("");
+  const [selectedVerificationGroup, setSelectedVerificationGroup] = useState("validId");
+  const [hasInitializedSelection, setHasInitializedSelection] = useState(false);
   const requestedType = route?.params?.verificationType || "";
-  const visibleGroups = useMemo(() => {
-    if (requestedType === "with_driver") {
-      return VERIFICATION_GROUPS.filter((group) => group.verificationType === "with_driver");
-    }
-
-    if (requestedType === "self_drive") {
-      return VERIFICATION_GROUPS.filter((group) => group.verificationType === "self_drive");
-    }
-
-    return VERIFICATION_GROUPS;
-  }, [requestedType]);
 
   const loadVerification = async (mode = "load") => {
     try {
@@ -166,6 +216,10 @@ export default function VerificationScreen({ navigation, route }) {
       setError("");
       const data = await getVerificationStatus();
       setVerification(data || null);
+
+      if (__DEV__) {
+        console.log("[VerificationData][serverFields]", getVerificationServerFieldDebug(data || {}));
+      }
 
       try {
         const rawUser = await AsyncStorage.getItem("clientUser");
@@ -184,14 +238,17 @@ export default function VerificationScreen({ navigation, route }) {
       } catch {
         // Keep screen usable if stored data is malformed.
       }
+
+      return data || null;
     } catch (err) {
       if (isUnauthorizedError(err)) {
         await clearClientSession();
         navigation.replace("ClientLogin");
-        return;
+        return null;
       }
 
       setError(err?.response?.data?.message || "Failed to load verification.");
+      return null;
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -213,6 +270,133 @@ export default function VerificationScreen({ navigation, route }) {
     validId: validIdMeta,
     license: licenseMeta,
   };
+  const validIdEquivalentDisplay = useMemo(
+    () => getValidIdEquivalentDisplay(verification),
+    [verification]
+  );
+  const groupConfigMap = useMemo(
+    () => Object.fromEntries(VERIFICATION_GROUPS.map((group) => [group.key, group])),
+    []
+  );
+  const visibleGroupConfig = groupConfigMap[selectedVerificationGroup] || groupConfigMap.validId;
+  const visibleGroupMeta = groupMetaMap[selectedVerificationGroup] || validIdMeta;
+  const visibleSelfieKeyName =
+    visibleGroupConfig?.slots.find((slot) => slot.slotKey === "selfie")?.keyName || "validIdSelfie";
+
+  const clearSlotError = (keyName) => {
+    setSlotErrors((prev) => {
+      if (!prev[keyName]) return prev;
+      const next = { ...prev };
+      delete next[keyName];
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const requestedGroup = mapRequestedTypeToGroupKey(requestedType);
+    if (requestedGroup) {
+      setSelectedVerificationGroup(requestedGroup);
+      setHasInitializedSelection(true);
+      return;
+    }
+
+    if (!hasInitializedSelection) {
+      const nextGroup = getDefaultSelectedGroup(validIdMeta, licenseMeta, requestedType);
+      setSelectedVerificationGroup(nextGroup);
+      setHasInitializedSelection(true);
+    }
+  }, [requestedType, validIdMeta, licenseMeta, hasInitializedSelection]);
+
+  useEffect(() => {
+    if (__DEV__) {
+      console.log("[VerificationUI][selectedGroup]", {
+        selectedVerificationGroup,
+        visibleGroup: visibleGroupConfig?.key || "",
+        validIdStatus: validIdMeta.key,
+        licenseStatus: licenseMeta.key,
+      });
+    }
+  }, [selectedVerificationGroup, visibleGroupConfig, validIdMeta.key, licenseMeta.key]);
+
+  useEffect(() => {
+    if (__DEV__ && visibleGroupMeta) {
+      const submitEnabled =
+        Boolean(visibleGroupMeta.canEdit) &&
+        !visibleGroupMeta.isApproved &&
+        !visibleGroupMeta.isPending &&
+        !(selectedVerificationGroup === "validId" && validIdEquivalentDisplay.isEquivalentApproved);
+
+      console.log("[VerificationLocking][group]", {
+        group: visibleGroupMeta.groupKey,
+        groupStatus: visibleGroupMeta.key,
+        normalizedStatus: normalizeVerificationStatus(visibleGroupMeta.key),
+        groupEditable: visibleGroupMeta.canEdit,
+        submitEnabled,
+      });
+
+      console.log("[VerificationUI][editable]", {
+        group: visibleGroupMeta.groupKey,
+        groupStatus: visibleGroupMeta.key,
+        frontEditable: isVerificationGroupEditable(visibleGroupMeta.key, visibleGroupMeta.slots.front.key),
+        backEditable: isVerificationGroupEditable(visibleGroupMeta.key, visibleGroupMeta.slots.back.key),
+        selfieEditable: isVerificationGroupEditable(visibleGroupMeta.key, visibleGroupMeta.slots.selfie.key),
+      });
+    }
+  }, [selectedVerificationGroup, validIdEquivalentDisplay.isEquivalentApproved, visibleGroupMeta]);
+
+  useEffect(() => {
+    const hasValidIdSelfie = Boolean(documents.validIdSelfie || validIdMeta.slots.selfie.uri);
+    const hasLicenseSelfie = Boolean(documents.licenseSelfie || licenseMeta.slots.selfie.uri);
+    const currentVisibleSelfieAsset = documents[visibleSelfieKeyName];
+    const currentVisibleSelfieServerUri = visibleGroupMeta?.slots?.selfie?.uri || "";
+    const selfieStatus = getSlotDisplayStatus(
+      visibleGroupMeta,
+      visibleGroupMeta?.slots?.selfie || { uri: "", key: "not_submitted" },
+      currentVisibleSelfieAsset
+    ).label;
+
+    if (__DEV__) {
+      console.log("[VerificationSelfie][state]", {
+        selectedGroup: selectedVerificationGroup,
+        hasValidIdSelfie,
+        hasLicenseSelfie,
+        hasCurrentVisibleSelfie: Boolean(currentVisibleSelfieAsset || currentVisibleSelfieServerUri),
+        selfieStatus,
+      });
+    }
+  }, [
+    selectedVerificationGroup,
+    documents.validIdSelfie,
+    documents.licenseSelfie,
+    visibleSelfieKeyName,
+    visibleGroupMeta,
+    validIdMeta.slots.selfie.uri,
+    licenseMeta.slots.selfie.uri,
+  ]);
+
+  useEffect(() => {
+    if (__DEV__) {
+      console.log("[VerificationEligibility][computed]", {
+        validIdStatus: bookingEligibility.validId.key,
+        licenseStatus: bookingEligibility.license.key,
+        withDriverStatus: bookingEligibility.withDriverStatus,
+        selfDriveStatus: bookingEligibility.selfDriveStatus,
+        withDriverSource: bookingEligibility.withDriverSource,
+      });
+    }
+  }, [bookingEligibility]);
+
+  useEffect(() => {
+    if (__DEV__) {
+      console.log("[VerificationEligibility][validIdEquivalent]", {
+        validIdStatus: validIdMeta.key,
+        licenseStatus: licenseMeta.key,
+        licenseSatisfiesValidId: doesLicenseSatisfyValidId(verification),
+        displayedValidIdStatus: validIdEquivalentDisplay.displayedStatus,
+        withDriverStatus: bookingEligibility.withDriverStatus,
+      });
+    }
+  }, [bookingEligibility.withDriverStatus, licenseMeta.key, validIdEquivalentDisplay, validIdMeta.key, verification]);
 
   const handleUnauthorized = async () => {
     await clearClientSession();
@@ -253,13 +437,26 @@ export default function VerificationScreen({ navigation, route }) {
       if (!asset?.uri || !asset?.base64) return;
 
       setDocuments((prev) => ({ ...prev, [keyName]: asset }));
+      clearSlotError(keyName);
+      if (keyName === visibleSelfieKeyName) {
+        setError((prev) =>
+          prev === "Please take a current selfie for verification." ||
+          prev === "Face verification photo is required."
+            ? ""
+            : prev
+        );
+      }
     } catch (err) {
       Alert.alert("Upload failed", err?.message || "Could not select image.");
     }
   };
 
   const promptImageSource = (slot, group) => {
-    if (!group.canEdit || submittingGroup) {
+    const slotMeta = group.slots[slot.slotKey];
+    const renewalEditable = Boolean(group.expiry?.renewalAllowed) && Boolean(group.expiry?.isNearExpiry || group.expiry?.isExpired);
+    const isEditable = renewalEditable || isVerificationGroupEditable(group.key, slotMeta.key);
+
+    if (!isEditable || submittingGroup) {
       if (group.isApproved) {
         Alert.alert("Verification Locked", "This verification group is already approved and locked.");
       } else if (group.isPending) {
@@ -285,7 +482,10 @@ export default function VerificationScreen({ navigation, route }) {
   };
 
   const removeDocument = async (keyName, slotMeta, groupMeta) => {
-    if (!groupMeta.canEdit || submittingGroup) {
+    const renewalEditable = Boolean(groupMeta.expiry?.renewalAllowed) && Boolean(groupMeta.expiry?.isNearExpiry || groupMeta.expiry?.isExpired);
+    const isEditable = renewalEditable || isVerificationGroupEditable(groupMeta.key, slotMeta.key);
+
+    if (!isEditable || submittingGroup) {
       if (groupMeta.isApproved) {
         Alert.alert("Verification Locked", "This verification group is already approved and locked.");
       } else if (groupMeta.isPending) {
@@ -296,6 +496,7 @@ export default function VerificationScreen({ navigation, route }) {
 
     if (documents[keyName]) {
       setDocuments((prev) => ({ ...prev, [keyName]: null }));
+      clearSlotError(keyName);
       return;
     }
 
@@ -335,21 +536,54 @@ export default function VerificationScreen({ navigation, route }) {
 
     const payload = {
       verificationType: groupConfig.verificationType,
+      facePhoto: selfieValue,
     };
 
     if (groupConfig.key === "validId") {
       payload.validIdFront = frontValue;
       payload.validIdBack = backValue;
-      payload.idSelfie = selfieValue;
       payload.validIdSelfie = selfieValue;
     } else {
       payload.licenseFront = frontValue;
       payload.licenseBack = backValue;
       payload.licenseSelfie = selfieValue;
-      payload.driverLicenseSelfie = selfieValue;
     }
 
     return payload;
+  };
+
+  const getCanonicalSelfieFieldName = (groupKey) =>
+    groupKey === "license" ? "licenseSelfie" : "validIdSelfie";
+
+  const getGroupLocalDocumentState = (groupConfig) => ({
+    [groupConfig.slots[0].keyName]: documents[groupConfig.slots[0].keyName],
+    [groupConfig.slots[1].keyName]: documents[groupConfig.slots[1].keyName],
+    [groupConfig.slots[2].keyName]: documents[groupConfig.slots[2].keyName],
+  });
+
+  const clearGroupLocalDocuments = (groupConfig) => {
+    setDocuments((prev) => ({
+      ...prev,
+      [groupConfig.slots[0].keyName]: null,
+      [groupConfig.slots[1].keyName]: null,
+      [groupConfig.slots[2].keyName]: null,
+    }));
+  };
+
+  const syncGroupLocalDocumentsAfterRefresh = (groupConfig, nextVerification, submittedLocalDocuments) => {
+    const refreshedGroupMeta = getVerificationGroupMeta(nextVerification, groupConfig.key);
+    const nextDocuments = {};
+
+    groupConfig.slots.forEach((slot) => {
+      const localAsset = submittedLocalDocuments[slot.keyName];
+      const slotMeta = refreshedGroupMeta.slots[slot.slotKey];
+      nextDocuments[slot.keyName] = localAsset && !slotMeta.uri ? localAsset : null;
+    });
+
+    setDocuments((prev) => ({
+      ...prev,
+      ...nextDocuments,
+    }));
   };
 
   const validateGroupSubmission = (groupConfig, groupMeta) => {
@@ -357,25 +591,48 @@ export default function VerificationScreen({ navigation, route }) {
     const slotBack = groupConfig.slots.find((slot) => slot.slotKey === "back");
     const slotSelfie = groupConfig.slots.find((slot) => slot.slotKey === "selfie");
 
-    if (!documents[slotFront.keyName] && !groupMeta.slots.front.uri) {
-      return `${slotFront.title} is required.`;
+    const needsFrontUpdate = ["missing", "incomplete", "rejected", "needs_update"].includes(
+      groupMeta.slots.front.key
+    );
+    const needsBackUpdate = ["missing", "incomplete", "rejected", "needs_update"].includes(
+      groupMeta.slots.back.key
+    );
+    const needsSelfieUpdate = ["missing", "incomplete", "rejected", "needs_update"].includes(
+      groupMeta.slots.selfie.key
+    );
+
+    if (
+      (!documents[slotFront.keyName] && !groupMeta.slots.front.uri) ||
+      (needsFrontUpdate && !documents[slotFront.keyName])
+    ) {
+      return { field: slotFront.keyName, message: `${slotFront.title} is required.` };
     }
 
-    if (!documents[slotBack.keyName] && !groupMeta.slots.back.uri) {
-      return `${slotBack.title} is required.`;
+    if (
+      (!documents[slotBack.keyName] && !groupMeta.slots.back.uri) ||
+      (needsBackUpdate && !documents[slotBack.keyName])
+    ) {
+      return { field: slotBack.keyName, message: `${slotBack.title} is required.` };
     }
 
-    if (!documents[slotSelfie.keyName] && !groupMeta.slots.selfie.uri) {
-      return "Current Selfie is required.";
+    if (
+      (!documents[slotSelfie.keyName] && !groupMeta.slots.selfie.uri) ||
+      (needsSelfieUpdate && !documents[slotSelfie.keyName])
+    ) {
+      return {
+        field: slotSelfie.keyName,
+        message: "Please take a current selfie for verification.",
+      };
     }
 
-    return "";
+    return null;
   };
 
   const handleSubmitGroup = async (groupConfig) => {
     const groupMeta = groupMetaMap[groupConfig.key];
+    const renewalEditable = Boolean(groupMeta.expiry?.renewalAllowed) && Boolean(groupMeta.expiry?.isNearExpiry || groupMeta.expiry?.isExpired);
 
-    if (!groupMeta.canEdit) {
+    if (!groupMeta.canEdit && !renewalEditable) {
       if (groupMeta.isApproved) {
         Alert.alert("Verification Locked", "This verification group is already approved and locked.");
       } else if (groupMeta.isPending) {
@@ -386,22 +643,65 @@ export default function VerificationScreen({ navigation, route }) {
 
     const validationError = validateGroupSubmission(groupConfig, groupMeta);
     if (validationError) {
-      setError(validationError);
+      setSlotErrors({ [validationError.field]: validationError.message });
+      setError("");
       return;
     }
 
     try {
       setSubmittingGroup(groupConfig.key);
       setError("");
+      setSlotErrors({});
+      const submittedLocalDocuments = getGroupLocalDocumentState(groupConfig);
       const payload = buildGroupPayload(groupConfig, groupMeta);
-      await submitVerification(payload);
-      setDocuments((prev) => ({
-        ...prev,
-        [groupConfig.slots[0].keyName]: null,
-        [groupConfig.slots[1].keyName]: null,
-        [groupConfig.slots[2].keyName]: null,
-      }));
-      await loadVerification("refresh");
+      const selfieFieldName = "facePhoto";
+      if (__DEV__) {
+        console.log("[VerificationSubmit][payload]", {
+          group: groupConfig.key,
+          hasFront: Boolean(payload.validIdFront || payload.licenseFront),
+          hasBack: Boolean(payload.validIdBack || payload.licenseBack),
+          hasSelfie: Boolean(payload.facePhoto),
+          selfieFieldName,
+          hasLocalFront: Boolean(documents[groupConfig.slots[0].keyName]),
+          hasLocalBack: Boolean(documents[groupConfig.slots[1].keyName]),
+          hasLocalSelfie: Boolean(documents[groupConfig.slots[2].keyName]),
+        });
+      }
+      const submitResponse = await submitVerification(payload);
+      const nextVerification = await loadVerification("refresh");
+
+      if (nextVerification) {
+        syncGroupLocalDocumentsAfterRefresh(groupConfig, nextVerification, submittedLocalDocuments);
+      } else if (submitResponse) {
+        setVerification((prev) => ({ ...(prev || {}), ...submitResponse }));
+        syncGroupLocalDocumentsAfterRefresh(
+          groupConfig,
+          { ...(verification || {}), ...submitResponse },
+          submittedLocalDocuments
+        );
+      } else {
+        setDocuments((prev) => ({
+          ...prev,
+          [groupConfig.slots[0].keyName]:
+            prev[groupConfig.slots[0].keyName] || submittedLocalDocuments[groupConfig.slots[0].keyName],
+          [groupConfig.slots[1].keyName]:
+            prev[groupConfig.slots[1].keyName] || submittedLocalDocuments[groupConfig.slots[1].keyName],
+          [groupConfig.slots[2].keyName]:
+            prev[groupConfig.slots[2].keyName] || submittedLocalDocuments[groupConfig.slots[2].keyName],
+        }));
+      }
+
+      const finalVerificationData =
+        nextVerification || (submitResponse ? { ...(verification || {}), ...submitResponse } : null);
+      const refreshedGroupMeta = finalVerificationData
+        ? getVerificationGroupMeta(finalVerificationData, groupConfig.key)
+        : null;
+
+      if (refreshedGroupMeta?.hasAllDocuments) {
+        clearGroupLocalDocuments(groupConfig);
+      }
+
+      setSlotErrors({});
       Alert.alert("Submitted", `${groupConfig.title} was submitted for admin review.`);
     } catch (err) {
       if (isUnauthorizedError(err)) {
@@ -409,7 +709,16 @@ export default function VerificationScreen({ navigation, route }) {
         return;
       }
 
-      setError(err?.response?.data?.message || "Failed to submit verification.");
+      const submitMessage = err?.response?.data?.message || "Failed to submit verification.";
+      if (submitMessage === "Face verification photo is required.") {
+        setSlotErrors({
+          [groupConfig.slots[2].keyName]: "Please take a current selfie for verification.",
+        });
+        setError("");
+        return;
+      }
+
+      setError(submitMessage);
     } finally {
       setSubmittingGroup("");
     }
@@ -419,11 +728,37 @@ export default function VerificationScreen({ navigation, route }) {
     const slotMeta = groupMeta.slots[slot.slotKey];
     const localAsset = documents[slot.keyName];
     const imageUri = localAsset?.uri || slotMeta.uri || "";
-    const localStatus = getLocalSelectionStatus(localAsset);
-    const slotLabel = localStatus?.label || slotMeta.label;
-    const slotTone = getSlotStatusTone(localStatus ? "selected" : slotMeta.key);
+    const slotStatus = getSlotDisplayStatus(groupMeta, slotMeta, localAsset);
+    const slotLabel = slotStatus.label;
+    const slotTone = getSlotStatusTone(slotStatus.key);
     const [badgeStyle, badgeToneStyle, badgeTextStyle, badgeTextToneStyle] = getBadgeStyles(slotTone);
     const isBusy = submittingGroup === groupMeta.groupKey;
+    const renewalEditable = Boolean(groupMeta.expiry?.renewalAllowed) && Boolean(groupMeta.expiry?.isNearExpiry || groupMeta.expiry?.isExpired);
+    const isEditable = renewalEditable || isVerificationGroupEditable(groupMeta.key, slotMeta.key);
+    const hasLocalAsset = Boolean(localAsset);
+    const canRemoveLocal = hasLocalAsset && isEditable && !isBusy;
+    const canRemoveSubmitted = Boolean(slotMeta.uri) && isEditable && !isBusy;
+    const removeDisabled = !canRemoveLocal && !canRemoveSubmitted;
+    const canPromptUpload = isEditable && !isBusy;
+    const slotError = slotErrors[slot.keyName];
+    const slotHelperText = renewalEditable
+      ? "You can update this document because renewal is available."
+      : isVerificationApproved(slotMeta.key) || isVerificationApproved(groupMeta.key)
+      ? "This document has been approved and is locked."
+      : isVerificationPending(slotMeta.key) || isVerificationPending(groupMeta.key)
+      ? "Your document is submitted and waiting for admin review."
+      : "";
+
+    if (__DEV__) {
+      console.log("[VerificationLocking][slot]", {
+        group: groupMeta.groupKey,
+        slot: slot.slotKey,
+        slotStatus: slotMeta.key,
+        hasServerImage: Boolean(slotMeta.uri),
+        hasLocalFile: hasLocalAsset,
+        editable: isEditable,
+      });
+    }
 
     return (
       <View style={styles.uploadCard} key={slot.keyName}>
@@ -462,13 +797,13 @@ export default function VerificationScreen({ navigation, route }) {
                   styles.uploadActionButton,
                   styles.selfieActionButton,
                   styles.uploadPrimary,
-                  (!groupMeta.canEdit || isBusy) && styles.submitButtonDisabled,
+                  (!canPromptUpload || isBusy) && styles.submitButtonDisabled,
                 ]}
                 onPress={() => promptImageSource(slot, groupMeta)}
-                disabled={!groupMeta.canEdit || isBusy}
+                disabled={!canPromptUpload || isBusy}
               >
                 <Text style={styles.uploadPrimaryText}>
-                  {localAsset ? "Retake Current Selfie" : "Take Current Selfie"}
+                  {imageUri ? "Retake Current Selfie" : "Take Current Selfie"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -480,13 +815,13 @@ export default function VerificationScreen({ navigation, route }) {
                 style={[
                   styles.uploadActionButton,
                   styles.uploadPrimary,
-                  (!groupMeta.canEdit || isBusy) && styles.submitButtonDisabled,
+                  (!canPromptUpload || isBusy) && styles.submitButtonDisabled,
                 ]}
                 onPress={() => promptImageSource(slot, groupMeta)}
-                disabled={!groupMeta.canEdit || isBusy}
+                disabled={!canPromptUpload || isBusy}
               >
                 <Text style={styles.uploadPrimaryText}>
-                  {localAsset ? "Change" : slotMeta.uri ? "Replace" : "Upload"}
+                  {imageUri ? "Replace" : "Upload"}
                 </Text>
               </TouchableOpacity>
             ) : null}
@@ -495,16 +830,20 @@ export default function VerificationScreen({ navigation, route }) {
               style={[
                 styles.uploadActionButton,
                 styles.uploadDanger,
-                ((!localAsset && !slotMeta.uri) || !groupMeta.canEdit || isBusy) && styles.submitButtonDisabled,
+                removeDisabled && styles.submitButtonDisabled,
               ]}
               onPress={() => removeDocument(slot.keyName, slotMeta, groupMeta)}
-              disabled={(!localAsset && !slotMeta.uri) || !groupMeta.canEdit || isBusy}
+              disabled={removeDisabled}
             >
               <Text style={styles.uploadDangerText}>
-                {slotMeta.uri && !localAsset ? "Remove Submitted" : "Remove"}
+                {canRemoveSubmitted && !hasLocalAsset ? "Remove Submitted" : "Remove"}
               </Text>
             </TouchableOpacity>
           </View>
+
+          {slotHelperText ? <Text style={styles.slotHelperText}>{slotHelperText}</Text> : null}
+
+          {slotError ? <Text style={styles.slotErrorText}>{slotError}</Text> : null}
         </View>
       </View>
     );
@@ -512,45 +851,159 @@ export default function VerificationScreen({ navigation, route }) {
 
   const renderGroupCard = (groupConfig) => {
     const groupMeta = groupMetaMap[groupConfig.key];
-    const [badgeStyle, badgeToneStyle, badgeTextStyle, badgeTextToneStyle] = getBadgeStyles(groupMeta.tone);
+    const expiryMeta = groupMeta.expiry || {};
+    const validIdEquivalentActive = groupConfig.key === "validId" && validIdEquivalentDisplay.isEquivalentApproved;
+    const validIdLicensePending = groupConfig.key === "validId" && validIdEquivalentDisplay.isEquivalentPending;
+    const displayLabel =
+      groupConfig.key === "validId" && (validIdEquivalentActive || validIdLicensePending)
+        ? validIdEquivalentDisplay.label
+        : groupMeta.label;
+    const displayTone =
+      groupConfig.key === "validId" && (validIdEquivalentActive || validIdLicensePending)
+        ? validIdEquivalentDisplay.tone
+        : groupMeta.tone;
+    const [badgeStyle, badgeToneStyle, badgeTextStyle, badgeTextToneStyle] = getBadgeStyles(displayTone);
     const isBusy = submittingGroup === groupConfig.key;
-    const isHighlighted = requestedType === groupConfig.verificationType;
+    const hideUploads = groupConfig.key === "validId" && validIdEquivalentDisplay.hideUploadSlots;
+    const levelValue =
+      groupConfig.key === "validId" && (validIdEquivalentActive || validIdLicensePending)
+        ? validIdEquivalentDisplay.levelValue
+        : groupMeta.isApproved
+        ? groupConfig.levelLabel
+        : "Not yet approved";
+    const summaryValue =
+      groupConfig.key === "validId" && (validIdEquivalentActive || validIdLicensePending)
+        ? validIdEquivalentDisplay.summaryValue
+        : groupMeta.slots.front.hasDocument && groupMeta.slots.back.hasDocument
+        ? "Front and back uploaded"
+        : "Incomplete";
+    const summarySubvalue =
+      groupConfig.key === "validId" && (validIdEquivalentActive || validIdLicensePending)
+        ? validIdEquivalentDisplay.summarySubvalue
+        : `Selfie: ${
+            documents[getCanonicalSelfieFieldName(groupConfig.key)] || groupMeta.slots.selfie.hasDocument
+              ? "Captured"
+              : "Missing"
+          }`;
+    const helperText =
+      groupConfig.key === "validId" && (validIdEquivalentActive || validIdLicensePending)
+        ? validIdEquivalentDisplay.helperText
+        : "";
+    const cardSubtitle =
+      groupConfig.key === "validId" && validIdEquivalentActive
+        ? "Driver's License already covers your with-driver identity requirement."
+        : groupConfig.key === "validId" && validIdLicensePending
+        ? "Driver's License review can satisfy your with-driver identity requirement once approved."
+        : groupConfig.key === "validId"
+        ? "Required slots: Valid ID front, Valid ID back, and current selfie."
+        : "Required slots: Driver's License front, Driver's License back, and current selfie.";
+    const showReadOnlyActionMessage =
+      hideUploads ||
+      ((!expiryMeta.renewalAllowed || !expiryMeta.isNearExpiry) &&
+        (groupMeta.isApproved || groupMeta.isPending || isVerificationApproved(groupMeta.key) || isVerificationPending(groupMeta.key)));
+    const readOnlyActionMessage = hideUploads
+      ? "Driver's License satisfies this requirement."
+      : groupMeta.isApproved || isVerificationApproved(groupMeta.key)
+      ? "Verification approved."
+      : "Submitted for review.";
+    const submitEnabled =
+      !hideUploads &&
+      !isBusy &&
+      (groupMeta.canEdit || (expiryMeta.renewalAllowed && (expiryMeta.isNearExpiry || expiryMeta.isExpired))) &&
+      !(groupMeta.isPending || isVerificationPending(groupMeta.key));
+    const expiryHelperText = expiryMeta.isExpired
+      ? "This document appears to be expired. Please submit an updated document."
+      : expiryMeta.isNearExpiry
+      ? "This document is nearing expiry. You may need to renew it soon."
+      : expiryMeta.expiryStatus === "valid"
+      ? "Document is within valid date range."
+      : "";
+    const expiryTone = expiryMeta.isExpired ? "danger" : expiryMeta.isNearExpiry ? "warning" : "success";
+
+    if (__DEV__) {
+      console.log("[VerificationExpiry][computed]", {
+        group: groupConfig.key,
+        hasExpiryDate: Boolean(expiryMeta.expiryDate),
+        expiryStatus: expiryMeta.expiryStatus || "unknown",
+        daysRemaining: expiryMeta.daysRemaining,
+        backendRequiresUpdate: Boolean(expiryMeta.backendRequiresUpdate),
+      });
+    }
 
     return (
       <View
         key={groupConfig.key}
-        style={[styles.card, isHighlighted && styles.highlightCard]}
+        style={[styles.card, styles.highlightCard]}
       >
         <View style={styles.statusTopRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.cardTitle}>{groupConfig.title}</Text>
-            <Text style={styles.cardSubtitle}>
-              {groupConfig.key === "validId"
-                ? "Required slots: Valid ID front, Valid ID back, and current selfie."
-                : "Required slots: Driver's License front, Driver's License back, and current selfie."}
-            </Text>
+            <Text style={styles.cardSubtitle}>{cardSubtitle}</Text>
           </View>
           <View style={[badgeStyle, badgeToneStyle]}>
-            <Text style={[badgeTextStyle, badgeTextToneStyle]}>{groupMeta.label}</Text>
+            <Text style={[badgeTextStyle, badgeTextToneStyle]}>{displayLabel}</Text>
           </View>
         </View>
 
         <View style={styles.levelRow}>
           <Text style={styles.summaryLabel}>Verification Level</Text>
-          <Text style={styles.levelValue}>
-            {groupMeta.isApproved ? groupConfig.levelLabel : "Not yet approved"}
-          </Text>
+          <Text style={styles.levelValue}>{levelValue}</Text>
         </View>
 
         <View style={styles.levelRow}>
           <Text style={styles.summaryLabel}>Verification Summary</Text>
-          <Text style={styles.levelValue}>
-            Documents: {groupMeta.slots.front.hasDocument && groupMeta.slots.back.hasDocument ? "Front and back uploaded" : "Incomplete"}
+          <Text style={styles.levelValue}>{summaryValue}</Text>
+          {summarySubvalue ? <Text style={styles.summarySubvalue}>{summarySubvalue}</Text> : null}
+        </View>
+
+        <View style={styles.levelRow}>
+          <Text style={styles.summaryLabel}>Expiry Date</Text>
+          <Text style={styles.summaryValue}>
+            {validIdEquivalentActive && !groupMeta.slots.front.hasDocument && !groupMeta.slots.back.hasDocument
+              ? "No expiry shown"
+              : formatExpiryDate(expiryMeta.expiryDate)}
           </Text>
           <Text style={styles.summarySubvalue}>
-            Selfie: {groupMeta.slots.selfie.hasDocument ? "Captured" : "Missing"}
+            Days Remaining: {expiryMeta.daysRemaining === null || expiryMeta.daysRemaining === undefined ? "Not available" : expiryMeta.daysRemaining}
+          </Text>
+          <Text style={styles.summarySubvalue}>
+            Expiry Status: {validIdEquivalentActive && !groupMeta.slots.front.hasDocument && !groupMeta.slots.back.hasDocument ? "Not available" : expiryMeta.expiryLabel || "No expiry shown"}
           </Text>
         </View>
+
+        {helperText ? (
+          <View style={styles.noticeCard}>
+            <Ionicons name="information-circle-outline" size={20} color="#f97316" />
+            <Text style={styles.noticeText}>{helperText}</Text>
+          </View>
+        ) : null}
+
+        {expiryHelperText && !validIdEquivalentActive ? (
+          <View
+            style={[
+              styles.noticeCard,
+              expiryTone === "danger" && styles.noticeCardDanger,
+              expiryTone === "warning" && styles.noticeCardWarning,
+              expiryTone === "success" && styles.noticeCardSuccess,
+            ]}
+          >
+            <Ionicons
+              name={expiryTone === "danger" ? "alert-circle-outline" : "information-circle-outline"}
+              size={20}
+              color={expiryTone === "danger" ? "#DC2626" : expiryTone === "warning" ? "#f97316" : "#15803d"}
+            />
+            <Text
+              style={[
+                styles.noticeText,
+                expiryTone === "danger" && styles.noticeTextDanger,
+                expiryTone === "warning" && styles.noticeTextWarning,
+                expiryTone === "success" && styles.noticeTextSuccess,
+              ]}
+            >
+              {expiryHelperText}
+            </Text>
+          </View>
+        ) : null}
 
         {groupMeta.remarks ? (
           <View style={styles.noticeCard}>
@@ -563,32 +1016,46 @@ export default function VerificationScreen({ navigation, route }) {
           </View>
         ) : null}
 
-        <View style={styles.uploadGrid}>
-          {groupConfig.slots.map((slot) => renderUploadCard(groupMeta, slot))}
-        </View>
-
-        <TouchableOpacity
-          style={[
-            styles.submitButton,
-            (isBusy || !groupMeta.canEdit || !groupMeta.hasAllDocuments) && styles.submitButtonDisabled,
-          ]}
-          onPress={() => handleSubmitGroup(groupConfig)}
-          disabled={isBusy || !groupMeta.canEdit || !groupMeta.hasAllDocuments}
-        >
-          {isBusy ? (
-            <ActivityIndicator size="small" color="#ffffff" />
-          ) : (
-            <Text style={styles.submitButtonText}>
-              {groupMeta.isApproved
-                ? "Approved"
-                : groupMeta.isPending
-                ? "Pending Review"
-                : groupMeta.isRejected || groupMeta.needsUpdate
-                ? `Resubmit ${groupConfig.title}`
-                : groupConfig.submitLabel}
+        {!hideUploads ? (
+          <View style={styles.uploadGrid}>
+            {groupConfig.slots.map((slot) => renderUploadCard(groupMeta, slot))}
+          </View>
+        ) : (
+          <View style={styles.levelRow}>
+            <Text style={styles.summaryLabel}>Separate Valid ID Upload</Text>
+            <Text style={styles.summaryValue}>
+              Separate Valid ID upload is optional because your Driver's License is already approved.
             </Text>
-          )}
-        </TouchableOpacity>
+          </View>
+        )}
+
+        {!showReadOnlyActionMessage ? (
+          <TouchableOpacity
+            style={[
+              styles.submitButton,
+              !submitEnabled && styles.submitButtonDisabled,
+            ]}
+            onPress={() => handleSubmitGroup(groupConfig)}
+            disabled={!submitEnabled}
+          >
+            {isBusy ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <Text style={styles.submitButtonText}>
+                {expiryMeta.isNearExpiry && !expiryMeta.backendRequiresUpdate && !groupMeta.needsUpdate
+                  ? "Update Document"
+                  : groupMeta.isRejected || groupMeta.needsUpdate
+                  ? `Resubmit ${groupConfig.title}`
+                  : groupConfig.submitLabel}
+              </Text>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.levelRow}>
+            <Text style={styles.summaryLabel}>Verification Status</Text>
+            <Text style={styles.summaryValue}>{readOnlyActionMessage}</Text>
+          </View>
+        )}
       </View>
     );
   };
@@ -679,32 +1146,43 @@ export default function VerificationScreen({ navigation, route }) {
             Basic verification unlocks with-driver bookings. Full verification unlocks self-drive bookings.
           </Text>
           <View style={styles.eligibilityRow}>
-            <View
+            <TouchableOpacity
               style={[
                 styles.eligibilityCard,
                 bookingEligibility.withDriver && styles.eligibilityCardActive,
+                selectedVerificationGroup === "validId" && styles.eligibilityCardSelected,
               ]}
+              onPress={() => setSelectedVerificationGroup("validId")}
+              activeOpacity={0.9}
             >
               <Text style={styles.eligibilityLabel}>With Driver</Text>
               <Text style={styles.eligibilityValue}>
                 {bookingEligibility.withDriver ? "Available" : bookingEligibility.withDriverLabel}
               </Text>
-            </View>
-            <View
+            </TouchableOpacity>
+            <TouchableOpacity
               style={[
                 styles.eligibilityCard,
                 bookingEligibility.selfDrive && styles.eligibilityCardActive,
+                selectedVerificationGroup === "license" && styles.eligibilityCardSelected,
               ]}
+              onPress={() => setSelectedVerificationGroup("license")}
+              activeOpacity={0.9}
             >
               <Text style={styles.eligibilityLabel}>Self-Drive</Text>
               <Text style={styles.eligibilityValue}>
                 {bookingEligibility.selfDrive ? "Available" : bookingEligibility.selfDriveLabel}
               </Text>
-            </View>
+            </TouchableOpacity>
           </View>
+          {bookingEligibility.withDriverStatus === "available" && bookingEligibility.withDriverSource === "license" ? (
+            <Text style={styles.slotHelperText}>
+              Driver's License also satisfies valid ID eligibility.
+            </Text>
+          ) : null}
         </View>
 
-        {visibleGroups.map((group) => renderGroupCard(group))}
+        {visibleGroupConfig ? renderGroupCard(visibleGroupConfig) : null}
 
         <View style={styles.noticeCard}>
           <Ionicons name="shield-checkmark-outline" size={20} color="#f97316" />

@@ -16,6 +16,11 @@ import {
   markNotificationRead,
 } from "../api/clientApi";
 import { styles } from "../styles/notificationsStyle";
+import {
+  getStoredNotificationInbox,
+  markAllLocalNotificationsRead,
+  markLocalNotificationRead,
+} from "../services/notificationService";
 
 function formatDate(value) {
   if (!value) return "";
@@ -29,6 +34,14 @@ function formatDate(value) {
   });
 }
 
+function sortNotifications(items = []) {
+  return [...items].sort((left, right) => {
+    const leftTime = new Date(left?.createdAt || left?.readAt || 0).getTime() || 0;
+    const rightTime = new Date(right?.createdAt || right?.readAt || 0).getTime() || 0;
+    return rightTime - leftTime;
+  });
+}
+
 export default function NotificationsScreen({ navigation }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -39,9 +52,27 @@ export default function NotificationsScreen({ navigation }) {
     async (mode = "load") => {
       try {
         mode === "refresh" ? setRefreshing(true) : setLoading(true);
-        const res = await getNotifications(50);
-        setNotifications(res?.notifications || []);
-        setUnreadCount(Number(res?.unreadCount || 0));
+        const [backendResult, localItems] = await Promise.allSettled([
+          getNotifications(50),
+          getStoredNotificationInbox(),
+        ]);
+        const backendData =
+          backendResult.status === "fulfilled"
+            ? backendResult.value
+            : { unreadCount: 0, notifications: [] };
+        const backendNotifications = Array.isArray(backendData?.notifications)
+          ? backendData.notifications
+          : [];
+        const localNotifications =
+          localItems.status === "fulfilled" && Array.isArray(localItems.value)
+            ? localItems.value
+            : [];
+        const localUnreadCount = localNotifications.filter(
+          (item) => !item?.isRead && !item?.read && !item?.readAt
+        ).length;
+
+        setNotifications(sortNotifications([...localNotifications, ...backendNotifications]));
+        setUnreadCount(Number(backendData?.unreadCount || 0) + localUnreadCount);
       } catch (err) {
         if (isUnauthorizedError(err)) {
           navigation.replace("ClientLogin");
@@ -62,7 +93,9 @@ export default function NotificationsScreen({ navigation }) {
 
   const handlePress = async (item) => {
     try {
-      if (!item?.isRead) {
+      if (item?.source === "local") {
+        await markLocalNotificationRead(item?._id);
+      } else if (!item?.isRead) {
         await markNotificationRead(item._id);
       }
       await loadNotifications("refresh");
@@ -77,7 +110,7 @@ export default function NotificationsScreen({ navigation }) {
   };
 
   const handleMarkAll = async () => {
-    await markAllNotificationsRead();
+    await Promise.allSettled([markAllNotificationsRead(), markAllLocalNotificationsRead()]);
     await loadNotifications("refresh");
   };
 
@@ -92,7 +125,7 @@ export default function NotificationsScreen({ navigation }) {
       </View>
       <View style={styles.itemBody}>
         <View style={styles.itemTop}>
-          <Text style={styles.itemTitle}>{item?.title || "FleetX update"}</Text>
+          <Text style={styles.itemTitle}>{item?.title || "FleetX Booking Update"}</Text>
           {!item?.isRead ? <View style={styles.unreadDot} /> : null}
         </View>
         <Text style={styles.itemMessage}>{item?.message || ""}</Text>
@@ -110,7 +143,7 @@ export default function NotificationsScreen({ navigation }) {
           </TouchableOpacity>
           <View style={styles.headerTextWrap}>
             <Text style={styles.title}>Notifications</Text>
-            <Text style={styles.subtitle}>{unreadCount} unread update(s)</Text>
+            <Text style={styles.subtitle}>{unreadCount} unread FleetX update(s)</Text>
           </View>
           <TouchableOpacity style={styles.markButton} onPress={handleMarkAll}>
             <Text style={styles.markButtonText}>Mark read</Text>
@@ -133,7 +166,7 @@ export default function NotificationsScreen({ navigation }) {
             ListEmptyComponent={
               <View style={styles.emptyBox}>
                 <Text style={styles.emptyTitle}>No notifications yet</Text>
-                <Text style={styles.emptyText}>Booking updates from FleetX will appear here.</Text>
+                <Text style={styles.emptyText}>FleetX booking and payment updates will appear here.</Text>
               </View>
             }
           />

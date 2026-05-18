@@ -397,6 +397,166 @@ export const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
+  dateFieldRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+  dateFieldCard: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 14,
+  },
+  dateFieldCardActive: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accentSoft,
+  },
+  calendarCard: {
+    marginTop: 16,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  calendarHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  calendarNavButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#F8FAFC",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  calendarNavText: {
+    color: colors.heading,
+    fontSize: 20,
+    fontWeight: "800",
+    lineHeight: 24,
+  },
+  calendarMonthText: {
+    color: colors.heading,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  calendarHint: {
+    color: colors.subtext,
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 12,
+  },
+  calendarWeekRow: {
+    flexDirection: "row",
+    marginBottom: 8,
+  },
+  calendarWeekLabel: {
+    flex: 1,
+    textAlign: "center",
+    color: colors.subtext,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  calendarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+  calendarDay: {
+    width: "13.4%",
+    aspectRatio: 1,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "transparent",
+    marginBottom: 6,
+  },
+  calendarDayMuted: {
+    opacity: 0.55,
+  },
+  calendarDayDisabled: {
+    opacity: 0.55,
+  },
+  calendarDayBlocked: {
+    backgroundColor: "#FEE2E2",
+    borderColor: "#FCA5A5",
+  },
+  calendarDayInRange: {
+    backgroundColor: colors.accentSoft,
+  },
+  calendarDaySelected: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  calendarDayText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  calendarDayTextMuted: {
+    color: colors.subtext,
+  },
+  calendarDayTextBlocked: {
+    color: colors.danger,
+  },
+  calendarDayTextSelected: {
+    color: "#FFFFFF",
+  },
+  calendarBlockedDot: {
+    position: "absolute",
+    bottom: 7,
+    width: 5,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: colors.danger,
+  },
+  calendarLegendRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 14,
+    marginTop: 12,
+  },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  legendSwatch: {
+    width: 12,
+    height: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: "#FFFFFF",
+  },
+  legendSwatchSelected: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  legendSwatchRange: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accentSoft,
+  },
+  legendSwatchBlocked: {
+    backgroundColor: "#FEE2E2",
+    borderColor: "#FCA5A5",
+  },
+  legendText: {
+    color: colors.subtext,
+    fontSize: 12,
+    fontWeight: "700",
+  },
   durationBox: {
     marginTop: 18,
     flexDirection: "row",
@@ -406,10 +566,22 @@ export const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 14,
   },
+  durationBoxError: {
+    backgroundColor: "#FEF2F2",
+  },
+  durationBoxNeutral: {
+    backgroundColor: "#F8FAFC",
+  },
   durationText: {
     color: "#166534",
     fontSize: 13,
     fontWeight: "800",
+  },
+  durationTextError: {
+    color: "#B91C1C",
+  },
+  durationTextNeutral: {
+    color: "#334155",
   },
   inlineNoticeInfo: {
     flexDirection: "row",

@@ -27,6 +27,8 @@ import {
   getVerificationSubtitle,
 } from "../utils/verification";
 import { getProfileImageUrl } from "../utils/imageUrl";
+import { useAuth } from "../context/AuthContext";
+import { getStoredNotificationPermissionState } from "../services/notificationService";
 
 function getToneStyles(tone) {
   if (tone === "warning") {
@@ -45,6 +47,7 @@ function getToneStyles(tone) {
 }
 
 export default function ProfileScreen({ navigation }) {
+  const { logout } = useAuth();
   const [authChecked, setAuthChecked] = useState(false);
   const [hasToken, setHasToken] = useState(false);
   const [clientUser, setClientUser] = useState(null);
@@ -52,6 +55,7 @@ export default function ProfileScreen({ navigation }) {
   const [clientEmail, setClientEmail] = useState("No email available");
   const [profileImage, setProfileImage] = useState(null);
   const [verificationData, setVerificationData] = useState(null);
+  const [notificationPermissionStatus, setNotificationPermissionStatus] = useState("undetermined");
 
   const loadProfile = async () => {
     try {
@@ -68,6 +72,7 @@ export default function ProfileScreen({ navigation }) {
         setClientEmail("Sign in to view your FleetX account");
         setProfileImage(null);
         setVerificationData(null);
+        setNotificationPermissionStatus(await getStoredNotificationPermissionState());
         return;
       }
 
@@ -161,6 +166,8 @@ export default function ProfileScreen({ navigation }) {
       }
     } catch (err) {
       console.log("Load profile error:", err?.message || err);
+    } finally {
+      setNotificationPermissionStatus(await getStoredNotificationPermissionState());
     }
   };
 
@@ -181,6 +188,7 @@ export default function ProfileScreen({ navigation }) {
   const verificationAction = getVerificationActionLabel(verificationData);
   const verificationTone = getVerificationStatusTone(verificationData);
   const eligibility = getBookingEligibility(verificationData);
+  const notificationsDisabled = notificationPermissionStatus === "denied";
   const [badgeBoxStyle, badgeTextStyle] = getToneStyles(verificationTone);
   const [withDriverBoxStyle, withDriverTextStyle] = getToneStyles(eligibility.withDriverTone);
   const [selfDriveBoxStyle, selfDriveTextStyle] = getToneStyles(eligibility.selfDriveTone);
@@ -251,7 +259,7 @@ export default function ProfileScreen({ navigation }) {
 
   const handleLogout = async () => {
     try {
-      await clearClientSession();
+      await logout();
 
       navigation.getParent()?.reset({
         index: 0,
@@ -474,6 +482,12 @@ export default function ProfileScreen({ navigation }) {
                 }
                 onPress={() => navigation.navigate("Notifications")}
               />
+
+              {notificationsDisabled ? (
+                <Text style={styles.notificationNotice}>
+                  Notifications are disabled. You can enable them in device settings.
+                </Text>
+              ) : null}
             </View>
 
             <View style={styles.sectionCard}>

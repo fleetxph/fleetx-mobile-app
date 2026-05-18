@@ -15,6 +15,7 @@ export const BASE_URL = String(ENV_BASE_URL || DEFAULT_BASE_URL)
   .replace(/\/+$/, "");
 export const API_BASE_URL = BASE_URL;
 export const BACKEND_ORIGIN = BASE_URL.replace(/\/api\/?$/, "");
+const sessionExpiredListeners = new Set();
 
 function buildDebugUrl(config = {}) {
   const baseURL = String(config.baseURL || BASE_URL || "").replace(/\/+$/, "");
@@ -65,8 +66,32 @@ export async function clearClientSession() {
     "clientName",
     "clientToken",
     "token",
+    "authToken",
     "profileImage",
+    "sessionSavedAt",
+    "expoPushToken",
+    "localNotificationInbox",
+    "bookingStatusSnapshot",
   ]);
+}
+
+export function subscribeToSessionExpired(listener) {
+  if (typeof listener !== "function") {
+    return () => {};
+  }
+
+  sessionExpiredListeners.add(listener);
+  return () => sessionExpiredListeners.delete(listener);
+}
+
+function notifySessionExpired(payload = {}) {
+  sessionExpiredListeners.forEach((listener) => {
+    try {
+      listener(payload);
+    } catch {
+      // Keep session cleanup resilient even if a listener fails.
+    }
+  });
 }
 
 export function isUnauthorizedError(error) {
@@ -142,8 +167,24 @@ api.interceptors.response.use(
     }
 
     if (isUnauthorizedError(error)) {
-      await clearClientSession();
-      error.isAuthExpired = true;
+      const status = error?.response?.status || null;
+      const tokenExists = Boolean(
+        (await getStoredItem("clientToken")) ||
+          (await getStoredItem("token")) ||
+          (await getStoredItem("authToken"))
+      );
+
+      if (tokenExists) {
+        await clearClientSession();
+        error.isAuthExpired = true;
+        if (__DEV__) {
+          console.log("[Session][expired]", {
+            status,
+            cleared: true,
+          });
+        }
+        notifySessionExpired({ status, cleared: true });
+      }
     }
 
     return Promise.reject(error);

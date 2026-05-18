@@ -20,7 +20,7 @@ export default function NotificationIcon({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
     >
-      <Ionicons name="notifications-outline" size={20} color="#0B132B" />
+      <Ionicons name="notifications-outline" size={20} color="#F47C20" />
       {showBadge ? (
         <View style={styles.badge}>
           <Text style={styles.badgeText}>
