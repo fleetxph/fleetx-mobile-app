@@ -22,6 +22,7 @@ import {
   formatRentalHours,
   getVehicleRate24Hr,
 } from "../utils/rentalPricing";
+import { formatLuggageSummary, getVehicleLuggageFit } from "../utils/luggageFit";
 
 const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 function toMidnight(value) {
@@ -193,6 +194,10 @@ export default function VehicleDetails({ route, navigation }) {
   );
   const hasValidDates = Boolean(pickupDate && returnDate && rentalPricing.totalHours > 0);
   const canContinue = hasValidDates && Boolean(selectedVehicleRate);
+  const vehicleFit = useMemo(
+    () => getVehicleLuggageFit(vehicle || {}, tripData || {}),
+    [tripData, vehicle]
+  );
 
   useEffect(() => {
     setActiveImage(galleryImages[0] || null);
@@ -424,6 +429,12 @@ export default function VehicleDetails({ route, navigation }) {
         ...(tripData || {}),
         startDate: formatLocalDate(pickupDate),
         endDate: formatLocalDate(returnDate),
+        luggageBags: Number(
+          tripData?.luggageBags ?? tripData?.luggageCount ?? tripData?.bagCount ?? tripData?.bags ?? 0
+        ),
+        luggageCount: Number(
+          tripData?.luggageBags ?? tripData?.luggageCount ?? tripData?.bagCount ?? tripData?.bags ?? 0
+        ),
         startTime: tripData?.startTime || tripData?.pickupTime || "00:00",
         endTime: tripData?.endTime || tripData?.returnTime || "00:00",
         durationHours: bookingPreview.durationHours,
@@ -530,6 +541,12 @@ export default function VehicleDetails({ route, navigation }) {
           <Text style={styles.rateValue}>
             {selectedVehicleRate ? `${formatCurrency(selectedVehicleRate)}/day` : "Rate unavailable"}
           </Text>
+        </View>
+
+        <View style={styles.fitCard}>
+          <Text style={styles.fitPrimary}>{vehicleFit.recommendation}</Text>
+          <Text style={styles.fitSecondary}>{vehicleFit.passengerMessage}</Text>
+          <Text style={styles.fitSecondary}>{vehicleFit.luggageMessage}</Text>
         </View>
       </View>
 
@@ -736,6 +753,13 @@ export default function VehicleDetails({ route, navigation }) {
             <Text style={styles.summaryLabel}>Billing</Text>
             <Text style={styles.summaryValue}>
               {rentalPricing.totalHours > 0 ? rentalPricing.billingLabel : "Not set"}
+            </Text>
+          </View>
+
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Luggage</Text>
+            <Text style={styles.summaryValue}>
+              {formatLuggageSummary(tripData || {})}
             </Text>
           </View>
 

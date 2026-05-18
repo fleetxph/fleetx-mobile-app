@@ -16,6 +16,22 @@ export const BASE_URL = String(ENV_BASE_URL || DEFAULT_BASE_URL)
 export const API_BASE_URL = BASE_URL;
 export const BACKEND_ORIGIN = BASE_URL.replace(/\/api\/?$/, "");
 
+function buildDebugUrl(config = {}) {
+  const baseURL = String(config.baseURL || BASE_URL || "").replace(/\/+$/, "");
+  const requestUrl = String(config.url || "").trim();
+
+  if (!requestUrl) return baseURL;
+  if (/^https?:\/\//i.test(requestUrl)) return requestUrl;
+
+  return `${baseURL}${requestUrl.startsWith("/") ? "" : "/"}${requestUrl}`;
+}
+
+function shouldDebugRequest(config = {}) {
+  if (!__DEV__) return false;
+  const requestUrl = String(config.url || "");
+  return requestUrl.includes("/public/vehicles") || requestUrl.includes("/client/login");
+}
+
 const PROTECTED_PREFIXES = [
   "/client/bookings",
   "/client/profile",
@@ -78,6 +94,16 @@ api.interceptors.request.use(async (config) => {
   const url = String(config.url || "");
   const shouldAttachToken = PROTECTED_PREFIXES.some((prefix) => url.startsWith(prefix));
 
+  if (shouldDebugRequest(config)) {
+    console.log("[API][request]", {
+      platform: Platform.OS,
+      baseURL: config.baseURL || BASE_URL,
+      url: buildDebugUrl(config),
+      method: String(config.method || "get").toUpperCase(),
+      timeout: config.timeout || api.defaults.timeout,
+    });
+  }
+
   if (!shouldAttachToken) {
     return config;
   }
@@ -93,8 +119,28 @@ api.interceptors.request.use(async (config) => {
 });
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (shouldDebugRequest(response?.config)) {
+      console.log("[API][response]", {
+        url: buildDebugUrl(response?.config),
+        status: response?.status,
+        reachedResponse: true,
+      });
+    }
+
+    return response;
+  },
   async (error) => {
+    if (shouldDebugRequest(error?.config)) {
+      console.log("[API][error]", {
+        url: buildDebugUrl(error?.config),
+        message: error?.message || "Unknown error",
+        code: error?.code || "",
+        status: error?.response?.status || null,
+        reachedResponse: Boolean(error?.response),
+      });
+    }
+
     if (isUnauthorizedError(error)) {
       await clearClientSession();
       error.isAuthExpired = true;

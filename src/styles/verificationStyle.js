@@ -56,6 +56,11 @@ export const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 2,
   },
+  highlightCard: {
+    borderWidth: 1,
+    borderColor: "#fdba74",
+    backgroundColor: "#fffdf9",
+  },
   cardTitle: {
     fontSize: 17,
     fontWeight: "900",
@@ -136,6 +141,27 @@ export const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "800",
     color: "#0f172a",
+  },
+  levelRow: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 16,
+    padding: 14,
+    backgroundColor: "#f8fafc",
+    marginBottom: 14,
+  },
+  levelValue: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "900",
+    color: "#0f172a",
+  },
+  summarySubvalue: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: "#475569",
+    marginTop: 6,
   },
   eligibilityRow: {
     flexDirection: "row",
@@ -290,6 +316,21 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     color: "#64748b",
+  },
+  slotRemark: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#b45309",
+    marginBottom: 10,
+    fontWeight: "700",
+  },
+  selfieButtonWrap: {
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  selfieActionButton: {
+    width: "72%",
+    flexGrow: 0,
   },
   uploadActions: {
     flexDirection: "row",

@@ -378,7 +378,7 @@ export const styles = StyleSheet.create({
 
   cardBody: {
     padding: 14,
-    minHeight: 126,
+    minHeight: 158,
     justifyContent: "space-between",
   },
 
@@ -416,6 +416,26 @@ export const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     minHeight: 36,
+  },
+  fitCard: {
+    borderRadius: 14,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 10,
+    marginBottom: 10,
+  },
+  fitPrimary: {
+    color: colors.heading,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "800",
+  },
+  fitSecondary: {
+    color: colors.subtext,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 2,
   },
 
   priceRow: {

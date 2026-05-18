@@ -11,7 +11,8 @@ import {
   getReferenceNo,
   getVehicleName,
 } from "../utils/bookingDocuments";
-import { downloadPdf, openPdf, sharePdf, showPdfError } from "../utils/pdfUtils";
+import { getBookingReceiptDetails } from "../utils/bookingPaymentDisplay";
+import { downloadAndSharePdf, downloadPdf, sharePdf, showPdfError } from "../utils/pdfUtils";
 
 function SummaryRow({ label, value, last }) {
   return (
@@ -36,15 +37,17 @@ export default function BookingDocumentScreen({ navigation, route, type }) {
   const booking = route?.params?.booking || {};
   const [pdfActionLoading, setPdfActionLoading] = useState("");
   const isInvoice = type === "invoice";
+  const receiptDetails = getBookingReceiptDetails(booking);
   const title = isInvoice ? "Invoice" : "Receipt";
+  const fileLabel = isInvoice ? "FleetX-Invoice" : "FleetX-Receipt";
   const reference = isInvoice
     ? booking?.invoiceReference || booking?.invoiceNumber || ""
     : booking?.receiptNumber || "";
+  const bookingReference = getReferenceNo(booking);
   const previewUrl = getBookingDocumentUrl(booking, type, false);
   const pdfUrl = getBookingDocumentUrl(booking, type, true) || previewUrl;
-  const isAvailable = Boolean(previewUrl || pdfUrl);
-  const fileName = `${title.toLowerCase()}-${reference || getBookingId(booking) || "document"}.pdf`;
-  const bookingReference = getReferenceNo(booking);
+  const isAvailable = isInvoice ? Boolean(previewUrl || pdfUrl) : Boolean((previewUrl || pdfUrl) && receiptDetails.isEligible);
+  const fileName = `${fileLabel}-${bookingReference || reference || getBookingId(booking) || "document"}.pdf`;
   const documentSource = pdfUrl || previewUrl;
   const isBusy = Boolean(pdfActionLoading);
 
@@ -67,7 +70,7 @@ export default function BookingDocumentScreen({ navigation, route, type }) {
       };
 
       if (action === "open") {
-        await openPdf(payload);
+        await downloadAndSharePdf(payload);
       } else if (action === "download") {
         await downloadPdf(payload);
         Alert.alert("PDF Ready", "PDF ready. Choose where to save or open it.");
@@ -143,7 +146,9 @@ export default function BookingDocumentScreen({ navigation, route, type }) {
           <Text style={styles.heroMeta}>
             {isInvoice
               ? `Payment status: ${booking?.paymentStatus || "Not submitted"}`
-              : `Receipt status: ${booking?.receiptStatus || booking?.paymentStatus || "Not issued"}`}
+              : receiptDetails.isEligible
+              ? "Your payment has been verified and your booking is confirmed."
+              : "Receipt is not available until payment verification is complete."}
           </Text>
         </View>
 
@@ -188,7 +193,9 @@ export default function BookingDocumentScreen({ navigation, route, type }) {
             </View>
             {!isAvailable ? (
               <Text style={styles.unavailableText}>
-                {title} is not available yet. It will appear here once FleetX issues it for this booking.
+                {isInvoice
+                  ? "Invoice is not available yet. It will appear here once FleetX issues it for this booking."
+                  : "Receipt is not available yet. It will appear here after your payment is verified and the booking is confirmed."}
               </Text>
             ) : null}
             {isBusy ? (

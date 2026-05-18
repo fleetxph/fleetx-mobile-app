@@ -138,6 +138,26 @@ export const styles = StyleSheet.create({
     fontWeight: "800",
     color: colors.accent,
   },
+  fitCard: {
+    marginTop: 14,
+    borderRadius: 14,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: colors.softBorder,
+    padding: 12,
+  },
+  fitPrimary: {
+    color: colors.heading,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  fitSecondary: {
+    color: colors.subtext,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 3,
+  },
 
   formCard: {
     backgroundColor: colors.card,

@@ -1,8 +1,36 @@
 import api, { BASE_URL } from "./api";
 
+const ROUTE_VALIDATION_TIMEOUT_MS = 7000;
+
 export async function loginClient(payload) {
-  const response = await api.post("/client/login", payload);
-  return response.data;
+  const url = `${BASE_URL}/client/login`;
+
+  if (__DEV__) {
+    console.log("[AuthAPI][login:start]", {
+      url,
+      method: "POST",
+      hasEmail: Boolean(payload?.email || payload?.login),
+      hasPassword: Boolean(payload?.password),
+    });
+  }
+
+  try {
+    const response = await api.post("/client/login", payload);
+    return response.data;
+  } catch (error) {
+    if (__DEV__) {
+      console.log("[AuthAPI][login:error]", {
+        url,
+        reachedResponse: Boolean(error?.response),
+        status: error?.response?.status || null,
+        code: error?.code || null,
+        message: error?.message || "Unknown error",
+        responseData: error?.response?.data || null,
+      });
+    }
+
+    throw error;
+  }
 }
 
 export async function registerClient(payload) {
@@ -92,6 +120,24 @@ export async function createBooking(payload) {
   return response.data;
 }
 
+export async function estimateRouteMinimumDuration(payload) {
+  try {
+    const response = await api.post("/client/bookings/route-minimum-duration", payload, {
+      timeout: ROUTE_VALIDATION_TIMEOUT_MS,
+    });
+    return response.data;
+  } catch (error) {
+    const normalizedMessage = String(error?.message || "").toLowerCase();
+    const isTimeout =
+      error?.code === "ECONNABORTED" ||
+      normalizedMessage.includes("timeout") ||
+      normalizedMessage.includes("timed out");
+
+    error.isRouteValidationTimeout = isTimeout;
+    throw error;
+  }
+}
+
 export async function saveClientBookingDraft(payload) {
   const response = await api.post("/client/bookings/draft", payload);
   return response.data;
@@ -165,10 +211,43 @@ export async function submitPaymentProof(bookingId, payload) {
   return response.data;
 }
 
+export async function getAdditionalInvoice(bookingId, options = {}) {
+  const response = await api.get(`/client/bookings/${bookingId}/additional-invoice`);
+  return options?.rawResponse ? response : response.data;
+}
+
+export function getAdditionalInvoicePdf(bookingId) {
+  return `${BASE_URL}/client/bookings/${bookingId}/additional-invoice/pdf`;
+}
+
+export async function uploadAdditionalPaymentProof(bookingId, payload) {
+  const response = await api.post(`/client/bookings/${bookingId}/additional-payment-proof`, payload);
+  return response.data;
+}
+
+export async function getBookingContract(bookingId, options = {}) {
+  const response = await api.get(`/client/bookings/${bookingId}/contract`);
+  return options?.rawResponse ? response : response.data;
+}
+
+export async function getContractTemplate(options = {}) {
+  const response = await api.get("/settings/contract-template");
+  return options?.rawResponse ? response : response.data;
+}
+
+export async function acceptBookingContract(bookingId, payload = {}) {
+  const response = await api.post(`/client/bookings/${bookingId}/contract/accept`, payload);
+  return response.data;
+}
+
 export function getClientInvoiceUrl(bookingId, pdf = false) {
   return `${BASE_URL}/client/bookings/${bookingId}/invoice${pdf ? "/pdf" : ""}`;
 }
 
 export function getClientReceiptUrl(bookingId, pdf = false) {
   return `${BASE_URL}/client/bookings/${bookingId}/receipt${pdf ? "/pdf" : ""}`;
+}
+
+export function getBookingContractPdfUrl(bookingId) {
+  return `${BASE_URL}/client/bookings/${bookingId}/contract/pdf`;
 }

@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
-import { hasGooglePlacesApiKey, reverseGeocode } from "../api/publicApi";
+import {
+  GOOGLE_PLACES_CONFIG_MESSAGE,
+  hasGooglePlacesApiKey,
+  reverseGeocode,
+} from "../api/publicApi";
 import { styles } from "../styles/locationPickerModalStyle";
 
 const DEFAULT_REGIONS = {
@@ -101,6 +105,7 @@ export default function LocationPickerModal({
   onConfirm,
 }) {
   const mapRef = useRef(null);
+  const selectedLocationRef = useRef(null);
   const reverseLookupIdRef = useRef(0);
   const reverseLookupTimerRef = useRef(null);
   const title = mode === "pickup" ? "Pin Pickup Location" : "Pin Destination";
@@ -120,6 +125,10 @@ export default function LocationPickerModal({
   const [localErrorMessage, setLocalErrorMessage] = useState(errorMessage);
 
   useEffect(() => {
+    selectedLocationRef.current = selectedLocation;
+  }, [selectedLocation]);
+
+  useEffect(() => {
     const nextLocation = createLocationState(
       activeLocation,
       initialLabel,
@@ -129,8 +138,11 @@ export default function LocationPickerModal({
 
     setSelectedLocation(nextLocation);
     setLocalStatusMessage(statusMessage);
-    setLocalErrorMessage(errorMessage);
-  }, [activeLocation, defaultRegion.latitude, defaultRegion.longitude, errorMessage, initialLabel, resolvedLocation, statusMessage]);
+    setLocalErrorMessage(
+      errorMessage ||
+        (canReverseGeocode ? "" : GOOGLE_PLACES_CONFIG_MESSAGE)
+    );
+  }, [activeLocation, canReverseGeocode, defaultRegion.latitude, defaultRegion.longitude, errorMessage, initialLabel, resolvedLocation, statusMessage]);
 
   useEffect(() => {
     if (!visible || !mapRef.current) return;
@@ -166,23 +178,24 @@ export default function LocationPickerModal({
   }, [canReverseGeocode, selectedLocation.address, selectedLocation.latitude, selectedLocation.longitude, visible]);
 
   const resolvePinAddress = async (latitude, longitude) => {
-    const fallbackResolvedLabel = getBestLocationLabel(
-      selectedLocation,
-      initialLabel || placeholderLabel
-    );
+    const currentSelection = selectedLocationRef.current || selectedLocation;
+    const coordinateFallback = `Pinned location (${formatCoordinate(latitude, "0.0000")}, ${formatCoordinate(longitude, "0.0000")})`;
+    const fallbackResolvedLabel =
+      getBestLocationLabel(currentSelection, initialLabel || placeholderLabel) ||
+      coordinateFallback;
 
     if (!canReverseGeocode) {
       setSelectedLocation((prev) => ({
         ...prev,
-        label: getBestLocationLabel(prev, fallbackResolvedLabel) || placeholderLabel,
-        address: getBestLocationLabel(prev, fallbackResolvedLabel) || placeholderLabel,
+        label: getBestLocationLabel(prev, fallbackResolvedLabel) || coordinateFallback,
+        address: getBestLocationLabel(prev, fallbackResolvedLabel) || coordinateFallback,
       }));
       return;
     }
 
     const requestId = reverseLookupIdRef.current + 1;
     reverseLookupIdRef.current = requestId;
-    setLocalStatusMessage("Resolving pinned address...");
+    setLocalStatusMessage("Finding address...");
     setLocalErrorMessage("");
 
     try {
@@ -201,8 +214,8 @@ export default function LocationPickerModal({
       } else {
         setSelectedLocation((prev) => ({
           ...prev,
-          label: getBestLocationLabel(prev, fallbackResolvedLabel) || placeholderLabel,
-          address: getBestLocationLabel(prev, fallbackResolvedLabel) || placeholderLabel,
+          label: getBestLocationLabel(prev, fallbackResolvedLabel) || coordinateFallback,
+          address: getBestLocationLabel(prev, fallbackResolvedLabel) || coordinateFallback,
           source: "pin",
         }));
         setLocalStatusMessage("");
@@ -211,8 +224,8 @@ export default function LocationPickerModal({
       if (reverseLookupIdRef.current !== requestId) return;
       setSelectedLocation((prev) => ({
         ...prev,
-        label: getBestLocationLabel(prev, fallbackResolvedLabel) || placeholderLabel,
-        address: getBestLocationLabel(prev, fallbackResolvedLabel) || placeholderLabel,
+        label: getBestLocationLabel(prev, fallbackResolvedLabel) || coordinateFallback,
+        address: getBestLocationLabel(prev, fallbackResolvedLabel) || coordinateFallback,
         source: "pin",
       }));
       setLocalStatusMessage("");
@@ -221,12 +234,17 @@ export default function LocationPickerModal({
   };
 
   const updatePinPosition = ({ latitude, longitude }) => {
+    const coordinateFallback = `Pinned location (${formatCoordinate(latitude, "0.0000")}, ${formatCoordinate(longitude, "0.0000")})`;
     setSelectedLocation((prev) => ({
       ...prev,
       latitude,
       longitude,
+      label: getBestLocationLabel(prev, prev.address || prev.label) || coordinateFallback,
+      address: getBestLocationLabel(prev, prev.address || prev.label) || coordinateFallback,
       source: "pin",
     }));
+    setLocalStatusMessage("Finding address...");
+    setLocalErrorMessage("");
     if (reverseLookupTimerRef.current) {
       clearTimeout(reverseLookupTimerRef.current);
     }
@@ -297,7 +315,14 @@ export default function LocationPickerModal({
               <Text style={styles.previewLabel}>Location label</Text>
               <TextInput
                 value={selectedLocation.address || selectedLocation.label}
-                editable={false}
+                editable
+                onChangeText={(value) =>
+                  setSelectedLocation((prev) => ({
+                    ...prev,
+                    label: value,
+                    address: value,
+                  }))
+                }
                 placeholder={placeholderLabel}
                 placeholderTextColor="#98A2B3"
                 style={styles.labelInput}

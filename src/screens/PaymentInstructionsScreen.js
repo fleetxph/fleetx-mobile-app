@@ -7,18 +7,41 @@ import {
   SafeAreaView,
   ScrollView,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { BACKEND_ORIGIN, BASE_URL } from "../api/api";
-import { getPublicPaymentMethods, submitPaymentProof } from "../api/clientApi";
+import {
+  acceptBookingContract,
+  getBookingContract,
+  getBookingContractPdfUrl,
+  getClientInvoiceUrl,
+  getContractTemplate,
+  getPublicPaymentMethods,
+  submitPaymentProof,
+} from "../api/clientApi";
 import SuccessInfoModal from "../components/SuccessInfoModal";
 import { styles } from "../styles/paymentInstructionsStyle";
-import { formatBookingDateTime, formatBookingPrice, getReferenceNo } from "../utils/bookingDocuments";
-import { getBookingStatusMeta } from "../utils/bookingStatusDisplay";
+import {
+  formatBookingDateTime,
+  formatBookingPrice,
+  getInvoicePdfSource,
+  getReferenceNo,
+} from "../utils/bookingDocuments";
+import {
+  extractContractContent,
+  getContractContentDiagnostics,
+  getContractAcceptanceState,
+  htmlToReadableText,
+} from "../utils/bookingContractDisplay";
+import { getBookingStatusLabel, getBookingStatusMeta } from "../utils/bookingStatusDisplay";
 import { resolveImageUrl } from "../utils/imageUrl";
+import { dedupePaymentMethods, getPaymentMethodSelectionKey } from "../utils/paymentMethods";
+import { openPdf, showPdfError } from "../utils/pdfUtils";
 
 function valueOrFallback(value, fallback = "Not available") {
   if (value === undefined || value === null || value === "") return fallback;
@@ -26,7 +49,7 @@ function valueOrFallback(value, fallback = "Not available") {
 }
 
 function getBookingId(booking) {
-  return booking?._id || booking?.id || "";
+  return booking?._id || booking?.id || booking?.bookingId || "";
 }
 
 function normalizeMethod(value) {
@@ -45,28 +68,56 @@ function toBase64DataUri(asset) {
 function getPaymentStatusDisplay(booking) {
   const paymentStatus = String(booking?.paymentStatus || "").toLowerCase();
   const status = String(booking?.status || "").toLowerCase();
-  const meta = getBookingStatusMeta(booking?.status);
-
-  if (["submitted", "payment_submitted", "under_review", "pending"].includes(paymentStatus)) {
-    return "Payment Proof Submitted";
-  }
-
-  if (["verified", "fully_paid", "downpayment_paid"].includes(paymentStatus)) {
-    return "Payment Verified";
-  }
 
   if (
     ["rejected", "reupload_required"].includes(paymentStatus) ||
     status === "payment_rejected"
   ) {
-    return "Payment Update Required";
-  }
-
-  if (meta.key === "awaiting_payment") {
     return "Awaiting Payment";
   }
 
-  return "Payment Verification";
+  return getBookingStatusLabel(booking);
+}
+
+function getPaymentProofEligibility(booking) {
+  const status = String(booking?.status || "").toLowerCase();
+  const paymentStatus = String(booking?.paymentStatus || "").toLowerCase();
+  const statusMeta = getBookingStatusMeta(booking);
+  const hasInvoiceOrPaymentDetails = Boolean(
+    booking?.invoiceReference ||
+      booking?.invoiceNumber ||
+      booking?.invoice?.invoiceNumber ||
+      booking?.invoice?.reference ||
+      booking?.amountDue ||
+      booking?.amountToPay ||
+      booking?.invoiceAmount ||
+      booking?.paymentMethod ||
+      booking?.paymentOption ||
+      booking?.paymentInstructions ||
+      booking?.paymentDetails
+  );
+
+  const isUnderReview =
+    ["submitted", "payment_submitted", "under_review", "pending"].includes(paymentStatus) ||
+    statusMeta.key === "under_review";
+  const isLocked =
+    ["verified", "fully_paid", "downpayment_paid"].includes(paymentStatus) ||
+    ["confirmed", "completed", "cancelled"].includes(statusMeta.key);
+  const isEligible =
+    !isUnderReview &&
+    !isLocked &&
+    (statusMeta.key === "awaiting_payment" ||
+      (status === "approved" && hasInvoiceOrPaymentDetails) ||
+      ["invoice_issued", "pending_payment", "payment_pending", "rejected", "reupload_required"].includes(
+        paymentStatus
+      ));
+
+  return {
+    isEligible,
+    isUnderReview,
+    isLocked,
+    hasInvoiceOrPaymentDetails,
+  };
 }
 
 function getCountdownText(deadline) {
@@ -152,13 +203,21 @@ function resolveAssetUrl(pathOrUrl) {
 
 function getPaymentQrSource(booking, selectedMethod) {
   const invoice = booking?.invoice || {};
+  const invoiceData = booking?.invoiceData || {};
+  const bookingPaymentMethod =
+    typeof booking?.paymentMethod === "object"
+      ? booking.paymentMethod
+      : booking?.selectedPaymentMethod || booking?.selectedPaymentMethodData || {};
   const paymentDetails =
     booking?.paymentDetails ||
     booking?.paymentInstruction ||
     booking?.paymentInstructions ||
     invoice?.paymentDetails ||
+    invoiceData?.paymentDetails ||
     invoice?.paymentInstruction ||
+    invoiceData?.paymentInstruction ||
     invoice?.paymentInstructions ||
+    invoiceData?.paymentInstructions ||
     selectedMethod?.paymentDetails ||
     selectedMethod?.paymentInstruction ||
     {};
@@ -169,60 +228,141 @@ function getPaymentQrSource(booking, selectedMethod) {
     selectedMethod?.paymentDetails ||
     selectedMethod?.paymentInstruction ||
     {};
+  const qrFieldGroups = [
+    {
+      source: "paymentDetails",
+      target: paymentDetails,
+      fields: [
+        "qr",
+        "qrUrl",
+        "qrImage",
+        "qrImageUrl",
+        "qrCode",
+        "qrCodeUrl",
+        "paymentQr",
+        "paymentQrUrl",
+        "paymentQRCode",
+        "image",
+        "imageUrl",
+      ],
+    },
+    {
+      source: "selectedPaymentMethod",
+      target: selectedMethod,
+      fields: [
+        "qr",
+        "qrUrl",
+        "qrImage",
+        "qrImageUrl",
+        "qrCode",
+        "qrCodeUrl",
+        "paymentQr",
+        "paymentQrUrl",
+        "paymentQRCode",
+        "image",
+        "imageUrl",
+      ],
+    },
+    {
+      source: "selectedPaymentMethod.config",
+      target: methodConfig,
+      fields: [
+        "qr",
+        "qrUrl",
+        "qrImage",
+        "qrImageUrl",
+        "qrCode",
+        "qrCodeUrl",
+        "paymentQr",
+        "paymentQrUrl",
+        "paymentQRCode",
+        "image",
+        "imageUrl",
+      ],
+    },
+    {
+      source: "booking.paymentMethod",
+      target: bookingPaymentMethod,
+      fields: [
+        "qr",
+        "qrUrl",
+        "qrImage",
+        "qrImageUrl",
+        "qrCode",
+        "qrCodeUrl",
+        "paymentQr",
+        "paymentQrUrl",
+        "paymentQRCode",
+        "image",
+        "imageUrl",
+      ],
+    },
+    {
+      source: "booking",
+      target: booking,
+      fields: [
+        "paymentQr",
+        "paymentQrUrl",
+        "paymentQRCode",
+        "qr",
+        "qrUrl",
+        "qrImage",
+        "qrImageUrl",
+        "qrCode",
+        "qrCodeUrl",
+      ],
+    },
+    {
+      source: "invoice",
+      target: invoice,
+      fields: [
+        "paymentQr",
+        "paymentQrUrl",
+        "paymentQRCode",
+        "qr",
+        "qrUrl",
+        "qrImage",
+        "qrImageUrl",
+        "qrCode",
+        "qrCodeUrl",
+      ],
+    },
+    {
+      source: "invoiceData",
+      target: invoiceData,
+      fields: [
+        "paymentQr",
+        "paymentQrUrl",
+        "paymentQRCode",
+        "qr",
+        "qrUrl",
+        "qrImage",
+        "qrImageUrl",
+        "qrCode",
+        "qrCodeUrl",
+      ],
+    },
+  ];
 
-  return (
-    valueFromSource(paymentDetails, [
-      "qrUrl",
-      "qrImage",
-      "qrImageUrl",
-      "qrCode",
-      "qrCodeUrl",
-      "paymentQrUrl",
-      "image",
-      "imageUrl",
-    ]) ||
-    valueFromSource(selectedMethod, [
-      "qrUrl",
-      "qrImage",
-      "qrImageUrl",
-      "qrCode",
-      "qrCodeUrl",
-      "paymentQrUrl",
-      "image",
-      "imageUrl",
-      "logo",
-      "logoUrl",
-    ]) ||
-    valueFromSource(methodConfig, [
-      "qrUrl",
-      "qrImage",
-      "qrImageUrl",
-      "qrCode",
-      "qrCodeUrl",
-      "paymentQrUrl",
-      "image",
-      "imageUrl",
-      "logo",
-      "logoUrl",
-    ]) ||
-    valueFromSource(booking, [
-      "paymentQrUrl",
-      "qrUrl",
-      "qrImage",
-      "qrImageUrl",
-      "qrCode",
-      "qrCodeUrl",
-    ]) ||
-    valueFromSource(invoice, [
-      "paymentQrUrl",
-      "qrUrl",
-      "qrImage",
-      "qrImageUrl",
-      "qrCode",
-      "qrCodeUrl",
-    ]) ||
-    ""
-  );
+  let checkedFieldsCount = 0;
+
+  for (const group of qrFieldGroups) {
+    checkedFieldsCount += group.fields.length;
+    const value = valueFromSource(group.target, group.fields);
+    if (value) {
+      return {
+        qrSource: group.source,
+        qrValue: value,
+        checkedFieldsCount,
+      };
+    }
+  }
+
+  return {
+    qrSource: "",
+    qrValue: "",
+    checkedFieldsCount,
+  };
 }
 
 function getPaymentMethodLabel(booking, paymentMethod) {
@@ -276,6 +416,70 @@ function formatPaymentOption(option) {
   return valueOrFallback(option, "Not selected");
 }
 
+function getContractFriendlyError(type) {
+  if (type === "accept") return "Unable to accept contract. Please try again.";
+  if (type === "load") return "Unable to load contract. Please try again.";
+  return "Contract is not available yet.";
+}
+
+function getContractEndpoint(bookingId) {
+  return bookingId ? `/api/client/bookings/${bookingId}/contract` : "/api/client/bookings/:id/contract";
+}
+
+function getFriendlyContractErrorMessage(error, fallbackMessage) {
+  const status = Number(error?.response?.status || 0);
+  const responseData = error?.response?.data || {};
+  const backendMessage = String(
+    responseData?.message ||
+      responseData?.error ||
+      responseData?.detail ||
+      responseData?.data?.message ||
+      ""
+  ).trim();
+
+  if (status === 404) return "Contract is not available yet.";
+  if (status === 401 || status === 403) return "Please sign in again to view the contract.";
+  if (status === 400) return backendMessage || fallbackMessage || getContractFriendlyError("load");
+  if (!error?.response) return "Unable to connect. Please try again.";
+  return backendMessage || fallbackMessage || getContractFriendlyError("load");
+}
+
+function shouldShowPendingContractReview(message) {
+  return /contract.*not accepted|not accepted yet|review and accept|accept the rental contract/i.test(
+    String(message || "")
+  );
+}
+
+function getContractPdfPendingMessage() {
+  return "Contract PDF will be available after you accept the rental contract.";
+}
+
+function getContractTemplateNotice() {
+  return "This is the current rental contract template. Booking-specific PDF will be available after accepting the contract.";
+}
+
+function getHeaderValue(headers, key) {
+  if (!headers) return "";
+
+  const matchedKey = Object.keys(headers).find(
+    (headerKey) => String(headerKey).toLowerCase() === String(key || "").toLowerCase()
+  );
+
+  return matchedKey ? String(headers[matchedKey] || "") : "";
+}
+
+function logBookingDocsError(type, error) {
+  if (!__DEV__) return;
+
+  console.log("[BookingDocs][error]", {
+    type,
+    reachedResponse: Boolean(error?.response),
+    status: error?.response?.status || null,
+    message: error?.message || "Unknown error",
+    responseData: error?.response?.data || null,
+  });
+}
+
 export default function PaymentInstructionsScreen({ navigation, route }) {
   const [booking, setBooking] = useState(route?.params?.booking || {});
   const [paymentMethods, setPaymentMethods] = useState([]);
@@ -284,6 +488,18 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
   const [isSubmittingProof, setIsSubmittingProof] = useState(false);
   const [qrPreviewVisible, setQrPreviewVisible] = useState(false);
   const [proofSuccessVisible, setProofSuccessVisible] = useState(false);
+  const [proofError, setProofError] = useState("");
+  const [contractModalVisible, setContractModalVisible] = useState(false);
+  const [contractRecord, setContractRecord] = useState(null);
+  const [contractTemplate, setContractTemplate] = useState(null);
+  const [contractLoading, setContractLoading] = useState(false);
+  const [contractAccepting, setContractAccepting] = useState(false);
+  const [contractError, setContractError] = useState("");
+  const [contractAcceptError, setContractAcceptError] = useState("");
+  const [contractNotice, setContractNotice] = useState("");
+  const [contractAgreementChecked, setContractAgreementChecked] = useState(false);
+  const [signatureName, setSignatureName] = useState("");
+  const [qrImageLoadFailed, setQrImageLoadFailed] = useState(false);
   const [countdownText, setCountdownText] = useState(
     getCountdownText(route?.params?.booking?.paymentDueAt || route?.params?.booking?.paymentDeadline)
   );
@@ -296,7 +512,9 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
         setLoadingMethods(true);
         const res = await getPublicPaymentMethods();
         if (!isMounted) return;
-        setPaymentMethods(Array.isArray(res?.paymentMethods) ? res.paymentMethods : []);
+        setPaymentMethods(
+          dedupePaymentMethods(Array.isArray(res?.paymentMethods) ? res.paymentMethods : [])
+        );
       } catch (error) {
         console.log("Load payment methods error:", error?.response?.data || error?.message || error);
         if (isMounted) {
@@ -338,6 +556,9 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
     return (
       paymentMethods.find((method) => method?._id === booking?.selectedPaymentMethodId) ||
       paymentMethods.find(
+        (method) => getPaymentMethodSelectionKey(method) === String(booking?.selectedPaymentMethodId || "")
+      ) ||
+      paymentMethods.find(
         (method) => {
           const candidates = [
             method?.name,
@@ -361,11 +582,22 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
     paymentMethods,
   ]);
 
-  const qrSource = useMemo(
+  const qrResolution = useMemo(
     () => getPaymentQrSource(booking, selectedPaymentMethod),
     [booking, selectedPaymentMethod]
   );
-  const qrUrl = useMemo(() => resolveAssetUrl(qrSource), [qrSource]);
+  const qrSource = qrResolution.qrSource;
+  const qrUrl = useMemo(() => resolveAssetUrl(qrResolution.qrValue), [qrResolution.qrValue]);
+  const bookingId = booking?._id || booking?.id || route?.params?.bookingId || booking?.bookingId || "";
+  const bookingIdSource = booking?._id
+    ? "booking._id"
+    : booking?.id
+    ? "booking.id"
+    : route?.params?.bookingId
+    ? "route.params.bookingId"
+    : booking?.bookingId
+    ? "booking.bookingId"
+    : "";
   const bookingReference = getReferenceNo(booking);
   const invoiceReference = valueOrFallback(
     booking?.invoiceReference || booking?.invoiceNumber || booking?.invoice?.invoiceNumber,
@@ -376,37 +608,401 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
   const accountName = valueOrFallback(getAccountName(booking, selectedPaymentMethod));
   const accountNumber = valueOrFallback(getAccountNumber(booking, selectedPaymentMethod));
   const amountToPay = getAmountToPay(booking);
+  const shouldAttemptContractFlow = useMemo(() => {
+    const status = String(booking?.status || "").toLowerCase();
+    const paymentStatus = String(booking?.paymentStatus || "").toLowerCase();
+    return Boolean(
+      bookingId &&
+        ([
+          "awaiting_payment",
+          "pending_payment",
+          "payment_rejected",
+          "invoice_issued",
+        ].includes(status) ||
+          [
+            "invoice_issued",
+            "pending_payment",
+            "payment_pending",
+            "rejected",
+            "reupload_required",
+            "submitted",
+            "under_review",
+          ].includes(paymentStatus) ||
+          booking?.invoiceReference ||
+          booking?.invoiceNumber)
+    );
+  }, [booking?.invoiceNumber, booking?.invoiceReference, booking?.paymentStatus, booking?.status, bookingId]);
+  const contractAcceptanceState = useMemo(
+    () => getContractAcceptanceState(booking, contractRecord),
+    [booking, contractRecord]
+  );
+  const contractDisplay = useMemo(
+    () => extractContractContent(contractRecord || contractTemplate || booking?.contract || booking?.contractData || {}),
+    [booking, contractRecord, contractTemplate]
+  );
+  const requiresContract = Boolean(
+    contractAcceptanceState.requiresContract ||
+      (shouldAttemptContractFlow &&
+        (contractDisplay.content || contractDisplay.pdfUrl || contractRecord || contractTemplate))
+  );
+  const showContractSection = Boolean(
+    shouldAttemptContractFlow ||
+      requiresContract ||
+      contractAcceptanceState.contractAccepted ||
+      contractAcceptanceState.acceptedAt ||
+      contractAcceptanceState.contractStatus ||
+      booking?.contract ||
+      booking?.contractData ||
+      booking?.contractAccepted ||
+      booking?.contractAcceptedAt ||
+      booking?.contractStatus ||
+      contractRecord ||
+      contractTemplate ||
+      /accept the rental contract/i.test(
+        `${contractAcceptError || ""} ${proofError || ""} ${contractError || ""}`
+      )
+  );
+  const contractGateRequired = Boolean(
+    requiresContract ||
+      contractAcceptanceState.contractStatus ||
+      booking?.contract ||
+      booking?.contractData ||
+      booking?.contractAccepted ||
+      booking?.contractAcceptedAt ||
+      booking?.contractStatus ||
+      contractRecord ||
+      /accept the rental contract/i.test(
+        `${contractAcceptError || ""} ${proofError || ""} ${contractError || ""}`
+      )
+  );
+  const contractAccepted = contractAcceptanceState.contractAccepted;
+  const acceptedContractAt = contractAcceptanceState.acceptedAt;
+  const contractReadableText = useMemo(
+    () => htmlToReadableText(contractDisplay.textContent || contractDisplay.htmlContent || contractDisplay.content),
+    [contractDisplay.content, contractDisplay.htmlContent, contractDisplay.textContent]
+  );
+  const contractPdfSource = contractDisplay.pdfUrl || (bookingId ? getBookingContractPdfUrl(bookingId) : "");
+  const invoicePdfSource =
+    getInvoicePdfSource(booking, true) ||
+    getInvoicePdfSource(booking, false) ||
+    (bookingId ? getClientInvoiceUrl(bookingId, true) : "");
+  const hasContractReviewContent = Boolean(
+    contractReadableText ||
+      contractDisplay.textContent ||
+      contractDisplay.htmlContent ||
+      contractDisplay.content
+  );
+  const hasContractPdfAvailable = Boolean(contractPdfSource);
+  const showContractPdfButton = Boolean(contractAccepted && hasContractPdfAvailable);
+  const canAcceptContract = Boolean(!contractAccepted && contractGateRequired);
+  const canSubmitContractAcceptance = Boolean(
+    canAcceptContract &&
+      hasContractReviewContent &&
+      contractAgreementChecked &&
+      signatureName.trim()
+  );
+  const effectiveContractError =
+    contractError ||
+    (!contractLoading && !hasContractReviewContent && requiresContract
+      ? "Contract details could not be loaded in-app. Please try again."
+      : "");
+  const paymentProofEligibility = useMemo(
+    () => getPaymentProofEligibility(booking),
+    [booking]
+  );
+  const canUploadPaymentProof = !contractGateRequired || contractAccepted;
+  const canSelectOrSubmitPaymentProof =
+    paymentProofEligibility.isEligible && canUploadPaymentProof;
+  const showContractGateWarning = showContractSection && !contractAccepted;
 
   useEffect(() => {
-    console.log("Payment instructions QR debug:", {
-      selectedMethodLabel:
-        booking?.selectedPaymentMethodName || booking?.paymentMethod || booking?.paymentChannel || "",
-      selectedMethodId: booking?.selectedPaymentMethodId || "",
-      matchedMethod: selectedPaymentMethod
-        ? {
-            id: selectedPaymentMethod?._id || "",
-            name: selectedPaymentMethod?.name || "",
-            method: selectedPaymentMethod?.method || "",
-            key: selectedPaymentMethod?.key || "",
-            code: selectedPaymentMethod?.code || "",
-            category: selectedPaymentMethod?.category || "",
-          }
-        : null,
-      qrCandidates: {
-        bookingPaymentQrUrl: booking?.paymentQrUrl || "",
-        bookingQrUrl: booking?.qrUrl || "",
-        bookingQrImage: booking?.qrImage || "",
-        invoiceQrUrl: booking?.invoice?.qrUrl || "",
-        invoiceQrImage: booking?.invoice?.qrImage || "",
-        methodQrUrl: selectedPaymentMethod?.qrUrl || "",
-        methodQrImage: selectedPaymentMethod?.qrImage || "",
-        methodImageUrl: selectedPaymentMethod?.imageUrl || "",
-        methodImage: selectedPaymentMethod?.image || "",
-      },
-      qrSource,
-      resolvedQrUrl: qrUrl,
+    if (__DEV__) {
+      console.log("[ContractAPI][id]", {
+        usingIdSource: bookingIdSource || "none",
+        hasMongoId: Boolean(booking?._id || booking?.id),
+        bookingReference: bookingReference || "",
+      });
+    }
+  }, [booking?._id, booking?.id, bookingIdSource, bookingReference]);
+
+  useEffect(() => {
+    if (__DEV__) {
+      console.log("[PaymentQR][resolve]", {
+        methodName:
+          selectedPaymentMethod?.name ||
+          booking?.selectedPaymentMethodName ||
+          booking?.paymentMethod ||
+          booking?.paymentChannel ||
+          "",
+        hasQrUrl: Boolean(qrUrl),
+        qrSource,
+        checkedFieldsCount: qrResolution.checkedFieldsCount,
+      });
+    }
+  }, [booking?.paymentChannel, booking?.paymentMethod, booking?.selectedPaymentMethodName, qrResolution.checkedFieldsCount, qrSource, qrUrl, selectedPaymentMethod?.name]);
+
+  useEffect(() => {
+    setQrImageLoadFailed(false);
+  }, [qrUrl]);
+
+  useEffect(() => {
+    setSignatureName((prev) => prev || booking?.clientName || booking?.customerName || "");
+  }, [booking?.clientName, booking?.customerName]);
+
+  useEffect(() => {
+    if (!__DEV__) return;
+
+    console.log("[ContractUX][state]", {
+      contractAccepted,
+      hasContractContent: hasContractReviewContent,
+      showPdfButton: showContractPdfButton,
+      canAccept: canSubmitContractAcceptance,
+      canUploadProof: canUploadPaymentProof,
     });
-  }, [booking, qrSource, qrUrl, selectedPaymentMethod]);
+  }, [
+    canSubmitContractAcceptance,
+    canUploadPaymentProof,
+    contractAccepted,
+    hasContractReviewContent,
+    showContractPdfButton,
+  ]);
+
+  const loadContractTemplateFallback = async ({ fallbackReason = "" } = {}) => {
+    try {
+      const templateResponse = await getContractTemplate({ rawResponse: true });
+      const templatePayload = templateResponse?.data || {};
+      const diagnostics = getContractContentDiagnostics(templatePayload);
+      const templateNotice = fallbackReason || getContractTemplateNotice();
+
+      if (__DEV__) {
+        console.log("[ContractAPI][fetch:response]", {
+          status: templateResponse?.status || null,
+          contentType: getHeaderValue(templateResponse?.headers, "content-type"),
+          dataKeys: diagnostics.dataKeys,
+          nestedKeys: diagnostics.nestedKeys,
+          hasHtml: diagnostics.hasHtml,
+          hasText: diagnostics.hasText,
+          hasTemplate: diagnostics.hasTemplate,
+          hasContractTemplate: diagnostics.hasContractTemplate,
+          hasContractObject: diagnostics.hasContractObject,
+          message: diagnostics.message,
+        });
+        console.log("[ContractAPI][template:parsed]", {
+          hasContractTemplate: diagnostics.hasContractTemplate,
+          templateType: diagnostics.templateType,
+          extractedContentLength: diagnostics.extractedContentLength,
+          usedFallbackTemplate: true,
+        });
+      }
+
+      setContractRecord(null);
+      setContractTemplate(templatePayload);
+      setContractNotice(templateNotice);
+      setContractError("");
+      return templatePayload;
+    } catch (templateError) {
+      const templateMessage = getFriendlyContractErrorMessage(
+        templateError,
+        getContractFriendlyError("missing")
+      );
+      setContractError((prev) => prev || templateMessage);
+      return null;
+    }
+  };
+
+  const fetchContractRecord = async ({
+    activeBookingId,
+    allowTemplateFallback = true,
+    clearExistingError = true,
+  } = {}) => {
+    const resolvedBookingId =
+      activeBookingId ||
+      route?.params?.booking?._id ||
+      route?.params?.booking?.id ||
+      route?.params?.booking?.bookingId ||
+      route?.params?.bookingId ||
+      bookingId;
+
+    if (!resolvedBookingId) {
+      setContractError(getContractFriendlyError("missing"));
+      return { record: null, template: null };
+    }
+
+    const endpoint = getContractEndpoint(resolvedBookingId);
+    const hasToken = Boolean(await AsyncStorage.getItem("clientToken"));
+
+    if (clearExistingError) {
+      setContractError("");
+      setContractNotice("");
+    }
+
+    if (__DEV__) {
+      console.log("[ContractAPI][fetch:start]", {
+        bookingId: resolvedBookingId,
+        endpoint,
+        hasToken,
+      });
+    }
+
+    try {
+      const response = await getBookingContract(resolvedBookingId, { rawResponse: true });
+      const responseData = response?.data || {};
+      const diagnostics = getContractContentDiagnostics(responseData);
+
+      if (__DEV__) {
+        console.log("[ContractAPI][fetch:response]", {
+          status: response?.status || null,
+          contentType: getHeaderValue(response?.headers, "content-type"),
+          dataKeys: diagnostics.dataKeys,
+          nestedKeys: diagnostics.nestedKeys,
+          hasHtml: diagnostics.hasHtml,
+          hasText: diagnostics.hasText,
+          hasTemplate: diagnostics.hasTemplate,
+          hasContractTemplate: diagnostics.hasContractTemplate,
+          hasContractObject: diagnostics.hasContractObject,
+          message: diagnostics.message,
+        });
+        console.log("[ContractAPI][template:parsed]", {
+          hasContractTemplate: diagnostics.hasContractTemplate,
+          templateType: diagnostics.templateType,
+          extractedContentLength: diagnostics.extractedContentLength,
+          usedFallbackTemplate: false,
+        });
+      }
+
+      setContractRecord(responseData);
+      setContractTemplate(null);
+      setContractNotice("");
+      if (diagnostics.hasHtml || diagnostics.hasText) {
+        setContractError("");
+        return { record: responseData, template: null };
+      }
+
+      if (allowTemplateFallback) {
+        const template = await loadContractTemplateFallback({
+          fallbackReason: getContractTemplateNotice(),
+        });
+        if (template) {
+          setContractError("");
+          return { record: null, template };
+        }
+      }
+
+      setContractError("Contract details could not be loaded in-app. Please try again.");
+      return { record: responseData, template: null };
+    } catch (error) {
+      logBookingDocsError("contract", error);
+      if (__DEV__) {
+        console.log("[ContractAPI][fetch:error]", {
+          bookingId: resolvedBookingId,
+          endpoint,
+          reachedResponse: Boolean(error?.response),
+          status: error?.response?.status || null,
+          code: error?.code || null,
+          message: error?.message || "Unknown error",
+          responseData: error?.response?.data || null,
+        });
+      }
+
+      const status = Number(error?.response?.status || 0);
+      const message = getFriendlyContractErrorMessage(error, getContractFriendlyError("load"));
+      const responseData = error?.response?.data || null;
+      const inlineContract = extractContractContent(responseData || {});
+      const diagnostics = getContractContentDiagnostics(responseData || {});
+
+      if (__DEV__ && error?.response) {
+        console.log("[ContractAPI][fetch:response]", {
+          status: error?.response?.status || null,
+          contentType: getHeaderValue(error?.response?.headers, "content-type"),
+          dataKeys: diagnostics.dataKeys,
+          nestedKeys: diagnostics.nestedKeys,
+          hasHtml: diagnostics.hasHtml,
+          hasText: diagnostics.hasText,
+          hasTemplate: diagnostics.hasTemplate,
+          hasContractTemplate: diagnostics.hasContractTemplate,
+          hasContractObject: diagnostics.hasContractObject,
+          message: diagnostics.message || String(message || "").slice(0, 80),
+        });
+        console.log("[ContractAPI][template:parsed]", {
+          hasContractTemplate: diagnostics.hasContractTemplate,
+          templateType: diagnostics.templateType,
+          extractedContentLength: diagnostics.extractedContentLength,
+          usedFallbackTemplate: false,
+        });
+      }
+
+      const hasInlineContractContent = Boolean(
+        inlineContract.content || inlineContract.htmlContent || inlineContract.textContent
+      );
+
+      if (hasInlineContractContent) {
+        setContractRecord(responseData);
+        setContractTemplate(null);
+        setContractNotice(message);
+        setContractError("");
+        return { record: responseData, template: null };
+      }
+
+      if (
+        allowTemplateFallback &&
+        (status === 404 || (status === 400 && shouldShowPendingContractReview(message)))
+      ) {
+        const template = await loadContractTemplateFallback({
+          fallbackReason: shouldShowPendingContractReview(message)
+            ? getContractTemplateNotice()
+            : getContractTemplateNotice(),
+        });
+        if (template) {
+          setContractRecord(null);
+          setContractError("");
+          return { record: null, template };
+        }
+      }
+
+      setContractError(message);
+      setContractRecord(null);
+
+      if (allowTemplateFallback && !error?.response) {
+        const template = await loadContractTemplateFallback();
+        if (template) {
+          setContractError("");
+          return { record: null, template };
+        }
+      }
+
+      return { record: null, template: null };
+    }
+  };
+
+  useEffect(() => {
+    if (!shouldAttemptContractFlow) return;
+
+    let isMounted = true;
+
+    const loadContractPreview = async () => {
+      if (!bookingId) return;
+
+      try {
+        setContractLoading(true);
+        if (!isMounted) return;
+        await fetchContractRecord({
+          activeBookingId: bookingId,
+          allowTemplateFallback: true,
+          clearExistingError: true,
+        });
+      } finally {
+        if (isMounted) {
+          setContractLoading(false);
+        }
+      }
+    };
+
+    loadContractPreview();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [bookingId, shouldAttemptContractFlow]);
 
   const pickPaymentProof = async (source) => {
     const permission =
@@ -439,9 +1035,12 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
     }
 
     setPaymentAsset(asset);
+    setProofError("");
   };
 
   const openPaymentProofPicker = () => {
+    if (!canSelectOrSubmitPaymentProof) return;
+
     Alert.alert("Upload payment proof", "Choose how you want to add the receipt image.", [
       { text: "Camera", onPress: () => pickPaymentProof("camera") },
       { text: "Gallery", onPress: () => pickPaymentProof("gallery") },
@@ -450,23 +1049,37 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
   };
 
   const handleSubmitProof = async () => {
-    const bookingId = getBookingId(booking);
     if (!bookingId) {
-      Alert.alert("Payment Error", "Payment instructions are not available yet.");
+      setProofError("Payment instructions are not available yet.");
+      return;
+    }
+
+    if (!canUploadPaymentProof) {
+      setProofError("");
+      return;
+    }
+
+    if (!paymentProofEligibility.isEligible) {
+      setProofError(
+        paymentProofEligibility.isUnderReview
+          ? "Your payment proof is being reviewed."
+          : "Payment proof upload is not available for this booking yet."
+      );
       return;
     }
 
     if (!paymentAsset) {
-      Alert.alert("Payment Error", "Please upload your payment proof.");
+      setProofError("Please upload your payment proof.");
       return;
     }
 
     try {
       setIsSubmittingProof(true);
+      setProofError("");
       const paymentProof = toBase64DataUri(paymentAsset);
 
       if (!paymentProof) {
-        Alert.alert("Payment Error", "Please upload your payment proof.");
+        setProofError("Please upload your payment proof.");
         return;
       }
 
@@ -484,27 +1097,247 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
         setBooking((prev) => ({
           ...prev,
           paymentStatus: "submitted",
-          status:
-            prev?.status && String(prev.status).toLowerCase() !== "awaiting_payment"
-              ? prev.status
-              : "pending_approval",
+          status: "pending_approval",
         }));
       }
 
       setPaymentAsset(null);
       setProofSuccessVisible(true);
     } catch (error) {
-      Alert.alert(
-        "Payment Error",
-        error?.response?.data?.message || "Unable to submit payment proof. Please try again."
-      );
+      const message = String(error?.response?.data?.message || error?.message || "");
+      if (message.toLowerCase().includes("accept the rental contract")) {
+        setContractAcceptError(
+          "Please review and accept the rental contract before uploading your payment proof."
+        );
+      }
+      setProofError(message || "Unable to submit payment proof. Please try again.");
     } finally {
       setIsSubmittingProof(false);
     }
   };
 
+  const removeSelectedPaymentProof = () => {
+    setPaymentAsset(null);
+    setProofError("");
+  };
+
   const openInvoice = () => {
-    navigation.navigate("BookingInvoice", { booking });
+    if (!invoicePdfSource) {
+      navigation.navigate("BookingInvoice", { booking });
+      return;
+    }
+
+    openInvoicePdf();
+  };
+
+  const openInvoicePdf = async () => {
+    if (!invoicePdfSource) {
+      navigation.navigate("BookingInvoice", { booking });
+      return;
+    }
+
+    try {
+      await openPdf({
+        source: invoicePdfSource,
+        fileName: `FleetX-Invoice-${bookingReference || invoiceReference || bookingId || "booking"}.pdf`,
+        title: "Invoice",
+        bookingReference,
+        documentReference: invoiceReference,
+        type: "invoice",
+      });
+    } catch (error) {
+      logBookingDocsError("invoicePdf", error);
+      showPdfError(
+        error,
+        "Invoice PDF requires secure access. Please try again."
+      );
+    }
+  };
+
+  const openContractReview = async () => {
+    setContractModalVisible(true);
+    setContractAcceptError("");
+
+    if (hasContractReviewContent) {
+      return;
+    }
+
+    if (!bookingId) {
+      setContractError(getContractFriendlyError("missing"));
+      return;
+    }
+
+    try {
+      setContractLoading(true);
+      await fetchContractRecord({
+        activeBookingId: bookingId,
+        allowTemplateFallback: true,
+        clearExistingError: true,
+      });
+    } finally {
+      setContractLoading(false);
+    }
+  };
+
+  const retryLoadContract = async () => {
+    if (!bookingId) {
+      setContractError(getContractFriendlyError("missing"));
+      return;
+    }
+
+    try {
+      setContractLoading(true);
+      await fetchContractRecord({
+        activeBookingId: bookingId,
+        allowTemplateFallback: true,
+        clearExistingError: true,
+      });
+    } finally {
+      setContractLoading(false);
+    }
+  };
+
+  const handleOpenContractPdf = async () => {
+    if (!contractPdfSource) {
+      setContractError(getContractFriendlyError("missing"));
+      return;
+    }
+
+    if (__DEV__) {
+      console.log("[BookingDocs][contractPdf]", {
+        bookingIdSource: bookingIdSource || "none",
+        urlBuilt: Boolean(contractPdfSource),
+        canOpen: Boolean(contractPdfSource),
+      });
+    }
+
+    try {
+      await openPdf({
+        source: contractPdfSource,
+        fileName: `FleetX-Contract-${bookingReference || getBookingId(booking) || "booking"}.pdf`,
+        title: "Rental Contract",
+        bookingReference,
+        documentReference: invoiceReference,
+        type: "contract",
+      });
+    } catch (error) {
+      logBookingDocsError("contractPdf", error);
+      const message =
+        error?.code === "CONTRACT_NOT_ACCEPTED"
+          ? getContractPdfPendingMessage()
+          : String(error?.message || "").trim();
+
+      if (message) {
+        setContractError(message);
+      }
+
+      if (error?.code === "CONTRACT_NOT_ACCEPTED" || shouldShowPendingContractReview(message)) {
+        setContractModalVisible(true);
+
+        if (!hasContractReviewContent && bookingId) {
+          try {
+            setContractLoading(true);
+            await fetchContractRecord({
+              activeBookingId: bookingId,
+              allowTemplateFallback: true,
+              clearExistingError: false,
+            });
+          } finally {
+            setContractLoading(false);
+          }
+        }
+
+        return;
+      }
+
+      showPdfError(
+        error,
+        "Contract PDF requires secure access. Please use the in-app contract view or try again."
+      );
+    }
+  };
+
+  const handleAcceptContract = async () => {
+    if (!bookingId) {
+      setContractAcceptError(getContractFriendlyError("accept"));
+      return;
+    }
+
+    if (!hasContractReviewContent) {
+      setContractAcceptError("Please load and review the rental contract before accepting.");
+      return;
+    }
+
+    if (!contractAgreementChecked || !signatureName.trim()) {
+      return;
+    }
+
+    try {
+      setContractAccepting(true);
+      setContractAcceptError("");
+      const payload = {
+        accepted: true,
+        signatureName: signatureName.trim(),
+        acceptedAt: new Date().toISOString(),
+      };
+      const response = await acceptBookingContract(bookingId, payload);
+      const updatedBooking =
+        response?.booking || response?.updatedBooking || response?.data?.booking || null;
+      const acceptedAt =
+        response?.contract?.acceptedAt ||
+        response?.acceptedAt ||
+        response?.data?.acceptedAt ||
+        payload.acceptedAt;
+
+      if (updatedBooking) {
+        setBooking((prev) => ({ ...prev, ...updatedBooking, contractAccepted: true }));
+      } else {
+        setBooking((prev) => ({
+          ...prev,
+          contractAccepted: true,
+          contractAcceptedAt: acceptedAt,
+          contractStatus: "accepted",
+          requiresContract: true,
+          contract: {
+            ...(prev?.contract || {}),
+            accepted: true,
+            acceptedAt,
+            status: "accepted",
+          },
+        }));
+      }
+
+      setContractRecord((prev) => ({
+        ...(prev || {}),
+        ...response,
+        contract: {
+          ...(prev?.contract || {}),
+          ...(response?.contract || {}),
+          accepted: true,
+          acceptedAt,
+          status: "accepted",
+          signatureName: signatureName.trim(),
+        },
+      }));
+      if (__DEV__) {
+        console.log("[ContractAPI][accept:success]", {
+          bookingIdSource: bookingIdSource || "none",
+          contractAccepted: true,
+        });
+      }
+      setContractError("");
+      setContractNotice("");
+      setContractModalVisible(false);
+      setContractAgreementChecked(false);
+      setPaymentAsset(null);
+    } catch (error) {
+      logBookingDocsError("contractAccept", error);
+      setContractAcceptError(
+        getFriendlyContractErrorMessage(error, getContractFriendlyError("accept"))
+      );
+    } finally {
+      setContractAccepting(false);
+    }
   };
 
   return (
@@ -536,23 +1369,27 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
 
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Payment QR</Text>
-          {loadingMethods && !qrUrl ? (
+          {loadingMethods && !qrUrl && !qrImageLoadFailed ? (
             <View style={styles.loadingBox}>
               <ActivityIndicator size="small" color="#F47C20" />
               <Text style={styles.loadingText}>Loading payment QR...</Text>
             </View>
-          ) : qrUrl ? (
+          ) : qrUrl && !qrImageLoadFailed ? (
             <TouchableOpacity style={styles.qrCard} activeOpacity={0.9} onPress={() => setQrPreviewVisible(true)}>
               <Image
                 source={{ uri: qrUrl }}
                 style={styles.qrImage}
                 resizeMode="contain"
-                onError={(event) =>
-                  console.log("QR image failed to load", qrUrl, event?.nativeEvent?.error || "")
-                }
+                onError={() => setQrImageLoadFailed(true)}
               />
               <Text style={styles.qrHint}>Tap to enlarge</Text>
             </TouchableOpacity>
+          ) : qrImageLoadFailed ? (
+            <View style={styles.placeholderCard}>
+              <Text style={styles.placeholderText}>
+                QR code could not be loaded. Please use the account details below.
+              </Text>
+            </View>
           ) : (
             <View style={styles.placeholderCard}>
               <Text style={styles.placeholderText}>
@@ -612,34 +1449,140 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
           </Text>
         </View>
 
+        {showContractSection ? (
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Rental Contract</Text>
+            <View
+              style={[
+                styles.contractStatusPill,
+                contractAccepted
+                  ? styles.contractStatusPillAccepted
+                  : styles.contractStatusPillPending,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.contractStatusText,
+                  contractAccepted
+                    ? styles.contractStatusTextAccepted
+                    : styles.contractStatusTextPending,
+                ]}
+              >
+                {contractAccepted ? "Accepted" : "Pending Acceptance"}
+              </Text>
+            </View>
+            <Text style={styles.contractBodyText}>
+              {contractAccepted
+                ? "Rental contract accepted."
+                : "Please review and accept the rental contract before uploading your payment proof."}
+            </Text>
+            {acceptedContractAt ? (
+              <Text style={styles.contractHelperText}>
+                Accepted on {formatBookingDateTime(acceptedContractAt)}
+              </Text>
+            ) : null}
+            {effectiveContractError ? (
+              <Text style={styles.inlineErrorText}>{effectiveContractError}</Text>
+            ) : null}
+            <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.9} onPress={openContractReview}>
+              <Text style={styles.secondaryButtonText}>
+                {contractAccepted ? "View Contract" : "Review Contract"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Proof of Payment</Text>
-          <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.9} onPress={openPaymentProofPicker}>
-            <Text style={styles.secondaryButtonText}>
-              {paymentAsset?.fileName || paymentAsset?.uri ? "Proof Selected" : "Upload Payment Proof"}
-            </Text>
-          </TouchableOpacity>
+          {paymentProofEligibility.isUnderReview ? (
+            <View style={styles.contractAcceptedCard}>
+              <Text style={styles.contractAcceptedText}>Your payment proof is being reviewed.</Text>
+              <Text style={styles.contractAcceptedSubtext}>Under Review</Text>
+            </View>
+          ) : null}
+          {!paymentProofEligibility.isEligible &&
+          !paymentProofEligibility.isUnderReview &&
+          !paymentProofEligibility.isLocked ? (
+            <View style={styles.contractGateCard}>
+              <Text style={styles.contractGateText}>
+                Payment proof upload will appear once your invoice is ready.
+              </Text>
+            </View>
+          ) : null}
+          {!canUploadPaymentProof && showContractGateWarning ? (
+            <View style={styles.contractGateCard}>
+              <Text style={styles.contractGateText}>
+                Please review and accept the rental contract before uploading your payment proof.
+              </Text>
+            </View>
+          ) : null}
+          {contractAcceptError &&
+          !/please review and accept the rental contract before uploading your payment proof\./i.test(
+            contractAcceptError
+          ) ? (
+            <Text style={styles.inlineErrorText}>{contractAcceptError}</Text>
+          ) : null}
+          {proofError ? <Text style={styles.inlineErrorText}>{proofError}</Text> : null}
 
-          {paymentAsset?.uri ? (
-            <Text style={styles.assetName} numberOfLines={1}>
-              {paymentAsset.fileName || paymentAsset.uri.split("/").pop()}
-            </Text>
+          {paymentProofEligibility.isEligible && paymentAsset?.uri ? (
+            <View style={styles.proofPreviewCard}>
+              <Image source={{ uri: paymentAsset.uri }} style={styles.proofPreviewImage} />
+              <Text style={styles.assetName} numberOfLines={1}>
+                {paymentAsset.fileName || paymentAsset.uri.split("/").pop()}
+              </Text>
+              <View style={styles.proofActionRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.secondaryButton,
+                    styles.proofActionButton,
+                    !canSelectOrSubmitPaymentProof && styles.buttonDisabled,
+                  ]}
+                  activeOpacity={0.9}
+                  onPress={openPaymentProofPicker}
+                  disabled={!canSelectOrSubmitPaymentProof}
+                >
+                  <Text style={styles.secondaryButtonText}>Replace Proof</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.secondaryButton, styles.proofActionButton]}
+                  activeOpacity={0.9}
+                  onPress={removeSelectedPaymentProof}
+                >
+                  <Text style={styles.secondaryButtonText}>Remove Proof</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : paymentProofEligibility.isEligible ? (
+            <TouchableOpacity
+              style={[styles.secondaryButton, !canSelectOrSubmitPaymentProof && styles.buttonDisabled]}
+              activeOpacity={0.9}
+              onPress={openPaymentProofPicker}
+              disabled={!canSelectOrSubmitPaymentProof}
+            >
+              <Text style={styles.secondaryButtonText}>Upload Payment Proof</Text>
+            </TouchableOpacity>
           ) : null}
 
           <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.9} onPress={openInvoice}>
             <Text style={styles.secondaryButtonText}>View Invoice</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.primaryButton, isSubmittingProof && styles.buttonDisabled]}
-            activeOpacity={0.9}
-            disabled={isSubmittingProof}
-            onPress={handleSubmitProof}
-          >
-            <Text style={styles.primaryButtonText}>
-              {isSubmittingProof ? "Submitting..." : "Submit Payment Proof"}
-            </Text>
-          </TouchableOpacity>
+          {paymentProofEligibility.isEligible ? (
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                (isSubmittingProof || !canSelectOrSubmitPaymentProof || !paymentAsset?.uri) &&
+                  styles.buttonDisabled,
+              ]}
+              activeOpacity={0.9}
+              disabled={isSubmittingProof || !canSelectOrSubmitPaymentProof || !paymentAsset?.uri}
+              onPress={handleSubmitProof}
+            >
+              <Text style={styles.primaryButtonText}>
+                {isSubmittingProof ? "Submitting..." : "Submit Payment Proof"}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -653,6 +1596,153 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
             {qrUrl ? <Image source={{ uri: qrUrl }} style={styles.previewImage} resizeMode="contain" /> : null}
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      <Modal
+        visible={contractModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setContractModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.contractModalCard}>
+            <View style={styles.contractModalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contractModalTitle}>
+                  {contractDisplay.title || "Rental Contract"}
+                </Text>
+                <Text style={styles.contractModalSubtitle}>{bookingReference}</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() => setContractModalVisible(false)}
+              >
+                <Ionicons name="close" size={20} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            {contractLoading ? (
+              <View style={styles.loadingBox}>
+                <ActivityIndicator size="small" color="#F47C20" />
+                <Text style={styles.loadingText}>Loading contract...</Text>
+              </View>
+            ) : (
+              <>
+                <ScrollView
+                  style={styles.contractScroll}
+                  contentContainerStyle={styles.contractScrollContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {contractReadableText ? (
+                    <Text style={styles.contractText}>{contractReadableText}</Text>
+                  ) : contractAccepted && hasContractPdfAvailable ? (
+                    <Text style={styles.placeholderText}>
+                      Contract text is not available in-app right now. You can open the contract PDF below.
+                    </Text>
+                  ) : (
+                    <Text style={styles.placeholderText}>
+                      {effectiveContractError || "Contract details could not be loaded in-app. Please try again."}
+                    </Text>
+                  )}
+                </ScrollView>
+
+                {contractNotice ? (
+                  <Text style={styles.contractHelperText}>{contractNotice}</Text>
+                ) : null}
+                {effectiveContractError && hasContractReviewContent ? (
+                  <Text style={styles.inlineErrorText}>{effectiveContractError}</Text>
+                ) : null}
+                {contractAcceptError ? (
+                  <Text style={styles.inlineErrorText}>{contractAcceptError}</Text>
+                ) : null}
+                {!hasContractReviewContent ? (
+                  <TouchableOpacity
+                    style={styles.secondaryButton}
+                    activeOpacity={0.9}
+                    onPress={retryLoadContract}
+                  >
+                    <Text style={styles.secondaryButtonText}>Retry Load Contract</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {!contractAccepted ? (
+                  <Text style={styles.contractHelperText}>
+                    PDF will be available after accepting the contract.
+                  </Text>
+                ) : null}
+                {showContractPdfButton ? (
+                  <TouchableOpacity
+                    style={styles.secondaryButton}
+                    activeOpacity={0.9}
+                    onPress={handleOpenContractPdf}
+                  >
+                    <Text style={styles.secondaryButtonText}>View Contract PDF</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                {!contractAccepted && canAcceptContract ? (
+                  <>
+                    {!hasContractReviewContent ? (
+                      <Text style={styles.contractHelperText}>
+                        Please load and review the rental contract before accepting.
+                      </Text>
+                    ) : null}
+                    <TouchableOpacity
+                      style={styles.checkboxRow}
+                      activeOpacity={0.85}
+                      onPress={() => setContractAgreementChecked((prev) => !prev)}
+                    >
+                      <View
+                        style={[
+                          styles.checkbox,
+                          contractAgreementChecked && styles.checkboxChecked,
+                        ]}
+                      >
+                        {contractAgreementChecked ? (
+                          <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                        ) : null}
+                      </View>
+                      <Text style={styles.checkboxText}>
+                        I have reviewed the rental contract and agree to its terms.
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TextInput
+                      value={signatureName}
+                      onChangeText={setSignatureName}
+                      placeholder="Type your full name"
+                      placeholderTextColor="#98A2B3"
+                      style={styles.signatureInput}
+                    />
+
+                    <TouchableOpacity
+                      style={[
+                        styles.primaryButton,
+                        (!canSubmitContractAcceptance || contractAccepting) &&
+                          styles.buttonDisabled,
+                      ]}
+                      activeOpacity={0.9}
+                      disabled={!canSubmitContractAcceptance || contractAccepting}
+                      onPress={handleAcceptContract}
+                    >
+                      <Text style={styles.primaryButtonText}>
+                        {contractAccepting ? "Accepting..." : "Accept Contract"}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : contractAccepted ? (
+                  <View style={styles.contractAcceptedCard}>
+                    <Text style={styles.contractAcceptedText}>Rental contract accepted.</Text>
+                    {acceptedContractAt ? (
+                      <Text style={styles.contractAcceptedSubtext}>
+                        Accepted on {formatBookingDateTime(acceptedContractAt)}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
+              </>
+            )}
+          </View>
+        </View>
       </Modal>
 
       <SuccessInfoModal

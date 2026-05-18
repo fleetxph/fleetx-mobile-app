@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
-import api from "../api/api";
+import { loginClient } from "../api/clientApi";
 import { styles } from "../styles/authStyle";
 import LoadingOverlay from "../components/LoadingOverlay";
 import {
@@ -94,6 +94,49 @@ function buildGuestResumeTarget(pendingRaw) {
   };
 }
 
+function getFriendlyLoginMessage(error) {
+  if (!error?.response) {
+    return "No Network";
+  }
+
+  const status = error.response?.status;
+  const code = String(error.response?.data?.code || "").toUpperCase();
+  const rawMessage = String(error.response?.data?.message || "").trim();
+  const lowerMessage = rawMessage.toLowerCase();
+
+  if (code === "EMAIL_VERIFICATION_REQUIRED" || lowerMessage.includes("verify") && lowerMessage.includes("email")) {
+    return "Email verification required";
+  }
+
+  if (
+    code.includes("PENDING") ||
+    lowerMessage.includes("pending verification") ||
+    lowerMessage.includes("under review")
+  ) {
+    return "Account pending verification";
+  }
+
+  if (
+    code.includes("DISABLED") ||
+    code.includes("DEACTIVATED") ||
+    lowerMessage.includes("disabled") ||
+    lowerMessage.includes("deactivated") ||
+    lowerMessage.includes("blocked")
+  ) {
+    return "Account disabled";
+  }
+
+  if (status === 400 || status === 401) {
+    return "Invalid email or password";
+  }
+
+  if (status === 403) {
+    return "Server rejected login";
+  }
+
+  return rawMessage || "Unable to sign in right now. Please try again.";
+}
+
 export default function LoginClient({ navigation }) {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
@@ -142,13 +185,14 @@ export default function LoginClient({ navigation }) {
         ? normalizeEmail(login)
         : normalizeUsername(login).toLowerCase();
 
-      const res = await api.post("/client/login", {
+      const res = await loginClient({
+        email: cleanLogin,
         login: cleanLogin,
         password,
       });
 
-      const token = res.data?.token || "";
-      const user = res.data?.user || {};
+      const token = res?.token || "";
+      const user = res?.user || {};
       const name = user?.name || "";
       const userEmail = user?.email || "";
 
@@ -177,7 +221,7 @@ export default function LoginClient({ navigation }) {
 
       navigation.replace("MainApp");
     } catch (err) {
-      const message = err?.response?.data?.message || err.message || "Unable to sign in right now. Please try again.";
+      const message = getFriendlyLoginMessage(err);
       const mappedError = mapApiFieldError(message, "login");
 
       if (mappedError?.field) {

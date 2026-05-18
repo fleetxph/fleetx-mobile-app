@@ -50,6 +50,40 @@ export const styles = StyleSheet.create({
     alignItems: "center",
   },
 
+  viewTabsContent: {
+    gap: 10,
+    paddingRight: 16,
+    paddingVertical: 4,
+    alignItems: "center",
+  },
+
+  viewTab: {
+    minWidth: 110,
+    height: 40,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+
+  viewTabActive: {
+    backgroundColor: "#0f172a",
+    borderColor: "#0f172a",
+  },
+
+  viewTabText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#64748b",
+  },
+
+  viewTabTextActive: {
+    color: "#ffffff",
+  },
+
   filterButton: {
     height: 38,
     minWidth: 58,

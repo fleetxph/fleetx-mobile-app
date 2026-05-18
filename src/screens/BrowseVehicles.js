@@ -16,6 +16,7 @@ import { Feather, Ionicons } from "@expo/vector-icons";
 import { getVehicles } from "../api/clientApi";
 import { styles } from "../styles/browseVehiclesStyle";
 import { getVehicleImageUrl } from "../utils/imageUrl";
+import { formatLuggageSummary, getVehicleLuggageFit } from "../utils/luggageFit";
 
 const PAGE_SIZE = 10;
 const VEHICLE_TYPE_OPTIONS = ["All Types", "Sedan", "SUV", "Van", "Pickup", "MPV"];
@@ -72,6 +73,10 @@ function getVehicleRate(vehicle) {
 function getSeatCount(vehicle) {
   const rawSeats = Number(vehicle?.seater ?? vehicle?.seats ?? 0);
   return Number.isFinite(rawSeats) ? rawSeats : 0;
+}
+
+function hasBudgetPreference(value) {
+  return value !== null && value !== undefined && value !== "" && Number(value) > 0;
 }
 
 function hasVehicleFeature(vehicle, feature) {
@@ -242,7 +247,7 @@ export default function BrowseVehicles({ navigation, route }) {
         );
       }
 
-      if (tripData.budget) {
+      if (hasBudgetPreference(tripData.budget)) {
         result = result.filter(
           (vehicle) => Number(vehicle.dailyRate || 0) <= Number(tripData.budget)
         );
@@ -420,6 +425,7 @@ export default function BrowseVehicles({ navigation, route }) {
     const imageUrl = getVehicleImageUrl(item);
     const failedKey = `vehicle-${vehicleId}`;
     const vehicleName = `${item?.make || ""} ${item?.model || ""}`.trim() || "Vehicle";
+    const vehicleFit = getVehicleLuggageFit(item, tripData || {});
     const vehicleMeta = `${item?.year || "N/A"} • ${item?.location || "N/A"}`;
 
     return (
@@ -464,6 +470,12 @@ export default function BrowseVehicles({ navigation, route }) {
             <Text style={styles.meta} numberOfLines={2}>
               {vehicleMeta}
             </Text>
+          </View>
+
+          <View style={styles.fitCard}>
+            <Text style={styles.fitPrimary}>{vehicleFit.recommendation}</Text>
+            <Text style={styles.fitSecondary}>{vehicleFit.passengerMessage}</Text>
+            <Text style={styles.fitSecondary}>{vehicleFit.luggageMessage}</Text>
           </View>
 
           <View style={styles.priceRow}>
@@ -516,8 +528,13 @@ export default function BrowseVehicles({ navigation, route }) {
           <Text style={styles.tripSummaryTitle}>Trip Planner Applied</Text>
           <Text style={styles.tripSummaryText}>
             {tripData.destination || "Destination not set"} |{" "}
-            {tripData.passengers || 0} passenger(s) | Budget up to PHP
-            {Number(tripData.budget || 0).toLocaleString()}
+            {tripData.passengers || 0} passenger(s) |{" "}
+            {hasBudgetPreference(tripData.budget)
+              ? `Budget up to PHP ${Number(tripData.budget).toLocaleString()}`
+              : "No budget cap"}
+          </Text>
+          <Text style={styles.tripSummaryText}>
+            Luggage: {formatLuggageSummary(tripData)}
           </Text>
         </View>
       )}

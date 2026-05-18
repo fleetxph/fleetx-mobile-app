@@ -22,17 +22,84 @@ import { styles } from "../styles/verificationStyle";
 import {
   formatReviewDate,
   getBookingEligibility,
-  getDocumentVerificationMeta,
   getVerificationBadgeLabel,
+  getVerificationGroupMeta,
   getVerificationStatusTone,
 } from "../utils/verification";
 
 const INITIAL_DOCUMENTS = {
   validIdFront: null,
   validIdBack: null,
+  idSelfie: null,
   licenseFront: null,
   licenseBack: null,
+  licenseSelfie: null,
 };
+
+const VERIFICATION_GROUPS = [
+  {
+    key: "validId",
+    title: "Valid ID Verification",
+    levelLabel: "Basic Verified",
+    submitLabel: "Submit Valid ID Verification",
+    verificationType: "with_driver",
+    slots: [
+      {
+        keyName: "validIdFront",
+        slotKey: "front",
+        title: "Valid ID Front",
+        hint: "Upload the front side of your government-issued ID.",
+        sourcePrompt: "Upload Valid ID front",
+      },
+      {
+        keyName: "validIdBack",
+        slotKey: "back",
+        title: "Valid ID Back",
+        hint: "Upload the back side of the same ID.",
+        sourcePrompt: "Upload Valid ID back",
+      },
+      {
+        keyName: "idSelfie",
+        slotKey: "selfie",
+        title: "Current Selfie",
+        hint: "Take a clear selfie so we can match you with the submitted document.",
+        sourcePrompt: "Take Current Selfie",
+        prefersCamera: true,
+      },
+    ],
+  },
+  {
+    key: "license",
+    title: "Driver's License Verification",
+    levelLabel: "Fully Verified",
+    submitLabel: "Submit Driver's License Verification",
+    verificationType: "self_drive",
+    slots: [
+      {
+        keyName: "licenseFront",
+        slotKey: "front",
+        title: "Driver's License Front",
+        hint: "Upload the front side of your Driver's License.",
+        sourcePrompt: "Upload license front",
+      },
+      {
+        keyName: "licenseBack",
+        slotKey: "back",
+        title: "Driver's License Back",
+        hint: "Upload the back side of your Driver's License.",
+        sourcePrompt: "Upload license back",
+      },
+      {
+        keyName: "licenseSelfie",
+        slotKey: "selfie",
+        title: "Current Selfie",
+        hint: "Take a clear selfie so we can match you with the submitted document.",
+        sourcePrompt: "Take Current Selfie",
+        prefersCamera: true,
+      },
+    ],
+  },
+];
 
 function getBadgeStyles(tone) {
   if (tone === "warning") {
@@ -56,29 +123,37 @@ function toBase64DataUri(asset) {
   return `data:${mimeType};base64,${asset.base64}`;
 }
 
-function getStatusTone(statusKey) {
-  if (statusKey === "verified") return "success";
-  if (statusKey === "under_review") return "warning";
-  if (statusKey === "rejected") return "danger";
+function getLocalSelectionStatus(asset) {
+  return asset ? { label: "Selected", tone: "info" } : null;
+}
+
+function getSlotStatusTone(statusKey) {
+  if (statusKey === "approved") return "success";
+  if (statusKey === "pending") return "warning";
+  if (statusKey === "rejected" || statusKey === "needs_update") return "danger";
   if (statusKey === "selected") return "info";
   return "neutral";
 }
 
-function toDocumentReviewState(meta) {
-  if (meta?.key === "verified") return "approved";
-  if (meta?.key === "under_review") return "pending";
-  if (meta?.key === "rejected") return "rejected";
-  return "editable";
-}
-
-export default function VerificationScreen({ navigation }) {
+export default function VerificationScreen({ navigation, route }) {
   const [verification, setVerification] = useState(null);
   const [documents, setDocuments] = useState(INITIAL_DOCUMENTS);
-  const [requestedLevel, setRequestedLevel] = useState("with_driver");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [submittingGroup, setSubmittingGroup] = useState("");
   const [error, setError] = useState("");
+  const requestedType = route?.params?.verificationType || "";
+  const visibleGroups = useMemo(() => {
+    if (requestedType === "with_driver") {
+      return VERIFICATION_GROUPS.filter((group) => group.verificationType === "with_driver");
+    }
+
+    if (requestedType === "self_drive") {
+      return VERIFICATION_GROUPS.filter((group) => group.verificationType === "self_drive");
+    }
+
+    return VERIFICATION_GROUPS;
+  }, [requestedType]);
 
   const loadVerification = async (mode = "load") => {
     try {
@@ -91,11 +166,6 @@ export default function VerificationScreen({ navigation }) {
       setError("");
       const data = await getVerificationStatus();
       setVerification(data || null);
-      setRequestedLevel(
-        data?.requestedLevel === "self_drive" || data?.verificationLevel === "full"
-          ? "self_drive"
-          : "with_driver"
-      );
 
       try {
         const rawUser = await AsyncStorage.getItem("clientUser");
@@ -134,97 +204,22 @@ export default function VerificationScreen({ navigation }) {
     return unsubscribe;
   }, [navigation]);
 
-  const statusLabel = useMemo(
-    () => getVerificationBadgeLabel(verification),
-    [verification]
-  );
-  const statusTone = useMemo(
-    () => getVerificationStatusTone(verification),
-    [verification]
-  );
-  const bookingEligibility = useMemo(
-    () => getBookingEligibility(verification),
-    [verification]
-  );
-  const validIdMeta = useMemo(
-    () => getDocumentVerificationMeta(verification, "validId"),
-    [verification]
-  );
-  const licenseMeta = useMemo(
-    () => getDocumentVerificationMeta(verification, "license"),
-    [verification]
-  );
-  const isSubmitting = submitting || false;
-  const validIdReviewState = toDocumentReviewState(validIdMeta);
-  const licenseReviewState = toDocumentReviewState(licenseMeta);
-  const requestedDocumentId = requestedLevel === "self_drive" ? "license" : "validId";
-  const requestedDocumentState =
-    requestedDocumentId === "license" ? licenseReviewState : validIdReviewState;
-  const isPending = requestedDocumentState === "pending" || isSubmitting;
-  const isUnderReview = requestedDocumentState === "pending";
-  const isApproved = requestedDocumentState === "approved";
-  const isRejected = requestedDocumentState === "rejected";
-  const rejectionReason =
-    verification?.adminRemarks ||
-    verification?.rejectionReason ||
-    verification?.remarks ||
-    "";
-
-  const getExistingImage = (key) => {
-    if (key === "validIdFront") return verification?.validIdFront || verification?.validIdImage || "";
-    if (key === "validIdBack") return verification?.validIdBack || "";
-    if (key === "licenseFront") return verification?.licenseFront || verification?.driverLicenseImage || "";
-    return verification?.licenseBack || "";
+  const statusLabel = useMemo(() => getVerificationBadgeLabel(verification), [verification]);
+  const statusTone = useMemo(() => getVerificationStatusTone(verification), [verification]);
+  const bookingEligibility = useMemo(() => getBookingEligibility(verification), [verification]);
+  const validIdMeta = useMemo(() => getVerificationGroupMeta(verification, "validId"), [verification]);
+  const licenseMeta = useMemo(() => getVerificationGroupMeta(verification, "license"), [verification]);
+  const groupMetaMap = {
+    validId: validIdMeta,
+    license: licenseMeta,
   };
 
-  const getSlotMeta = (key) => {
-    if (documents[key]) {
-      return { label: "Selected", key: "selected" };
-    }
-
-    const documentMeta = key.startsWith("license")
-      ? getDocumentVerificationMeta(verification, "license")
-      : getDocumentVerificationMeta(verification, "validId");
-
-    if (getExistingImage(key)) {
-      return { label: documentMeta.label === "Missing" ? "Submitted" : documentMeta.label, key: documentMeta.key };
-    }
-
-    return { label: "Missing", key: "missing" };
+  const handleUnauthorized = async () => {
+    await clearClientSession();
+    navigation.replace("ClientLogin");
   };
 
-  const getDocumentStateForSide = (key) => {
-    return key.startsWith("license") ? licenseReviewState : validIdReviewState;
-  };
-
-  const isEditableSide = (key) => {
-    const state = getDocumentStateForSide(key);
-    return !submitting && !["approved", "pending"].includes(state);
-  };
-
-  const canSubmit =
-    !["approved", "pending"].includes(requestedDocumentState) &&
-    (requestedLevel === "self_drive"
-      ? Boolean(
-          (documents.licenseFront || getExistingImage("licenseFront")) &&
-            (documents.licenseBack || getExistingImage("licenseBack"))
-        )
-      : Boolean(
-          (documents.validIdFront || getExistingImage("validIdFront")) &&
-            (documents.validIdBack || getExistingImage("validIdBack"))
-        ));
-
-  const openPicker = async (key, source) => {
-    const documentState = getDocumentStateForSide(key);
-    if (documentState === "approved") {
-      Alert.alert("Verification Locked", "Your verification is already approved and locked.");
-      return;
-    }
-    if (documentState === "pending") {
-      Alert.alert("Verification Under Review", "Your verification is already under review.");
-      return;
-    }
-
+  const openPicker = async (keyName, source) => {
     try {
       const permission =
         source === "camera"
@@ -232,7 +227,12 @@ export default function VerificationScreen({ navigation }) {
           : await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (!permission.granted) {
-        Alert.alert("Permission needed", "Please allow access to continue.");
+        Alert.alert(
+          "Camera access needed",
+          source === "camera"
+            ? "Camera access is needed to take your selfie. You can allow camera access in your device settings."
+            : "Photo access is needed to continue. You can allow photo access in your device settings."
+        );
         return;
       }
 
@@ -250,160 +250,189 @@ export default function VerificationScreen({ navigation }) {
 
       if (result.canceled) return;
       const asset = result.assets?.[0];
-      if (!asset?.uri) return;
+      if (!asset?.uri || !asset?.base64) return;
 
-      setDocuments((prev) => ({ ...prev, [key]: asset }));
+      setDocuments((prev) => ({ ...prev, [keyName]: asset }));
     } catch (err) {
       Alert.alert("Upload failed", err?.message || "Could not select image.");
     }
   };
 
-  const promptImageSource = (key) => {
-    const documentState = getDocumentStateForSide(key);
-    if (documentState === "approved") {
-      Alert.alert("Verification Locked", "Your verification is already approved and locked.");
-      return;
-    }
-    if (documentState === "pending") {
-      Alert.alert("Verification Under Review", "Your verification is already under review.");
+  const promptImageSource = (slot, group) => {
+    if (!group.canEdit || submittingGroup) {
+      if (group.isApproved) {
+        Alert.alert("Verification Locked", "This verification group is already approved and locked.");
+      } else if (group.isPending) {
+        Alert.alert("Verification Under Review", "This verification group is already under review.");
+      }
       return;
     }
 
-    Alert.alert("Upload document", "Choose how you want to add the image.", [
-      { text: "Camera", onPress: () => openPicker(key, "camera") },
-      { text: "Gallery", onPress: () => openPicker(key, "gallery") },
+    if (slot.prefersCamera) {
+      Alert.alert(slot.sourcePrompt, "Position your face within the frame. Use the camera for the clearest selfie. You can also choose an existing photo if needed.", [
+        { text: "Take Selfie", onPress: () => openPicker(slot.keyName, "camera") },
+        { text: "Choose Photo", onPress: () => openPicker(slot.keyName, "gallery") },
+        { text: "Cancel", style: "cancel" },
+      ]);
+      return;
+    }
+
+    Alert.alert(slot.sourcePrompt, "Choose how you want to add the image.", [
+      { text: "Camera", onPress: () => openPicker(slot.keyName, "camera") },
+      { text: "Gallery", onPress: () => openPicker(slot.keyName, "gallery") },
       { text: "Cancel", style: "cancel" },
     ]);
   };
 
-  const removeDocument = async (key) => {
-    const documentState = getDocumentStateForSide(key);
-    if (documentState === "approved") {
-      Alert.alert("Verification Locked", "Your verification is already approved and locked.");
-      return;
-    }
-    if (documentState === "pending") {
-      Alert.alert("Verification Under Review", "Your verification is already under review.");
-      return;
-    }
-
-    if (documents[key]) {
-      setDocuments((prev) => ({ ...prev, [key]: null }));
+  const removeDocument = async (keyName, slotMeta, groupMeta) => {
+    if (!groupMeta.canEdit || submittingGroup) {
+      if (groupMeta.isApproved) {
+        Alert.alert("Verification Locked", "This verification group is already approved and locked.");
+      } else if (groupMeta.isPending) {
+        Alert.alert("Verification Under Review", "This verification group is already under review.");
+      }
       return;
     }
 
-    if (!getExistingImage(key)) return;
+    if (documents[keyName]) {
+      setDocuments((prev) => ({ ...prev, [keyName]: null }));
+      return;
+    }
+
+    if (!slotMeta.uri) return;
 
     try {
-      setSubmitting(true);
+      setSubmittingGroup(groupMeta.groupKey);
       setError("");
-      const data = await removeVerificationDocument(key);
+      const data = await removeVerificationDocument(keyName);
       setVerification(data || null);
     } catch (err) {
       if (isUnauthorizedError(err)) {
-        await clearClientSession();
-        navigation.replace("ClientLogin");
+        await handleUnauthorized();
         return;
       }
 
       setError(err?.response?.data?.message || "Failed to remove document.");
     } finally {
-      setSubmitting(false);
+      setSubmittingGroup("");
     }
   };
 
-  const validateSubmission = () => {
-    if (requestedLevel === "self_drive" && !documents.licenseFront && !getExistingImage("licenseFront")) {
-      return "Driver's License front image is required by the current verification flow.";
+  const buildGroupPayload = (groupConfig, groupMeta) => {
+    const slotFront = groupConfig.slots.find((slot) => slot.slotKey === "front");
+    const slotBack = groupConfig.slots.find((slot) => slot.slotKey === "back");
+    const slotSelfie = groupConfig.slots.find((slot) => slot.slotKey === "selfie");
+
+    const frontValue = documents[slotFront.keyName]
+      ? toBase64DataUri(documents[slotFront.keyName])
+      : groupMeta.slots.front.uri;
+    const backValue = documents[slotBack.keyName]
+      ? toBase64DataUri(documents[slotBack.keyName])
+      : groupMeta.slots.back.uri;
+    const selfieValue = documents[slotSelfie.keyName]
+      ? toBase64DataUri(documents[slotSelfie.keyName])
+      : groupMeta.slots.selfie.uri;
+
+    const payload = {
+      verificationType: groupConfig.verificationType,
+    };
+
+    if (groupConfig.key === "validId") {
+      payload.validIdFront = frontValue;
+      payload.validIdBack = backValue;
+      payload.idSelfie = selfieValue;
+      payload.validIdSelfie = selfieValue;
+    } else {
+      payload.licenseFront = frontValue;
+      payload.licenseBack = backValue;
+      payload.licenseSelfie = selfieValue;
+      payload.driverLicenseSelfie = selfieValue;
     }
-    if (requestedLevel === "self_drive" && !documents.licenseBack && !getExistingImage("licenseBack")) {
-      return "Driver's License back image is required by the current verification flow.";
+
+    return payload;
+  };
+
+  const validateGroupSubmission = (groupConfig, groupMeta) => {
+    const slotFront = groupConfig.slots.find((slot) => slot.slotKey === "front");
+    const slotBack = groupConfig.slots.find((slot) => slot.slotKey === "back");
+    const slotSelfie = groupConfig.slots.find((slot) => slot.slotKey === "selfie");
+
+    if (!documents[slotFront.keyName] && !groupMeta.slots.front.uri) {
+      return `${slotFront.title} is required.`;
     }
-    if (requestedLevel !== "self_drive" && !documents.validIdFront && !getExistingImage("validIdFront")) {
-      return "Valid ID front image is required.";
+
+    if (!documents[slotBack.keyName] && !groupMeta.slots.back.uri) {
+      return `${slotBack.title} is required.`;
     }
-    if (requestedLevel !== "self_drive" && !documents.validIdBack && !getExistingImage("validIdBack")) {
-      return "Valid ID back image is required.";
+
+    if (!documents[slotSelfie.keyName] && !groupMeta.slots.selfie.uri) {
+      return "Current Selfie is required.";
     }
+
     return "";
   };
 
-  const handleSubmit = async () => {
-    if (requestedDocumentState === "approved") {
-      Alert.alert("Verification Locked", "Your verification is already approved and locked.");
-      return;
-    }
-    if (requestedDocumentState === "pending") {
-      Alert.alert("Verification Under Review", "Your verification is already under review.");
+  const handleSubmitGroup = async (groupConfig) => {
+    const groupMeta = groupMetaMap[groupConfig.key];
+
+    if (!groupMeta.canEdit) {
+      if (groupMeta.isApproved) {
+        Alert.alert("Verification Locked", "This verification group is already approved and locked.");
+      } else if (groupMeta.isPending) {
+        Alert.alert("Verification Under Review", "This verification group is already under review.");
+      }
       return;
     }
 
-    const validationError = validateSubmission();
+    const validationError = validateGroupSubmission(groupConfig, groupMeta);
     if (validationError) {
       setError(validationError);
       return;
     }
 
     try {
-      setSubmitting(true);
+      setSubmittingGroup(groupConfig.key);
       setError("");
-
-      const payload = {
-        verificationType: requestedLevel,
-        validIdFront: documents.validIdFront
-          ? toBase64DataUri(documents.validIdFront)
-          : getExistingImage("validIdFront"),
-        validIdBack: documents.validIdBack
-          ? toBase64DataUri(documents.validIdBack)
-          : getExistingImage("validIdBack"),
-        licenseFront: documents.licenseFront
-          ? toBase64DataUri(documents.licenseFront)
-          : getExistingImage("licenseFront"),
-        licenseBack: documents.licenseBack
-          ? toBase64DataUri(documents.licenseBack)
-          : getExistingImage("licenseBack"),
-      };
-
+      const payload = buildGroupPayload(groupConfig, groupMeta);
       await submitVerification(payload);
-      setDocuments(INITIAL_DOCUMENTS);
+      setDocuments((prev) => ({
+        ...prev,
+        [groupConfig.slots[0].keyName]: null,
+        [groupConfig.slots[1].keyName]: null,
+        [groupConfig.slots[2].keyName]: null,
+      }));
       await loadVerification("refresh");
-      Alert.alert(
-        "Submitted",
-        "Your documents were submitted for admin review."
-      );
+      Alert.alert("Submitted", `${groupConfig.title} was submitted for admin review.`);
     } catch (err) {
       if (isUnauthorizedError(err)) {
-        await clearClientSession();
-        navigation.replace("ClientLogin");
+        await handleUnauthorized();
         return;
       }
 
       setError(err?.response?.data?.message || "Failed to submit verification.");
     } finally {
-      setSubmitting(false);
+      setSubmittingGroup("");
     }
   };
 
-  const renderUploadCard = ({ keyName, title, hint }) => {
-    const localAsset = documents[keyName];
-    const remoteUri = getExistingImage(keyName);
-    const imageUri = localAsset?.uri || remoteUri || "";
-    const slotStatus = getSlotMeta(keyName);
-    const canEdit = isEditableSide(keyName);
-    const hasLocalReplacement = Boolean(localAsset);
-    const hasBackendImage = Boolean(remoteUri);
-    const documentMeta = keyName.startsWith("license") ? licenseMeta : validIdMeta;
-    const [badgeStyle, badgeToneStyle, badgeTextStyle, badgeTextToneStyle] =
-      getBadgeStyles(getStatusTone(slotStatus.key));
+  const renderUploadCard = (groupMeta, slot) => {
+    const slotMeta = groupMeta.slots[slot.slotKey];
+    const localAsset = documents[slot.keyName];
+    const imageUri = localAsset?.uri || slotMeta.uri || "";
+    const localStatus = getLocalSelectionStatus(localAsset);
+    const slotLabel = localStatus?.label || slotMeta.label;
+    const slotTone = getSlotStatusTone(localStatus ? "selected" : slotMeta.key);
+    const [badgeStyle, badgeToneStyle, badgeTextStyle, badgeTextToneStyle] = getBadgeStyles(slotTone);
+    const isBusy = submittingGroup === groupMeta.groupKey;
 
     return (
-      <View style={styles.uploadCard} key={keyName}>
+      <View style={styles.uploadCard} key={slot.keyName}>
         {imageUri ? (
           <Image source={{ uri: imageUri }} style={styles.uploadPreview} />
         ) : (
           <View style={styles.uploadPlaceholder}>
             <MaterialCommunityIcons
-              name="image-outline"
+              name={slot.slotKey === "selfie" ? "face-recognition" : "image-outline"}
               size={34}
               color="#94a3b8"
             />
@@ -414,49 +443,152 @@ export default function VerificationScreen({ navigation }) {
         <View style={styles.uploadBody}>
           <View style={styles.uploadTop}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.uploadTitle}>{title}</Text>
-              <Text style={styles.uploadHint}>{hint}</Text>
-              {hasBackendImage && !hasLocalReplacement ? (
-                <Text style={styles.uploadHint}>
-                  Already submitted files can be replaced when this document is editable.
-                </Text>
-              ) : null}
-              {documentMeta.key === "rejected" ? (
-                <Text style={styles.uploadHint}>
-                  Your document was rejected. Please upload a clearer replacement or delete the stored copy first.
-                </Text>
-              ) : null}
-              {documentMeta.key === "under_review" && !hasLocalReplacement ? (
-                <Text style={styles.uploadHint}>
-                  Your document is submitted and waiting for admin review.
-                </Text>
-              ) : null}
+              <Text style={styles.uploadTitle}>{slot.title}</Text>
+              <Text style={styles.uploadHint}>{slot.hint}</Text>
             </View>
             <View style={[badgeStyle, badgeToneStyle]}>
-              <Text style={[badgeTextStyle, badgeTextToneStyle]}>{slotStatus.label}</Text>
+              <Text style={[badgeTextStyle, badgeTextToneStyle]}>{slotLabel}</Text>
             </View>
           </View>
 
+          {slotMeta.remarks ? (
+            <Text style={styles.slotRemark}>Admin note: {slotMeta.remarks}</Text>
+          ) : null}
+
+          {slot.slotKey === "selfie" ? (
+            <View style={styles.selfieButtonWrap}>
+              <TouchableOpacity
+                style={[
+                  styles.uploadActionButton,
+                  styles.selfieActionButton,
+                  styles.uploadPrimary,
+                  (!groupMeta.canEdit || isBusy) && styles.submitButtonDisabled,
+                ]}
+                onPress={() => promptImageSource(slot, groupMeta)}
+                disabled={!groupMeta.canEdit || isBusy}
+              >
+                <Text style={styles.uploadPrimaryText}>
+                  {localAsset ? "Retake Current Selfie" : "Take Current Selfie"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
           <View style={styles.uploadActions}>
-            <TouchableOpacity
-              style={[styles.uploadActionButton, styles.uploadPrimary]}
-              onPress={() => promptImageSource(keyName)}
-              disabled={!canEdit || submitting}
-            >
-              <Text style={styles.uploadPrimaryText}>
-                {hasLocalReplacement ? "Change" : hasBackendImage ? "Replace" : "Upload"}
-              </Text>
-            </TouchableOpacity>
+            {slot.slotKey !== "selfie" ? (
+              <TouchableOpacity
+                style={[
+                  styles.uploadActionButton,
+                  styles.uploadPrimary,
+                  (!groupMeta.canEdit || isBusy) && styles.submitButtonDisabled,
+                ]}
+                onPress={() => promptImageSource(slot, groupMeta)}
+                disabled={!groupMeta.canEdit || isBusy}
+              >
+                <Text style={styles.uploadPrimaryText}>
+                  {localAsset ? "Change" : slotMeta.uri ? "Replace" : "Upload"}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
 
             <TouchableOpacity
-              style={[styles.uploadActionButton, styles.uploadDanger]}
-              onPress={() => removeDocument(keyName)}
-              disabled={(!localAsset && !hasBackendImage) || submitting || !canEdit}
+              style={[
+                styles.uploadActionButton,
+                styles.uploadDanger,
+                ((!localAsset && !slotMeta.uri) || !groupMeta.canEdit || isBusy) && styles.submitButtonDisabled,
+              ]}
+              onPress={() => removeDocument(slot.keyName, slotMeta, groupMeta)}
+              disabled={(!localAsset && !slotMeta.uri) || !groupMeta.canEdit || isBusy}
             >
-              <Text style={styles.uploadDangerText}>{hasBackendImage && !localAsset ? "Delete Stored" : "Remove Selected"}</Text>
+              <Text style={styles.uploadDangerText}>
+                {slotMeta.uri && !localAsset ? "Remove Submitted" : "Remove"}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
+      </View>
+    );
+  };
+
+  const renderGroupCard = (groupConfig) => {
+    const groupMeta = groupMetaMap[groupConfig.key];
+    const [badgeStyle, badgeToneStyle, badgeTextStyle, badgeTextToneStyle] = getBadgeStyles(groupMeta.tone);
+    const isBusy = submittingGroup === groupConfig.key;
+    const isHighlighted = requestedType === groupConfig.verificationType;
+
+    return (
+      <View
+        key={groupConfig.key}
+        style={[styles.card, isHighlighted && styles.highlightCard]}
+      >
+        <View style={styles.statusTopRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardTitle}>{groupConfig.title}</Text>
+            <Text style={styles.cardSubtitle}>
+              {groupConfig.key === "validId"
+                ? "Required slots: Valid ID front, Valid ID back, and current selfie."
+                : "Required slots: Driver's License front, Driver's License back, and current selfie."}
+            </Text>
+          </View>
+          <View style={[badgeStyle, badgeToneStyle]}>
+            <Text style={[badgeTextStyle, badgeTextToneStyle]}>{groupMeta.label}</Text>
+          </View>
+        </View>
+
+        <View style={styles.levelRow}>
+          <Text style={styles.summaryLabel}>Verification Level</Text>
+          <Text style={styles.levelValue}>
+            {groupMeta.isApproved ? groupConfig.levelLabel : "Not yet approved"}
+          </Text>
+        </View>
+
+        <View style={styles.levelRow}>
+          <Text style={styles.summaryLabel}>Verification Summary</Text>
+          <Text style={styles.levelValue}>
+            Documents: {groupMeta.slots.front.hasDocument && groupMeta.slots.back.hasDocument ? "Front and back uploaded" : "Incomplete"}
+          </Text>
+          <Text style={styles.summarySubvalue}>
+            Selfie: {groupMeta.slots.selfie.hasDocument ? "Captured" : "Missing"}
+          </Text>
+        </View>
+
+        {groupMeta.remarks ? (
+          <View style={styles.noticeCard}>
+            <Ionicons
+              name={groupMeta.isRejected || groupMeta.needsUpdate ? "alert-circle-outline" : "information-circle-outline"}
+              size={20}
+              color={groupMeta.isRejected || groupMeta.needsUpdate ? "#DC2626" : "#f97316"}
+            />
+            <Text style={styles.noticeText}>Admin note: {groupMeta.remarks}</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.uploadGrid}>
+          {groupConfig.slots.map((slot) => renderUploadCard(groupMeta, slot))}
+        </View>
+
+        <TouchableOpacity
+          style={[
+            styles.submitButton,
+            (isBusy || !groupMeta.canEdit || !groupMeta.hasAllDocuments) && styles.submitButtonDisabled,
+          ]}
+          onPress={() => handleSubmitGroup(groupConfig)}
+          disabled={isBusy || !groupMeta.canEdit || !groupMeta.hasAllDocuments}
+        >
+          {isBusy ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : (
+            <Text style={styles.submitButtonText}>
+              {groupMeta.isApproved
+                ? "Approved"
+                : groupMeta.isPending
+                ? "Pending Review"
+                : groupMeta.isRejected || groupMeta.needsUpdate
+                ? `Resubmit ${groupConfig.title}`
+                : groupConfig.submitLabel}
+            </Text>
+          )}
+        </TouchableOpacity>
       </View>
     );
   };
@@ -472,8 +604,7 @@ export default function VerificationScreen({ navigation }) {
     );
   }
 
-  const [badgeStyle, badgeToneStyle, badgeTextStyle, badgeTextToneStyle] =
-    getBadgeStyles(statusTone);
+  const [badgeStyle, badgeToneStyle, badgeTextStyle, badgeTextToneStyle] = getBadgeStyles(statusTone);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -494,7 +625,7 @@ export default function VerificationScreen({ navigation }) {
           <View style={styles.headerTextWrap}>
             <Text style={styles.title}>Account Verification</Text>
             <Text style={styles.subtitle}>
-              Manage your identity verification and booking eligibility.
+              Manage your identity verification, selfies, and booking eligibility.
             </Text>
           </View>
 
@@ -516,8 +647,7 @@ export default function VerificationScreen({ navigation }) {
             <View style={{ flex: 1 }}>
               <Text style={styles.cardTitle}>Status Summary</Text>
               <Text style={styles.cardSubtitle}>
-                Verification is reviewed manually by admin before your booking
-                eligibility changes.
+                Each verification group is reviewed separately. One rejected document will not reset the other group.
               </Text>
             </View>
             <View style={[badgeStyle, badgeToneStyle]}>
@@ -525,55 +655,17 @@ export default function VerificationScreen({ navigation }) {
             </View>
           </View>
 
-          {isApproved ? (
-            <View style={[styles.noticeCard, { marginTop: 16, backgroundColor: "#ECFDF3", borderColor: "#BBF7D0" }]}>
-              <Ionicons name="lock-closed-outline" size={20} color="#15803D" />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.noticeText, { color: "#166534", fontWeight: "800" }]}>Verification Approved</Text>
-                <Text style={[styles.noticeText, { color: "#166534" }]}>
-                  Your submitted ID has been reviewed and approved. This section is now locked for your account security.
-                </Text>
-              </View>
-            </View>
-          ) : null}
-
-          {isUnderReview ? (
-            <View style={[styles.noticeCard, { marginTop: 16, backgroundColor: "#FFFBEB", borderColor: "#FDE68A" }]}>
-              <Ionicons name="time-outline" size={20} color="#CA8A04" />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.noticeText, { color: "#92400E", fontWeight: "800" }]}>Verification Under Review</Text>
-                <Text style={[styles.noticeText, { color: "#92400E" }]}>
-                  Your ID is being reviewed by FleetX.
-                </Text>
-              </View>
-            </View>
-          ) : null}
-
-          {isRejected ? (
-            <View style={[styles.noticeCard, { marginTop: 16, backgroundColor: "#FEF2F2", borderColor: "#FECACA" }]}>
-              <Ionicons name="alert-circle-outline" size={20} color="#DC2626" />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.noticeText, { color: "#991B1B", fontWeight: "800" }]}>Verification Rejected</Text>
-                <Text style={[styles.noticeText, { color: "#991B1B" }]}>
-                  {rejectionReason || "Your submission needs replacement before you can try again."}
-                </Text>
-              </View>
-            </View>
-          ) : null}
-
           <View style={styles.summaryGrid}>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Current Status</Text>
-              <Text style={styles.summaryValue}>{statusLabel}</Text>
+              <Text style={styles.summaryLabel}>Basic Verified</Text>
+              <Text style={styles.summaryValue}>{validIdMeta.isApproved ? "Approved" : validIdMeta.label}</Text>
             </View>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Admin Remarks</Text>
-              <Text style={styles.summaryValue}>
-                {verification?.adminRemarks || "No remarks yet."}
-              </Text>
+              <Text style={styles.summaryLabel}>Fully Verified</Text>
+              <Text style={styles.summaryValue}>{licenseMeta.isApproved ? "Approved" : licenseMeta.label}</Text>
             </View>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Reviewed Date</Text>
+              <Text style={styles.summaryLabel}>Last Reviewed</Text>
               <Text style={styles.summaryValue}>
                 {formatReviewDate(verification?.reviewedAt)}
               </Text>
@@ -584,8 +676,7 @@ export default function VerificationScreen({ navigation }) {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Booking Eligibility</Text>
           <Text style={styles.cardSubtitle}>
-            Basic verification unlocks with-driver bookings. Full verification
-            unlocks self-drive bookings.
+            Basic verification unlocks with-driver bookings. Full verification unlocks self-drive bookings.
           </Text>
           <View style={styles.eligibilityRow}>
             <View
@@ -596,7 +687,7 @@ export default function VerificationScreen({ navigation }) {
             >
               <Text style={styles.eligibilityLabel}>With Driver</Text>
               <Text style={styles.eligibilityValue}>
-                {bookingEligibility.withDriver ? "Available" : "Unavailable"}
+                {bookingEligibility.withDriver ? "Available" : bookingEligibility.withDriverLabel}
               </Text>
             </View>
             <View
@@ -607,173 +698,22 @@ export default function VerificationScreen({ navigation }) {
             >
               <Text style={styles.eligibilityLabel}>Self-Drive</Text>
               <Text style={styles.eligibilityValue}>
-                {bookingEligibility.selfDrive ? "Available" : "Unavailable"}
+                {bookingEligibility.selfDrive ? "Available" : bookingEligibility.selfDriveLabel}
               </Text>
             </View>
           </View>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Document Checklist</Text>
-          <Text style={styles.cardSubtitle}>
-            Make sure each document is complete before sending it for review.
-          </Text>
-
-          <View style={styles.checklistRow}>
-            <View style={styles.checklistLeft}>
-              <Ionicons name="card-outline" size={20} color="#f97316" />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.checklistTitle}>Valid ID</Text>
-                <Text style={styles.checklistSubtitle}>
-                  Front and back are required for with-driver eligibility.
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.refreshText}>
-              {validIdMeta.label}
-            </Text>
-          </View>
-
-          <View style={styles.checklistRow}>
-            <View style={styles.checklistLeft}>
-              <MaterialCommunityIcons
-                name="card-account-details-outline"
-                size={20}
-                color="#f97316"
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.checklistTitle}>Driver's License</Text>
-                <Text style={styles.checklistSubtitle}>
-                  Front and back are required for self-drive eligibility.
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.refreshText}>
-              {licenseMeta.label}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Choose Verification Level</Text>
-          <Text style={styles.cardSubtitle}>
-            Pick the booking mode you want to unlock before submitting.
-          </Text>
-
-          <View style={styles.segmentRow}>
-            <TouchableOpacity
-              style={[
-                styles.segmentButton,
-                requestedLevel === "with_driver" && styles.segmentButtonActive,
-              ]}
-              onPress={() => setRequestedLevel("with_driver")}
-              disabled={submitting}
-            >
-              <Text style={styles.segmentTitle}>With Driver</Text>
-              <Text
-                style={[
-                  styles.segmentText,
-                  requestedLevel === "with_driver" && styles.segmentTextActive,
-                ]}
-              >
-                Submit Valid ID front and back for with-driver eligibility.
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.segmentButton,
-                requestedLevel === "self_drive" && styles.segmentButtonActive,
-              ]}
-              onPress={() => setRequestedLevel("self_drive")}
-              disabled={submitting}
-            >
-              <Text style={styles.segmentTitle}>Self-Drive</Text>
-              <Text
-                style={[
-                  styles.segmentText,
-                  requestedLevel === "self_drive" && styles.segmentTextActive,
-                ]}
-              >
-                Submit Driver's License front and back for self-drive eligibility.
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <Text style={styles.sectionHeader}>Valid ID</Text>
-          <View style={styles.uploadGroup}>
-            <Text style={styles.uploadGroupTitle}>Required for Basic Verification</Text>
-            <Text style={styles.uploadGroupSubtitle}>
-              JPG, JPEG, PNG, and WEBP are supported.
-            </Text>
-            <View style={styles.uploadGrid}>
-              {renderUploadCard({
-                keyName: "validIdFront",
-                title: "Valid ID Front",
-                hint: "Upload the front side of your government-issued ID.",
-              })}
-              {renderUploadCard({
-                keyName: "validIdBack",
-                title: "Valid ID Back",
-                hint: "Upload the back side of the same ID.",
-              })}
-            </View>
-          </View>
-
-          <Text style={styles.sectionHeader}>Driver's License</Text>
-          <View style={styles.uploadGroup}>
-            <Text style={styles.uploadGroupTitle}>Required for Full Verification</Text>
-            <Text style={styles.uploadGroupSubtitle}>
-              The current backend requires both front and back images here before submission.
-            </Text>
-            <View style={styles.uploadGrid}>
-              {renderUploadCard({
-                keyName: "licenseFront",
-                title: "License Front",
-                hint: "Upload the front side of your Driver's License.",
-              })}
-              {renderUploadCard({
-                keyName: "licenseBack",
-                title: "License Back",
-                hint: "Upload the back side of your Driver's License.",
-              })}
-            </View>
-          </View>
-        </View>
+        {visibleGroups.map((group) => renderGroupCard(group))}
 
         <View style={styles.noticeCard}>
           <Ionicons name="shield-checkmark-outline" size={20} color="#f97316" />
           <Text style={styles.noticeText}>
-            Your documents are used only for identity and booking eligibility
-            review. They are reviewed securely by the admin.
+            Your documents and selfies are used only for identity and booking eligibility review. They are reviewed securely by FleetX admin.
           </Text>
         </View>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-        <TouchableOpacity
-          style={[
-            styles.submitButton,
-            submitting && styles.submitButtonDisabled,
-            !canSubmit && styles.submitButtonDisabled,
-          ]}
-          onPress={handleSubmit}
-          disabled={submitting || !canSubmit}
-        >
-          {submitting ? (
-            <ActivityIndicator size="small" color="#ffffff" />
-          ) : (
-            <Text style={styles.submitButtonText}>
-              {submitting
-                ? "Submitting..."
-                : isApproved
-                ? "Verification Approved"
-                : isUnderReview
-                ? "Verification Under Review"
-                : `Submit ${requestedLevel === "self_drive" ? "Driver's License" : "Valid ID"}`}
-            </Text>
-          )}
-        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );

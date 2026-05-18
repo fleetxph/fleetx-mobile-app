@@ -20,11 +20,25 @@ import {
   resumeClientBooking,
 } from "../api/clientApi";
 import { styles } from "../styles/myBookingsStyle";
+import { canCancelBooking } from "../utils/bookingActions";
 import {
+  ACTIVE_BOOKING_STATUS_KEYS,
+  BOOKING_VIEW_TABS,
   BOOKING_STATUS_FILTERS,
+  HISTORY_BOOKING_STATUS_KEYS,
+  getBookingAmountLabel,
+  getBookingNextAction,
   getBookingStatusMeta,
+  isActiveBooking,
+  isHistoryBooking,
 } from "../utils/bookingStatusDisplay";
+import { getInvoicePdfSource, getReceiptPdfSource } from "../utils/bookingDocuments";
 import { getVehicleImageUrl } from "../utils/imageUrl";
+import {
+  getBookingInvoicePaymentDetails,
+  getBookingReceiptDetails,
+  isAwaitingPaymentBooking,
+} from "../utils/bookingPaymentDisplay";
 
 function getBookingId(item) {
   return item?._id || item?.id || "";
@@ -48,19 +62,6 @@ function formatDate(date) {
   });
 }
 
-function formatDateTime(date) {
-  if (!date) return "Not set";
-  const value = new Date(date);
-  if (Number.isNaN(value.getTime())) return "Not set";
-  return value.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 function getDays(startDate, endDate) {
   if (!startDate || !endDate) return "0d";
   const start = new Date(startDate);
@@ -80,7 +81,9 @@ function getReferenceNo(item) {
 function getPaymentLabel(item) {
   const value = String(item?.paymentStatus || "").toLowerCase();
   if (["verified", "fully_paid", "downpayment_paid"].includes(value)) return "Verified";
-  if (value === "submitted") return "Pending review";
+  if (["submitted", "payment_submitted", "under_review", "pending"].includes(value)) {
+    return "Under Review";
+  }
   if (["rejected", "reupload_required"].includes(value)) return "Rejected";
   if (value === "invoice_issued") return "Invoice issued";
   if (value === "expired") return "Expired";
@@ -88,22 +91,15 @@ function getPaymentLabel(item) {
 }
 
 function canSubmitPayment(item) {
-  const status = String(item?.status || "").toLowerCase();
-  const paymentStatus = String(item?.paymentStatus || "").toLowerCase();
-  return (
-    ["awaiting_payment", "pending_payment", "payment_rejected", "invoice_issued"].includes(status) ||
-    ["invoice_issued", "rejected", "reupload_required"].includes(paymentStatus)
-  );
+  return isAwaitingPaymentBooking(item);
 }
 
 function shouldShowPaymentPanel(item) {
-  const meta = getBookingStatusMeta(item?.status);
-  const status = String(item?.status || "").toLowerCase();
-  const paymentStatus = String(item?.paymentStatus || "").toLowerCase();
+  const meta = getBookingStatusMeta(item);
   return (
     meta.key === "awaiting_payment" ||
-    ["awaiting_payment", "pending_payment", "payment_rejected", "invoice_issued"].includes(status) ||
-    ["invoice_issued", "rejected", "reupload_required"].includes(paymentStatus)
+    (isAwaitingPaymentBooking(item) &&
+      !["confirmed", "completed", "cancelled", "rejected", "expired", "archived", "closed"].includes(meta.key))
   );
 }
 
@@ -112,6 +108,7 @@ export default function MyBookings({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [hasToken, setHasToken] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [activeView, setActiveView] = useState("active");
   const [activeFilter, setActiveFilter] = useState("all");
   const [failedImages, setFailedImages] = useState({});
 
@@ -154,10 +151,58 @@ export default function MyBookings({ navigation }) {
     return unsubscribe;
   }, [loadBookings, navigation]);
 
+  const scopedBookings = useMemo(() => {
+    return bookings.filter((item) => (activeView === "history" ? isHistoryBooking(item) : isActiveBooking(item)));
+  }, [activeView, bookings]);
+
+  const activeBookingsCount = useMemo(
+    () => bookings.filter((item) => isActiveBooking(item)).length,
+    [bookings]
+  );
+  const historyBookingsCount = useMemo(
+    () => bookings.filter((item) => isHistoryBooking(item)).length,
+    [bookings]
+  );
+
+  const viewTabs = useMemo(
+    () =>
+      BOOKING_VIEW_TABS.map((item) => ({
+        ...item,
+        label: `${item.label} (${item.key === "history" ? historyBookingsCount : activeBookingsCount})`,
+      })),
+    [activeBookingsCount, historyBookingsCount]
+  );
+
+  const availableFilters = useMemo(() => {
+    const allowedKeys =
+      activeView === "history"
+        ? ["all", ...HISTORY_BOOKING_STATUS_KEYS]
+        : ["all", ...ACTIVE_BOOKING_STATUS_KEYS.filter((key) => key !== "processing")];
+
+    return BOOKING_STATUS_FILTERS.filter((item) => allowedKeys.includes(item.key));
+  }, [activeView]);
+
   const filteredBookings = useMemo(() => {
-    if (activeFilter === "all") return bookings;
-    return bookings.filter((item) => getBookingStatusMeta(item?.status).key === activeFilter);
-  }, [bookings, activeFilter]);
+    if (activeFilter === "all") return scopedBookings;
+    return scopedBookings.filter((item) => getBookingStatusMeta(item).key === activeFilter);
+  }, [activeFilter, scopedBookings]);
+
+  useEffect(() => {
+    const filterIsAvailable = availableFilters.some((item) => item.key === activeFilter);
+    if (!filterIsAvailable) {
+      setActiveFilter("all");
+    }
+  }, [activeFilter, availableFilters]);
+
+  useEffect(() => {
+    if (!__DEV__) return;
+
+    console.log("[BookingsFilter][mobile]", {
+      total: bookings.length,
+      activeCount: activeBookingsCount,
+      historyCount: historyBookingsCount,
+    });
+  }, [activeBookingsCount, bookings.length, historyBookingsCount]);
 
   const handleResume = async (booking) => {
     const bookingId = getBookingId(booking);
@@ -240,7 +285,7 @@ export default function MyBookings({ navigation }) {
   };
 
   const renderActions = (item) => {
-    const meta = getBookingStatusMeta(item?.status);
+    const meta = getBookingStatusMeta(item);
     if (meta.key === "in_progress") {
       return (
         <View style={styles.actionRow}>
@@ -258,6 +303,8 @@ export default function MyBookings({ navigation }) {
     }
 
     if (shouldShowPaymentPanel(item)) {
+      const hasInvoiceDocument = Boolean(getInvoicePdfSource(item));
+
       return (
         <View style={styles.paymentPanel}>
           <Text style={styles.panelTitle}>Invoice and payment</Text>
@@ -273,12 +320,14 @@ export default function MyBookings({ navigation }) {
                 {canSubmitPayment(item) ? "View Payment Instructions" : "Payment Details"}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.secondaryActionButton}
-              onPress={() => openDocumentScreen("invoice", item)}
-            >
-              <Text style={styles.secondaryActionText}>View Invoice</Text>
-            </TouchableOpacity>
+            {hasInvoiceDocument ? (
+              <TouchableOpacity
+                style={styles.secondaryActionButton}
+                onPress={() => openDocumentScreen("invoice", item)}
+              >
+                <Text style={styles.secondaryActionText}>View Invoice</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
           {!canSubmitPayment(item) ? (
             <Text style={styles.panelText}>
@@ -294,22 +343,30 @@ export default function MyBookings({ navigation }) {
     }
 
     if (["confirmed", "completed"].includes(meta.key)) {
+      const receiptDetails = getBookingReceiptDetails(item);
+      const hasReceiptDocument = Boolean(getReceiptPdfSource(item)) && receiptDetails.isEligible;
+      const hasInvoiceDocument = Boolean(getInvoicePdfSource(item));
+
       return (
         <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.actionButton} onPress={() => openDocumentScreen("receipt", item)}>
-            <Text style={styles.actionButtonText}>View Receipt</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryActionButton} onPress={() => openDocumentScreen("invoice", item)}>
-            <Text style={styles.secondaryActionText}>View Invoice</Text>
-          </TouchableOpacity>
+          {hasReceiptDocument ? (
+            <TouchableOpacity style={styles.actionButton} onPress={() => openDocumentScreen("receipt", item)}>
+              <Text style={styles.actionButtonText}>View Receipt</Text>
+            </TouchableOpacity>
+          ) : null}
+          {hasInvoiceDocument ? (
+            <TouchableOpacity style={styles.secondaryActionButton} onPress={() => openDocumentScreen("invoice", item)}>
+              <Text style={styles.secondaryActionText}>View Invoice</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       );
     }
 
-    if (meta.key === "cancelled") {
+    if (isHistoryBooking(item) && !["completed"].includes(meta.key)) {
       return (
         <Text style={styles.helperText}>
-          {item?.cancellationReason || item?.adminRemarks || "This booking is no longer active."}
+          {item?.cancellationReason || item?.adminRemarks || meta.nextAction}
         </Text>
       );
     }
@@ -318,7 +375,15 @@ export default function MyBookings({ navigation }) {
   };
 
   const renderBooking = ({ item }) => {
-    const meta = getBookingStatusMeta(item?.status);
+    const meta = getBookingStatusMeta(item);
+    const historyBooking = isHistoryBooking(item);
+    const nextAction = getBookingNextAction(item);
+    const invoiceDetails = getBookingInvoicePaymentDetails(item);
+    const amountValue =
+      meta.key === "awaiting_payment" && invoiceDetails.amountDue > 0
+        ? invoiceDetails.amountDue
+        : Number(item?.totalPrice || invoiceDetails.bookingTotal || 0);
+    const amountLabel = getBookingAmountLabel(item);
     const bookingId = getBookingId(item);
     const imageUrl = getVehicleImageUrl(item);
     const imageKey = `booking-${bookingId}`;
@@ -380,28 +445,20 @@ export default function MyBookings({ navigation }) {
           <View style={styles.cardFooter}>
             <View>
               <Text style={styles.totalText}>
-                Total: PHP {Number(item?.totalPrice || 0).toLocaleString()}
+                {amountLabel}: PHP {Number(amountValue || 0).toLocaleString()}
               </Text>
               <Text style={styles.paymentText}>
                 Payment: <Text style={styles.paymentSubmitted}>{getPaymentLabel(item)}</Text>
               </Text>
             </View>
-            {[
-              "draft",
-              "pending_verification",
-              "ready_to_continue",
-              "pending_payment",
-              "pending_approval",
-              "awaiting_payment",
-              "payment_rejected",
-            ].includes(String(item?.status || "").toLowerCase()) ? (
+            {!historyBooking && canCancelBooking(item) ? (
               <TouchableOpacity onPress={() => handleCancel(item)}>
                 <Text style={styles.cancelLink}>Cancel</Text>
               </TouchableOpacity>
             ) : null}
           </View>
 
-          <Text style={styles.statusSubtext}>{meta.subtext}</Text>
+          <Text style={styles.statusSubtext}>{historyBooking ? meta.nextAction : nextAction}</Text>
           {renderActions(item)}
         </View>
       </View>
@@ -421,7 +478,26 @@ export default function MyBookings({ navigation }) {
         <FlatList
           style={styles.filterList}
           horizontal
-          data={BOOKING_STATUS_FILTERS}
+          data={viewTabs}
+          keyExtractor={(item) => item.key}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.viewTabsContent}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[styles.viewTab, activeView === item.key && styles.viewTabActive]}
+              onPress={() => setActiveView(item.key)}
+            >
+              <Text style={[styles.viewTabText, activeView === item.key && styles.viewTabTextActive]}>
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          )}
+        />
+
+        <FlatList
+          style={styles.filterList}
+          horizontal
+          data={availableFilters}
           keyExtractor={(item) => item.key}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterScrollContent}
@@ -470,8 +546,14 @@ export default function MyBookings({ navigation }) {
             }
             ListEmptyComponent={
               <View style={styles.emptyBox}>
-                <Text style={styles.emptyTitle}>No bookings found</Text>
-                <Text style={styles.emptyText}>There are no bookings under this status yet.</Text>
+                <Text style={styles.emptyTitle}>
+                  {activeView === "history" ? "No booking history yet." : "No active bookings yet."}
+                </Text>
+                <Text style={styles.emptyText}>
+                  {activeView === "history"
+                    ? "Completed and cancelled bookings will appear here."
+                    : "Plan a trip or browse vehicles to start a booking."}
+                </Text>
                 <TouchableOpacity style={styles.refreshButton} onPress={() => loadBookings("refresh")}>
                   <Text style={styles.refreshText}>Refresh</Text>
                 </TouchableOpacity>

@@ -3,7 +3,7 @@ import { getVehicleImageUrl as resolveVehicleImageFromFields, resolveImageUrl } 
 import { resolvePdfUrl } from "./pdfUtils";
 
 export function getBookingId(booking) {
-  return booking?._id || booking?.id || "";
+  return booking?._id || booking?.id || booking?.bookingId || "";
 }
 
 export function getReferenceNo(booking) {

@@ -62,6 +62,33 @@ export function combineDateAndTime(dateValue, timeValue) {
   return date;
 }
 
+export function ceilDateToThirtyMinutes(value = new Date()) {
+  const date = value instanceof Date ? new Date(value) : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  date.setSeconds(0, 0);
+  const minutes = date.getMinutes();
+  const remainder = minutes % 30;
+
+  if (remainder !== 0) {
+    date.setMinutes(minutes + (30 - remainder));
+  }
+
+  return date;
+}
+
+export function normalizeTimeToThirtyMinutes(value) {
+  const date = value instanceof Date ? new Date(value) : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  const normalizedMinutes = minutes < 15 ? 0 : minutes < 45 ? 30 : 0;
+  const normalizedHours = minutes < 45 ? hours : (hours + 1) % 24;
+
+  return `${String(normalizedHours).padStart(2, "0")}:${String(normalizedMinutes).padStart(2, "0")}`;
+}
+
 export function getDateRangeError({ startDate, endDate, startTime, endTime }) {
   if (!startDate) return { field: "startDate", message: "Start date is required." };
   if (!endDate) return { field: "endDate", message: "End date is required." };
@@ -83,9 +110,32 @@ export function getDateRangeError({ startDate, endDate, startTime, endTime }) {
     return { field: "endDate", message: "Return date must be later than start date." };
   }
 
+  const now = new Date();
+  const today = parseDateOnly(now);
+  const startDateTime = startTime ? combineDateAndTime(startDate, startTime) : null;
+  const endDateTime = endTime ? combineDateAndTime(endDate, endTime) : null;
+
+  if (
+    startTime &&
+    today &&
+    startOnly.getTime() === today.getTime() &&
+    startDateTime &&
+    startDateTime <= now
+  ) {
+    return { field: "startTime", message: "Start time must be later than the current time." };
+  }
+
+  if (
+    endTime &&
+    today &&
+    endOnly.getTime() === today.getTime() &&
+    endDateTime &&
+    endDateTime <= now
+  ) {
+    return { field: "endTime", message: "End time must be later than the current time." };
+  }
+
   if (startTime && endTime) {
-    const startDateTime = combineDateAndTime(startDate, startTime);
-    const endDateTime = combineDateAndTime(endDate, endTime);
     if (startDateTime && endDateTime && endDateTime <= startDateTime) {
       return { field: "endTime", message: "End time must be later than start time." };
     }

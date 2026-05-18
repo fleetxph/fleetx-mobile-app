@@ -48,6 +48,14 @@ const QUICK_ACCESS_ITEMS = [
   },
 ];
 
+const HOME_CAMPAIGN_BANNER = {
+  label: "Limited-time travel deals",
+  title: "Book smarter with FleetX",
+  subtitle:
+    "Plan your trip, check vehicle options, and complete your booking from your phone.",
+  cta: "Plan My Trip",
+};
+
 const getUnreadCountFromResponse = (notificationRes) => {
   const explicitCount = Number(
     notificationRes?.unreadCount ?? notificationRes?.count ?? Number.NaN
@@ -283,6 +291,24 @@ export default function ClientDashboard({ navigation }) {
               onPress={() => navigation.navigate("Plan")}
             >
               <Text style={styles.planTripButtonText}>Plan My Trip</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.campaignCard}>
+          <View style={styles.campaignGlow} />
+          <View style={styles.campaignAccent} />
+          <View style={styles.campaignContent}>
+            <Text style={styles.campaignLabel}>{HOME_CAMPAIGN_BANNER.label}</Text>
+            <Text style={styles.campaignTitle}>{HOME_CAMPAIGN_BANNER.title}</Text>
+            <Text style={styles.campaignSubtitle}>{HOME_CAMPAIGN_BANNER.subtitle}</Text>
+
+            <TouchableOpacity
+              style={styles.campaignButton}
+              activeOpacity={0.9}
+              onPress={() => navigation.navigate("Plan")}
+            >
+              <Text style={styles.campaignButtonText}>{HOME_CAMPAIGN_BANNER.cta}</Text>
             </TouchableOpacity>
           </View>
         </View>
