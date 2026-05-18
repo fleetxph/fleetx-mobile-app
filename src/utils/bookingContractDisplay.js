@@ -497,15 +497,124 @@ function replacePlaceholders(template, fieldMap) {
   };
 }
 
+function valueOrEmpty(value) {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return normalizeText(value);
+  return String(value).trim();
+}
+
+function isPresentValue(value) {
+  return Boolean(valueOrEmpty(value));
+}
+
+function joinVehicleParts(...values) {
+  const parts = values.map(valueOrEmpty).filter(Boolean);
+  return parts.join(" ").trim();
+}
+
+function pickFirstPresentValue(...values) {
+  for (const value of values) {
+    if (isPresentValue(value)) {
+      return valueOrEmpty(value);
+    }
+  }
+
+  return "";
+}
+
+function normalizeRentalTypeValue(value) {
+  const raw = valueOrEmpty(value);
+  if (!raw) return "";
+
+  const collapsed = raw.replace(/[\s_-]+/g, "").toLowerCase();
+  if (collapsed === "selfdrive") return "Self Drive";
+  if (collapsed === "withdriver") return "With Driver";
+
+  return raw
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function resolveVehicleName(booking = {}) {
+  const vehicle = booking?.vehicle || {};
+  const vehicleSnapshot = booking?.vehicleSnapshot || {};
+  const selectedVehicle = booking?.selectedVehicle || {};
+  const car = booking?.car || {};
+  const vehicleDetails = booking?.vehicleDetails || {};
+
+  return pickFirstPresentValue(
+    vehicle?.name,
+    vehicle?.vehicleName,
+    vehicle?.title,
+    joinVehicleParts(vehicle?.make, vehicle?.model, vehicle?.year),
+    joinVehicleParts(vehicle?.brand, vehicle?.model, vehicle?.year),
+    vehicleSnapshot?.name,
+    joinVehicleParts(vehicleSnapshot?.make, vehicleSnapshot?.model, vehicleSnapshot?.year),
+    selectedVehicle?.name,
+    car?.name,
+    booking?.vehicleName,
+    booking?.carName,
+    booking?.vehicleTitle,
+    booking?.vehicleModel,
+    vehicleDetails?.name,
+    joinVehicleParts(vehicleDetails?.make, vehicleDetails?.model, vehicleDetails?.year),
+    booking?.vehicleLabel
+  );
+}
+
+function resolvePlateNumber(booking = {}) {
+  const vehicle = booking?.vehicle || {};
+  const vehicleSnapshot = booking?.vehicleSnapshot || {};
+  const selectedVehicle = booking?.selectedVehicle || {};
+  const car = booking?.car || {};
+  const vehicleDetails = booking?.vehicleDetails || {};
+
+  return pickFirstPresentValue(
+    vehicle?.plateNumber,
+    vehicle?.plateNo,
+    vehicle?.plate,
+    vehicle?.licensePlate,
+    vehicle?.registrationNumber,
+    vehicleSnapshot?.plateNumber,
+    selectedVehicle?.plateNumber,
+    car?.plateNumber,
+    booking?.plateNumber,
+    booking?.plateNo,
+    booking?.plate,
+    booking?.vehiclePlate,
+    vehicleDetails?.plateNumber
+  );
+}
+
+function resolveRentalType(booking = {}) {
+  return normalizeRentalTypeValue(
+    pickFirstPresentValue(
+      booking?.tripType,
+      booking?.rentalType,
+      booking?.bookingType,
+      booking?.serviceType,
+      booking?.travelType,
+      booking?.rentalMode,
+      booking?.trip?.type,
+      booking?.details?.tripType,
+      booking?.tripTypeLabel
+    )
+  );
+}
+
 export function buildContractRenderFields(booking = {}) {
-  const vehicle = booking?.vehicle || booking?.vehicleData || booking?.selectedVehicle || {};
+  const vehicle =
+    booking?.vehicle ||
+    booking?.vehicleData ||
+    booking?.vehicleDetails ||
+    booking?.vehicleSnapshot ||
+    booking?.selectedVehicle ||
+    booking?.car ||
+    {};
   const user = booking?.user || booking?.customer || booking?.client || {};
-  const vehicleName =
-    vehicle?.name ||
-    [vehicle?.year, vehicle?.make, vehicle?.model].filter(Boolean).join(" ") ||
-    booking?.vehicleName ||
-    booking?.vehicleLabel ||
-    "Selected vehicle";
+  const vehicleName = resolveVehicleName(booking) || "Not specified";
   const customerName =
     user?.fullName ||
     user?.name ||
@@ -531,15 +640,7 @@ export function buildContractRenderFields(booking = {}) {
     booking?.invoice?.totalAmount ??
     booking?.invoice?.amount ??
     0;
-  const rawTripType = normalizeLower(
-    firstPresent(booking?.rentalType, booking?.tripTypeLabel, booking?.tripType, booking?.serviceType)
-  );
-  const rentalType = rawTripType.includes("self")
-    ? "Self-Drive"
-    : rawTripType.includes("driver") || rawTripType.includes("chauffeur")
-    ? "With Driver"
-    : normalizeText(firstPresent(booking?.rentalType, booking?.tripTypeLabel, booking?.tripType)) ||
-      "Not specified";
+  const rentalType = resolveRentalType(booking) || "Not specified";
   const pickupLocation =
     booking?.pickupLocation ||
     booking?.pickupAddress ||
@@ -573,7 +674,7 @@ export function buildContractRenderFields(booking = {}) {
     bookingReference,
     vehicleName,
     vehicle: vehicleName,
-    plateNumber: vehicle?.plateNumber || booking?.plateNumber || "Not specified",
+    plateNumber: resolvePlateNumber(booking) || "Not specified",
     rentalType,
     tripType: rentalType,
     startDate: formatReadableDate(booking?.startDate || booking?.pickupDate || booking?.fromDate),

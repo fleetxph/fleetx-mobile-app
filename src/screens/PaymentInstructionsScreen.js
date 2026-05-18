@@ -15,6 +15,8 @@ import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { BACKEND_ORIGIN, BASE_URL } from "../api/api";
 import {
+  getClientBookingById,
+  getClientBookings,
   getClientInvoiceUrl,
   getPublicPaymentMethods,
   submitPaymentProof,
@@ -47,6 +49,86 @@ function normalizeMethod(value) {
     .trim()
     .toLowerCase()
     .replace(/[\s_-]+/g, "");
+}
+
+function normalizeIdentifier(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isLikelyMongoId(value) {
+  return /^[a-f0-9]{24}$/i.test(String(value || "").trim());
+}
+
+function mergeBookingData(baseBooking = {}, incomingBooking = {}) {
+  return {
+    ...baseBooking,
+    ...incomingBooking,
+    invoice: {
+      ...(baseBooking?.invoice || {}),
+      ...(incomingBooking?.invoice || {}),
+    },
+    contract: {
+      ...(baseBooking?.contract || {}),
+      ...(incomingBooking?.contract || {}),
+    },
+    contractData: {
+      ...(baseBooking?.contractData || {}),
+      ...(incomingBooking?.contractData || {}),
+    },
+    vehicle: {
+      ...(baseBooking?.vehicle || {}),
+      ...(incomingBooking?.vehicle || {}),
+    },
+    user: {
+      ...(baseBooking?.user || {}),
+      ...(incomingBooking?.user || {}),
+    },
+    customer: {
+      ...(baseBooking?.customer || {}),
+      ...(incomingBooking?.customer || {}),
+    },
+  };
+}
+
+function extractBookingFromResponse(payload) {
+  const candidate = payload?.booking || payload?.data?.booking || payload?.data || payload;
+  return candidate && typeof candidate === "object" ? candidate : null;
+}
+
+function findMatchingBooking(bookings = [], booking = {}, routeParams = {}) {
+  const lookup = new Set(
+    [
+      booking?._id,
+      booking?.id,
+      booking?.bookingId,
+      booking?.bookingReference,
+      booking?.bookingCode,
+      booking?.reference,
+      booking?.referenceNo,
+      routeParams?.bookingId,
+      routeParams?.bookingReference,
+    ]
+      .map(normalizeIdentifier)
+      .filter(Boolean)
+  );
+  if (!lookup.size) return null;
+
+  return (
+    bookings.find((item) =>
+      [
+        item?._id,
+        item?.id,
+        item?.bookingId,
+        item?.bookingReference,
+        item?.bookingCode,
+        item?.reference,
+        item?.referenceNo,
+      ]
+        .map(normalizeIdentifier)
+        .filter(Boolean)
+        .some((value) => lookup.has(value))
+    ) || null
+  );
 }
 
 function toBase64DataUri(asset) {
@@ -434,10 +516,11 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
   );
   const invoiceNotificationShownRef = useRef({});
   const contractPromptShownRef = useRef({});
+  const bookingRefreshInFlightRef = useRef(false);
 
   useEffect(() => {
     if (route?.params?.booking) {
-      setBooking(route.params.booking);
+      setBooking((prev) => mergeBookingData(prev || {}, route.params.booking));
     }
   }, [route?.params?.booking]);
 
@@ -447,14 +530,20 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
       if (!acceptedBookingId || acceptedBookingId !== bookingId) return;
 
       if (event?.updatedBooking) {
-        setBooking((prev) => ({ ...(prev || {}), ...event.updatedBooking, contractAccepted: true }));
+        setBooking((prev) =>
+          mergeBookingData(prev || {}, {
+            ...event.updatedBooking,
+            contractAccepted: true,
+          })
+        );
       } else {
-        setBooking((prev) => ({
-          ...(prev || {}),
-          contractAccepted: true,
-          contractAcceptedAt: event?.acceptedAt || prev?.contractAcceptedAt,
-          contractStatus: "accepted",
-        }));
+        setBooking((prev) =>
+          mergeBookingData(prev || {}, {
+            contractAccepted: true,
+            contractAcceptedAt: event?.acceptedAt || prev?.contractAcceptedAt,
+            contractStatus: "accepted",
+          })
+        );
       }
 
       setContractAcceptError("");
@@ -631,6 +720,91 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
   const canSelectOrSubmitPaymentProof =
     paymentProofEligibility.isEligible && canUploadPaymentProof;
   const showContractGateWarning = showContractSection && !contractAccepted;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const refreshBookingDetails = async () => {
+      if (bookingRefreshInFlightRef.current) return;
+
+      const currentBooking = route?.params?.booking || booking || {};
+      let nextBooking = currentBooking;
+      let resolvedBookingId =
+        currentBooking?._id || currentBooking?.id || currentBooking?.bookingId || route?.params?.bookingId || "";
+
+      try {
+        bookingRefreshInFlightRef.current = true;
+
+        if (isLikelyMongoId(resolvedBookingId)) {
+          const response = await getClientBookingById(resolvedBookingId, { rawResponse: true });
+          const fetchedBooking = extractBookingFromResponse(response?.data);
+          if (fetchedBooking) {
+            nextBooking = mergeBookingData(nextBooking, fetchedBooking);
+          }
+        } else {
+          const response = await getClientBookings();
+          const bookings = Array.isArray(response?.bookings)
+            ? response.bookings
+            : Array.isArray(response?.data)
+            ? response.data
+            : Array.isArray(response)
+            ? response
+            : [];
+          const matchedBooking = findMatchingBooking(bookings, currentBooking, route?.params || {});
+          if (matchedBooking) {
+            nextBooking = mergeBookingData(nextBooking, matchedBooking);
+            resolvedBookingId =
+              matchedBooking?._id || matchedBooking?.id || matchedBooking?.bookingId || resolvedBookingId;
+          }
+
+          if (matchedBooking && isLikelyMongoId(resolvedBookingId)) {
+            const detailResponse = await getClientBookingById(resolvedBookingId, { rawResponse: true });
+            const fetchedBooking = extractBookingFromResponse(detailResponse?.data);
+            if (fetchedBooking) {
+              nextBooking = mergeBookingData(nextBooking, fetchedBooking);
+            }
+          }
+        }
+
+        if (!isMounted) return;
+        setBooking((prev) => mergeBookingData(prev || {}, nextBooking));
+      } catch (error) {
+        logBookingDocsError("paymentInstructionsRefresh", error);
+      } finally {
+        bookingRefreshInFlightRef.current = false;
+      }
+    };
+
+    if (route?.params?.contractAccepted) {
+      setBooking((prev) =>
+        mergeBookingData(prev || {}, {
+          contractAccepted: true,
+          contractAcceptedAt: route?.params?.booking?.contractAcceptedAt || prev?.contractAcceptedAt,
+          contractStatus: "accepted",
+        })
+      );
+      setContractAcceptError("");
+      setProofError("");
+    }
+
+    const unsubscribe = navigation.addListener("focus", () => {
+      if (route?.params?.refreshBooking || route?.params?.contractAccepted) {
+        refreshBookingDetails();
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [
+    navigation,
+    route?.params?.booking,
+    route?.params?.bookingId,
+    route?.params?.bookingReference,
+    route?.params?.contractAccepted,
+    route?.params?.refreshBooking,
+  ]);
 
   useEffect(() => {
     if (!bookingId || !paymentProofEligibility.hasInvoiceOrPaymentDetails) return;

@@ -168,6 +168,11 @@ export async function getClientBookings() {
   return response.data;
 }
 
+export async function getClientBookingById(bookingId, options = {}) {
+  const response = await api.get(`/client/bookings/${bookingId}`);
+  return options?.rawResponse ? response : response.data;
+}
+
 export async function getVerificationStatus() {
   const response = await api.get("/client/verification/status", {
     params: { t: Date.now() },
@@ -235,9 +240,9 @@ export async function getContractTemplate(options = {}) {
   return options?.rawResponse ? response : response.data;
 }
 
-export async function acceptBookingContract(bookingId, payload = {}) {
+export async function acceptBookingContract(bookingId, payload = {}, options = {}) {
   const response = await api.post(`/client/bookings/${bookingId}/contract/accept`, payload);
-  return response.data;
+  return options?.rawResponse ? response : response.data;
 }
 
 export function getClientInvoiceUrl(bookingId, pdf = false) {

@@ -15,10 +15,13 @@ import {
   acceptBookingContract,
   getBookingContract,
   getBookingContractPdfUrl,
+  getClientBookingById,
+  getClientBookings,
   getContractTemplate,
 } from "../api/clientApi";
 import { styles } from "../styles/paymentInstructionsStyle";
 import {
+  buildContractRenderFields,
   getContractAcceptanceState,
   getContractContentDiagnostics,
   htmlToReadableText,
@@ -31,25 +34,62 @@ function getBookingId(booking, routeParams = {}) {
   return booking?._id || booking?.id || booking?.bookingId || routeParams?.bookingId || "";
 }
 
+function getBookingReference(booking, routeParams = {}) {
+  return (
+    booking?.bookingReference ||
+    booking?.reference ||
+    booking?.bookingCode ||
+    booking?.referenceNo ||
+    routeParams?.bookingReference ||
+    "Not specified"
+  );
+}
+
 function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function normalizeIdentifier(value) {
+  return normalizeText(value).toLowerCase();
+}
+
+function normalizeNameForMatch(value) {
+  return normalizeText(value).replace(/\s+/g, " ");
+}
+
+function isLikelyMongoId(value) {
+  return /^[a-f0-9]{24}$/i.test(normalizeText(value));
+}
+
+function getExpectedSignerName(booking = {}) {
+  return (
+    booking?.user?.fullName ||
+    booking?.user?.name ||
+    booking?.customer?.fullName ||
+    booking?.customer?.name ||
+    booking?.clientName ||
+    booking?.customerName ||
+    booking?.fullName ||
+    ""
+  );
+}
+
 function getFriendlyContractErrorMessage(error, fallbackMessage) {
-  const status = Number(error?.response?.status || 0);
-  const responseData = error?.response?.data || {};
+  const status = Number(error?.response?.status || error?.status || 0);
+  const responseData = error?.response?.data || error?.data || {};
   const backendMessage = String(
     responseData?.message ||
       responseData?.error ||
       responseData?.detail ||
       responseData?.data?.message ||
+      error?.message ||
       ""
   ).trim();
 
-  if (status === 404) return "Contract is not available yet.";
+  if (status === 404) return backendMessage || "Contract is not available yet.";
   if (status === 401 || status === 403) return "Please sign in again to view the contract.";
   if (status === 400) return backendMessage || fallbackMessage;
-  if (!error?.response) return "Unable to connect. Please try again.";
+  if (!error?.response && !error?.status) return backendMessage || "Unable to connect. Please try again.";
   return backendMessage || fallbackMessage;
 }
 
@@ -69,23 +109,151 @@ function logBookingDocsError(type, error) {
   console.log("[BookingDocs][error]", {
     type,
     reachedResponse: Boolean(error?.response),
-    status: error?.response?.status || null,
+    status: error?.response?.status || error?.status || null,
     message: error?.message || "Unknown error",
-    responseData: error?.response?.data || null,
+    responseData: error?.response?.data || error?.data || null,
   });
 }
 
+function mergeBookingData(baseBooking = {}, incomingBooking = {}) {
+  return {
+    ...baseBooking,
+    ...incomingBooking,
+    user: {
+      ...(baseBooking?.user || {}),
+      ...(incomingBooking?.user || {}),
+    },
+    customer: {
+      ...(baseBooking?.customer || {}),
+      ...(incomingBooking?.customer || {}),
+    },
+    vehicle: {
+      ...(baseBooking?.vehicle || {}),
+      ...(incomingBooking?.vehicle || {}),
+    },
+    vehicleSnapshot: {
+      ...(baseBooking?.vehicleSnapshot || {}),
+      ...(incomingBooking?.vehicleSnapshot || {}),
+    },
+    selectedVehicle: {
+      ...(baseBooking?.selectedVehicle || {}),
+      ...(incomingBooking?.selectedVehicle || {}),
+    },
+    car: {
+      ...(baseBooking?.car || {}),
+      ...(incomingBooking?.car || {}),
+    },
+    invoice: {
+      ...(baseBooking?.invoice || {}),
+      ...(incomingBooking?.invoice || {}),
+    },
+    contract: {
+      ...(baseBooking?.contract || {}),
+      ...(incomingBooking?.contract || {}),
+    },
+    contractData: {
+      ...(baseBooking?.contractData || {}),
+      ...(incomingBooking?.contractData || {}),
+    },
+  };
+}
+
+function extractBookingFromResponse(payload) {
+  const candidate = payload?.booking || payload?.data?.booking || payload?.data || payload;
+  return candidate && typeof candidate === "object" ? candidate : null;
+}
+
+function buildBookingLookupKeys(booking = {}, routeParams = {}) {
+  return [
+    booking?._id,
+    booking?.id,
+    booking?.bookingId,
+    booking?.bookingReference,
+    booking?.bookingCode,
+    booking?.reference,
+    booking?.referenceNo,
+    routeParams?.bookingId,
+    routeParams?.bookingReference,
+  ]
+    .map(normalizeIdentifier)
+    .filter(Boolean);
+}
+
+function findMatchingBooking(bookings = [], booking = {}, routeParams = {}) {
+  const lookup = new Set(buildBookingLookupKeys(booking, routeParams));
+  if (!lookup.size) return null;
+
+  return (
+    bookings.find((item) => {
+      const itemKeys = [
+        item?._id,
+        item?.id,
+        item?.bookingId,
+        item?.bookingReference,
+        item?.bookingCode,
+        item?.reference,
+        item?.referenceNo,
+      ]
+        .map(normalizeIdentifier)
+        .filter(Boolean);
+
+      return itemKeys.some((key) => lookup.has(key));
+    }) || null
+  );
+}
+
+function needsFullBookingDetails(booking = {}) {
+  const fields = buildContractRenderFields(booking);
+  const hasVehicleName = fields.vehicleName && fields.vehicleName !== "Not specified";
+  const hasPlateNumber = fields.plateNumber && fields.plateNumber !== "Not specified";
+  const hasTripType = fields.rentalType && fields.rentalType !== "Not specified";
+  const hasInvoiceData = Boolean(
+    booking?.invoice ||
+      booking?.invoiceData ||
+      booking?.invoiceReference ||
+      booking?.invoiceNumber ||
+      booking?.amountDue ||
+      booking?.amountToPay
+  );
+
+  return !(hasVehicleName && hasPlateNumber && hasTripType && hasInvoiceData);
+}
+
+function buildDisabledReason({
+  hasRenderedContent,
+  contractAgreementChecked,
+  signatureName,
+  exactNameMatch,
+  bookingIdPresent,
+}) {
+  if (!hasRenderedContent) return "Contract details are still loading.";
+  if (!contractAgreementChecked) return "Please review and agree to the FleetX Rental Agreement.";
+  if (!normalizeText(signatureName) || !exactNameMatch) {
+    return "Please type your full name exactly as shown.";
+  }
+  if (!bookingIdPresent) {
+    return "Booking information is missing. Please go back and reopen payment instructions.";
+  }
+
+  return "";
+}
+
 export default function ContractReviewScreen({ navigation, route }) {
-  const [booking, setBooking] = useState(route?.params?.booking || {});
+  const routeBooking = route?.params?.booking || {};
+  const [booking, setBooking] = useState(routeBooking);
   const [contractRecord, setContractRecord] = useState(null);
   const [contractTemplate, setContractTemplate] = useState(null);
   const [contractLoading, setContractLoading] = useState(true);
   const [contractAccepting, setContractAccepting] = useState(false);
   const [contractError, setContractError] = useState("");
+  const [contractSubmitError, setContractSubmitError] = useState("");
   const [contractNotice, setContractNotice] = useState("");
-  const [contractAgreementChecked, setContractAgreementChecked] = useState(false);
+  const [reviewedFullAgreement, setReviewedFullAgreement] = useState(false);
+  const [agreedToRentalAgreement, setAgreedToRentalAgreement] = useState(false);
   const [signatureName, setSignatureName] = useState("");
   const [blockedUntilAccepted, setBlockedUntilAccepted] = useState(false);
+  const [bookingLoading, setBookingLoading] = useState(true);
+  const [bookingWarning, setBookingWarning] = useState("");
 
   const bookingId = getBookingId(booking, route?.params || {});
   const bookingIdSource = booking?._id
@@ -97,35 +265,17 @@ export default function ContractReviewScreen({ navigation, route }) {
     : route?.params?.bookingId
     ? "route.params.bookingId"
     : "";
-  const bookingReference =
-    booking?.bookingReference || booking?.reference || booking?.bookingCode || route?.params?.bookingReference || "Not specified";
+  const bookingReference = getBookingReference(booking, route?.params || {});
+  const expectedName = useMemo(() => getExpectedSignerName(booking), [booking]);
+  const normalizedExpectedName = useMemo(() => normalizeNameForMatch(expectedName), [expectedName]);
+  const normalizedTypedName = useMemo(() => normalizeNameForMatch(signatureName), [signatureName]);
+  const exactNameMatch = Boolean(
+    normalizedExpectedName && normalizedTypedName && normalizedExpectedName === normalizedTypedName
+  );
 
   useEffect(() => {
-    if (route?.params?.booking) {
-      setBooking(route.params.booking);
-    }
-  }, [route?.params?.booking]);
-
-  useEffect(() => {
-    const customerName =
-      booking?.user?.fullName ||
-      booking?.user?.name ||
-      booking?.customer?.fullName ||
-      booking?.customer?.name ||
-      booking?.clientName ||
-      booking?.customerName ||
-      booking?.fullName ||
-      "";
-    setSignatureName((prev) => prev || customerName);
-  }, [
-    booking?.clientName,
-    booking?.customer?.fullName,
-    booking?.customer?.name,
-    booking?.customerName,
-    booking?.fullName,
-    booking?.user?.fullName,
-    booking?.user?.name,
-  ]);
+    setBooking(routeBooking);
+  }, [routeBooking]);
 
   const contractAcceptanceState = useMemo(
     () => getContractAcceptanceState(booking, contractRecord),
@@ -146,10 +296,26 @@ export default function ContractReviewScreen({ navigation, route }) {
     [contractDisplay.content, contractDisplay.htmlContent, contractDisplay.textContent]
   );
   const hasContractReviewContent = Boolean(contractReadableText);
-  const contractPdfSource = contractAccepted && bookingId ? getBookingContractPdfUrl(bookingId) : "";
+  const hasRenderedContent = Boolean(!bookingLoading && !contractLoading && hasContractReviewContent);
+  const hasSignatureName = Boolean(normalizedTypedName);
+  const bookingIdPresent = isLikelyMongoId(bookingId);
+  const hasCheckedAgreement = reviewedFullAgreement && agreedToRentalAgreement;
   const canSubmitContractAcceptance = Boolean(
-    !contractAccepted && hasContractReviewContent && contractAgreementChecked && signatureName.trim()
+    !contractAccepted &&
+      hasRenderedContent &&
+      hasCheckedAgreement &&
+      hasSignatureName &&
+      exactNameMatch &&
+      bookingIdPresent
   );
+  const disabledReason = buildDisabledReason({
+    hasRenderedContent,
+    contractAgreementChecked: hasCheckedAgreement,
+    signatureName,
+    exactNameMatch,
+    bookingIdPresent,
+  });
+  const contractPdfSource = contractAccepted && bookingIdPresent ? getBookingContractPdfUrl(bookingId) : "";
 
   useEffect(() => {
     if (!__DEV__) return;
@@ -164,10 +330,17 @@ export default function ContractReviewScreen({ navigation, route }) {
 
     console.log("[ContractRender][fields]", {
       hasCustomerName: Boolean(contractDisplay.renderFields?.customerName),
-      hasBookingReference: Boolean(contractDisplay.renderFields?.bookingReference && contractDisplay.renderFields?.bookingReference !== "Not specified"),
-      hasVehicleName: Boolean(contractDisplay.renderFields?.vehicleName && contractDisplay.renderFields?.vehicleName !== "Not specified"),
+      hasBookingReference: Boolean(
+        contractDisplay.renderFields?.bookingReference &&
+          contractDisplay.renderFields?.bookingReference !== "Not specified"
+      ),
+      hasVehicleName: Boolean(
+        contractDisplay.renderFields?.vehicleName &&
+          contractDisplay.renderFields?.vehicleName !== "Not specified"
+      ),
       hasTripDates: Boolean(
-        contractDisplay.renderFields?.startDate !== "Not specified" && contractDisplay.renderFields?.endDate !== "Not specified"
+        contractDisplay.renderFields?.startDate !== "Not specified" &&
+          contractDisplay.renderFields?.endDate !== "Not specified"
       ),
       hasPaymentDetails: Boolean(
         contractDisplay.renderFields?.paymentMethod !== "Not specified" ||
@@ -176,6 +349,32 @@ export default function ContractReviewScreen({ navigation, route }) {
       ),
     });
   }, [blockedUntilAccepted, contractDisplay]);
+
+  useEffect(() => {
+    if (!__DEV__) return;
+
+    console.log("[ContractReview][canAccept]", {
+      hasRenderedContent,
+      reviewedFullAgreement,
+      agreedToRentalAgreement,
+      hasSignatureName,
+      expectedName: normalizedExpectedName,
+      typedName: normalizedTypedName,
+      exactNameMatch,
+      bookingIdPresent,
+      canAccept: canSubmitContractAcceptance,
+    });
+  }, [
+    bookingIdPresent,
+    canSubmitContractAcceptance,
+    exactNameMatch,
+    hasRenderedContent,
+    hasSignatureName,
+    normalizedExpectedName,
+    normalizedTypedName,
+    reviewedFullAgreement,
+    agreedToRentalAgreement,
+  ]);
 
   const loadContractTemplateFallback = async ({ fallbackReason = "" } = {}) => {
     try {
@@ -209,62 +408,191 @@ export default function ContractReviewScreen({ navigation, route }) {
       setContractNotice(fallbackReason || getContractTemplateNotice());
       setContractError("");
       return templatePayload;
-    } catch (error) {
+    } catch {
       return null;
     }
   };
 
-  const fetchContractRecord = async () => {
-    if (!bookingId) {
-      setContractError("Contract is not available yet.");
-      setContractLoading(false);
-      return;
-    }
+  useEffect(() => {
+    let isMounted = true;
 
-    try {
-      setContractLoading(true);
-      setContractError("");
-      setContractNotice("");
-      setBlockedUntilAccepted(false);
+    const hydrateBookingDetails = async () => {
+      const initialBooking = route?.params?.booking || {};
+      let nextBooking = initialBooking;
+      let fetchedDetails = false;
+      let refreshWarning = "";
+      let resolvedBookingId = getBookingId(initialBooking, route?.params || {});
 
-      const response = await getBookingContract(bookingId, { rawResponse: true });
-      const responseData = response?.data || {};
-      const rendered = renderContractContentWithBooking(responseData, booking);
+      try {
+        setBookingLoading(true);
+        setBookingWarning("");
 
-      if (rendered.content) {
-        setContractRecord(responseData);
-        setContractTemplate(null);
-        setContractError("");
+        if (!isLikelyMongoId(resolvedBookingId) || needsFullBookingDetails(nextBooking)) {
+          let matchedBooking = null;
+
+          if (isLikelyMongoId(resolvedBookingId)) {
+            try {
+              const response = await getClientBookingById(resolvedBookingId, { rawResponse: true });
+              const fetchedBooking = extractBookingFromResponse(response?.data);
+              if (fetchedBooking) {
+                nextBooking = mergeBookingData(nextBooking, fetchedBooking);
+                resolvedBookingId = getBookingId(nextBooking, route?.params || {});
+                fetchedDetails = true;
+              }
+            } catch (error) {
+              logBookingDocsError("bookingById", error);
+            }
+          }
+
+          if (!isLikelyMongoId(resolvedBookingId) || needsFullBookingDetails(nextBooking)) {
+            const listResponse = await getClientBookings();
+            const bookings = Array.isArray(listResponse?.bookings)
+              ? listResponse.bookings
+              : Array.isArray(listResponse?.data)
+              ? listResponse.data
+              : Array.isArray(listResponse)
+              ? listResponse
+              : [];
+
+            matchedBooking = findMatchingBooking(bookings, nextBooking, route?.params || {});
+            if (matchedBooking) {
+              nextBooking = mergeBookingData(nextBooking, matchedBooking);
+              resolvedBookingId = getBookingId(nextBooking, route?.params || {});
+              fetchedDetails = true;
+            }
+
+            if (matchedBooking && isLikelyMongoId(resolvedBookingId) && needsFullBookingDetails(nextBooking)) {
+              try {
+                const detailResponse = await getClientBookingById(resolvedBookingId, { rawResponse: true });
+                const fetchedBooking = extractBookingFromResponse(detailResponse?.data);
+                if (fetchedBooking) {
+                  nextBooking = mergeBookingData(nextBooking, fetchedBooking);
+                  fetchedDetails = true;
+                }
+              } catch (error) {
+                logBookingDocsError("bookingById", error);
+                refreshWarning = "Some booking details could not be refreshed. Please review carefully.";
+              }
+            }
+          }
+        }
+      } catch (error) {
+        logBookingDocsError("bookingDetails", error);
+        refreshWarning = "Some booking details could not be refreshed. Please review carefully.";
+      } finally {
+        if (!isMounted) return;
+
+        setBooking(nextBooking);
+        setBookingWarning(refreshWarning);
+        setBookingLoading(false);
+
+        if (__DEV__) {
+          const renderFields = buildContractRenderFields(nextBooking);
+          console.log("[ContractReview][bookingData]", {
+            hasRouteBooking: Boolean(route?.params?.booking),
+            fetchedDetails,
+            bookingIdSource: bookingIdSource || "none",
+            hasVehicleObject: Boolean(
+              nextBooking?.vehicle ||
+                nextBooking?.vehicleDetails ||
+                nextBooking?.vehicleSnapshot ||
+                nextBooking?.selectedVehicle ||
+                nextBooking?.car
+            ),
+            hasVehicleName: Boolean(renderFields.vehicleName && renderFields.vehicleName !== "Not specified"),
+            hasPlateNumber: Boolean(renderFields.plateNumber && renderFields.plateNumber !== "Not specified"),
+            hasTripType: Boolean(renderFields.rentalType && renderFields.rentalType !== "Not specified"),
+            hasInvoiceData: Boolean(
+              nextBooking?.invoice ||
+                nextBooking?.invoiceData ||
+                nextBooking?.invoiceReference ||
+                nextBooking?.invoiceNumber
+            ),
+            topLevelKeys: Object.keys(nextBooking || {}),
+            vehicleKeys: Object.keys(
+              nextBooking?.vehicle ||
+                nextBooking?.vehicleDetails ||
+                nextBooking?.vehicleSnapshot ||
+                nextBooking?.selectedVehicle ||
+                {}
+            ),
+          });
+        }
+      }
+    };
+
+    hydrateBookingDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [route?.params?.booking, route?.params?.bookingId, route?.params?.bookingReference]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchContractRecord = async () => {
+      if (bookingLoading) return;
+
+      if (!bookingIdPresent) {
+        setContractError("Booking information is missing. Please go back and reopen payment instructions.");
+        setContractLoading(false);
         return;
       }
 
-      const template = await loadContractTemplateFallback({
-        fallbackReason: getContractTemplateNotice(),
-      });
-      if (!template) {
-        setContractError("Contract details could not be loaded in-app. Please try again.");
+      try {
+        setContractLoading(true);
+        setContractError("");
+        setContractNotice("");
+        setBlockedUntilAccepted(false);
+
+        const response = await getBookingContract(bookingId, { rawResponse: true });
+        if (!isMounted) return;
+
+        const responseData = response?.data || {};
+        const rendered = renderContractContentWithBooking(responseData, booking);
+
+        if (rendered.content) {
+          setContractRecord(responseData);
+          setContractTemplate(null);
+          setContractError("");
+          return;
+        }
+
+        const template = await loadContractTemplateFallback({
+          fallbackReason: getContractTemplateNotice(),
+        });
+        if (!template && isMounted) {
+          setContractError("Contract details could not be loaded in-app. Please try again.");
+        }
+      } catch (error) {
+        if (!isMounted) return;
+
+        logBookingDocsError("contract", error);
+        const message = getFriendlyContractErrorMessage(error, "Unable to load contract. Please try again.");
+        const blocked = shouldShowPendingContractReview(message);
+        setBlockedUntilAccepted(blocked);
+
+        const template = await loadContractTemplateFallback({
+          fallbackReason: getContractTemplateNotice(),
+        });
+
+        if (!template && isMounted) {
+          setContractError(blocked ? "Contract details could not be loaded in-app. Please try again." : message);
+        }
+      } finally {
+        if (isMounted) {
+          setContractLoading(false);
+        }
       }
-    } catch (error) {
-      logBookingDocsError("contract", error);
-      const message = getFriendlyContractErrorMessage(error, "Unable to load contract. Please try again.");
-      const blocked = shouldShowPendingContractReview(message);
-      setBlockedUntilAccepted(blocked);
+    };
 
-      const template = await loadContractTemplateFallback({
-        fallbackReason: getContractTemplateNotice(),
-      });
-
-      if (!template) {
-        setContractError(blocked ? "Contract details could not be loaded in-app. Please try again." : message);
-      }
-    } finally {
-      setContractLoading(false);
-    }
-  };
-
-  useEffect(() => {
     fetchContractRecord();
-  }, [bookingId]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [booking, bookingId, bookingIdPresent, bookingLoading]);
 
   const handleOpenContractPdf = async () => {
     if (!contractAccepted || !contractPdfSource) return;
@@ -286,65 +614,138 @@ export default function ContractReviewScreen({ navigation, route }) {
   };
 
   const handleAcceptContract = async () => {
-    if (!bookingId || !canSubmitContractAcceptance) return;
+    if (__DEV__) {
+      console.log("[ContractReview][button]", {
+        pressed: true,
+        disabled: !canSubmitContractAcceptance || contractAccepting,
+        loading: contractAccepting,
+        canAccept: canSubmitContractAcceptance,
+      });
+    }
+
+    if (!canSubmitContractAcceptance) {
+      if (disabledReason) {
+        setContractSubmitError(disabledReason);
+      }
+      return;
+    }
 
     try {
       if (__DEV__) {
         console.log("[ContractReview][accept:start]", {
           bookingIdSource: bookingIdSource || "none",
-          hasSignatureName: Boolean(signatureName.trim()),
+          bookingIdPresent,
+          hasSignatureName,
+          reviewedFullAgreement,
+          agreedToRentalAgreement,
         });
       }
 
       setContractAccepting(true);
+      setContractSubmitError("");
       setContractError("");
+      const acceptedAt = new Date().toISOString();
       const payload = {
-        accepted: true,
-        signatureName: signatureName.trim(),
-        acceptedAt: new Date().toISOString(),
+        contractAccepted: true,
+        contractAcceptedName: normalizedTypedName,
+        contractSignatureImage: "",
       };
-      const response = await acceptBookingContract(bookingId, payload);
+
+      if (__DEV__) {
+        console.log("[ContractReview][accept:payload]", {
+          reviewedFullAgreement,
+          agreedToRentalAgreement,
+          payloadKeys: Object.keys(payload),
+          hasAgreementConfirmation: Boolean(payload.contractAccepted === true),
+          hasSignatureName: Boolean(payload.contractAcceptedName),
+        });
+      }
+
+      const response = await acceptBookingContract(bookingId, payload, { rawResponse: true });
+      const responseData = response?.data;
+      const responseStatus = Number(response?.status || 0);
+      const success = Boolean(
+        (responseStatus >= 200 && responseStatus < 300) ||
+          responseData?.success === true ||
+          responseData?.contractAccepted === true ||
+          responseData?.booking?.contractAccepted === true
+      );
+
+      if (__DEV__) {
+        console.log("[ContractReview][accept:response]", {
+          status: responseStatus || null,
+          success,
+          dataKeys: responseData && typeof responseData === "object" ? Object.keys(responseData) : [],
+        });
+      }
+
+      if (!success) {
+        throw {
+          status: responseStatus,
+          data: responseData,
+          message:
+            responseData?.message ||
+            responseData?.error ||
+            "Unable to accept contract. Please try again.",
+        };
+      }
+
       const updatedBooking =
-        response?.booking || response?.updatedBooking || response?.data?.booking || null;
-      const acceptedAt =
-        response?.contract?.acceptedAt ||
-        response?.acceptedAt ||
-        response?.data?.acceptedAt ||
-        payload.acceptedAt;
+        extractBookingFromResponse(responseData) ||
+        responseData?.updatedBooking ||
+        responseData?.booking ||
+        null;
+      const confirmedAcceptedAt =
+        responseData?.contract?.acceptedAt ||
+        responseData?.acceptedAt ||
+        responseData?.booking?.contractAcceptedAt ||
+        acceptedAt;
       const nextBooking = updatedBooking
-        ? { ...booking, ...updatedBooking, contractAccepted: true }
-        : {
-            ...booking,
+        ? mergeBookingData(booking, updatedBooking)
+        : mergeBookingData(booking, {
             contractAccepted: true,
-            contractAcceptedAt: acceptedAt,
+            contractAcceptedAt: confirmedAcceptedAt,
             contractStatus: "accepted",
             requiresContract: true,
             contract: {
               ...(booking?.contract || {}),
               accepted: true,
-              acceptedAt,
+              acceptedAt: confirmedAcceptedAt,
               status: "accepted",
             },
-          };
+          });
 
-      setBooking(nextBooking);
+      const acceptedBooking = mergeBookingData(nextBooking, {
+        contractAccepted: true,
+        contractAcceptedAt: confirmedAcceptedAt,
+        contractStatus: "accepted",
+        contract: {
+          ...(nextBooking?.contract || {}),
+          accepted: true,
+          acceptedAt: confirmedAcceptedAt,
+          status: "accepted",
+          signatureName: normalizedTypedName,
+        },
+      });
+
+      setBooking(acceptedBooking);
       setContractRecord((prev) => ({
         ...(prev || {}),
-        ...response,
+        ...(responseData || {}),
         contract: {
           ...(prev?.contract || {}),
-          ...(response?.contract || {}),
+          ...(responseData?.contract || {}),
           accepted: true,
-          acceptedAt,
+          acceptedAt: confirmedAcceptedAt,
           status: "accepted",
-          signatureName: signatureName.trim(),
+          signatureName: normalizedTypedName,
         },
       }));
 
       DeviceEventEmitter.emit("contractAccepted", {
         bookingId,
-        acceptedAt,
-        updatedBooking: nextBooking,
+        acceptedAt: confirmedAcceptedAt,
+        updatedBooking: acceptedBooking,
       });
 
       if (__DEV__) {
@@ -353,15 +754,41 @@ export default function ContractReviewScreen({ navigation, route }) {
         });
       }
 
-      Alert.alert("Contract accepted", "You can now upload your payment proof.", [
+      Alert.alert("Contract accepted", "Contract accepted. You can now upload your payment proof.", [
         {
           text: "OK",
-          onPress: () => navigation.goBack(),
+          onPress: () => {
+            navigation.navigate({
+              name: route?.params?.sourceRoute || "PaymentInstructions",
+              params: {
+                booking: acceptedBooking,
+                bookingId,
+                bookingReference,
+                contractAccepted: true,
+                refreshBooking: true,
+              },
+              merge: true,
+            });
+          },
         },
       ]);
     } catch (error) {
+      const message = getFriendlyContractErrorMessage(
+        error,
+        "Unable to accept contract. Please try again."
+      );
+      if (__DEV__) {
+        console.log("[ContractReview][accept:error]", {
+          reachedResponse: Boolean(error?.response || error?.data),
+          status: error?.response?.status || error?.status || null,
+          message,
+          responseData: error?.response?.data || error?.data || null,
+          payloadKeys: ["contractAccepted", "contractAcceptedName", "contractSignatureImage"],
+        });
+      }
       logBookingDocsError("contractAccept", error);
-      setContractError(getFriendlyContractErrorMessage(error, "Unable to accept contract. Please try again."));
+      setContractSubmitError(message);
+      Alert.alert("Unable to accept contract", message);
     } finally {
       setContractAccepting(false);
     }
@@ -408,7 +835,7 @@ export default function ContractReviewScreen({ navigation, route }) {
         </View>
 
         <View style={styles.card}>
-          {contractLoading ? (
+          {bookingLoading || contractLoading ? (
             <View style={styles.loadingBox}>
               <ActivityIndicator size="small" color="#F47C20" />
               <Text style={styles.loadingText}>Loading contract...</Text>
@@ -429,6 +856,7 @@ export default function ContractReviewScreen({ navigation, route }) {
                 )}
               </ScrollView>
 
+              {bookingWarning ? <Text style={styles.contractHelperText}>{bookingWarning}</Text> : null}
               {contractNotice ? <Text style={styles.contractHelperText}>{contractNotice}</Text> : null}
               {!contractAccepted && hasContractReviewContent ? (
                 <Text style={styles.contractHelperText}>
@@ -439,7 +867,18 @@ export default function ContractReviewScreen({ navigation, route }) {
                 <Text style={styles.inlineErrorText}>{contractError}</Text>
               ) : null}
               {!hasContractReviewContent ? (
-                <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.9} onPress={fetchContractRecord}>
+                <TouchableOpacity
+                  style={styles.secondaryButton}
+                  activeOpacity={0.9}
+                  onPress={() => {
+                    setContractLoading(true);
+                    setContractError("");
+                    setContractNotice("");
+                    setContractRecord(null);
+                    setContractTemplate(null);
+                    setBooking((prev) => ({ ...(prev || {}) }));
+                  }}
+                >
                   <Text style={styles.secondaryButtonText}>Retry Load Contract</Text>
                 </TouchableOpacity>
               ) : null}
@@ -452,26 +891,68 @@ export default function ContractReviewScreen({ navigation, route }) {
             <TouchableOpacity
               style={styles.checkboxRow}
               activeOpacity={0.85}
-              onPress={() => setContractAgreementChecked((prev) => !prev)}
+              onPress={() => {
+                setContractSubmitError("");
+                setReviewedFullAgreement((prev) => !prev);
+              }}
             >
-              <View style={[styles.checkbox, contractAgreementChecked && styles.checkboxChecked]}>
-                {contractAgreementChecked ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
+              <View style={[styles.checkbox, reviewedFullAgreement && styles.checkboxChecked]}>
+                {reviewedFullAgreement ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
+              </View>
+              <Text style={styles.checkboxText}>I have reviewed the full rental agreement.</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.checkboxRow}
+              activeOpacity={0.85}
+              onPress={() => {
+                setContractSubmitError("");
+                setAgreedToRentalAgreement((prev) => !prev);
+              }}
+            >
+              <View style={[styles.checkbox, agreedToRentalAgreement && styles.checkboxChecked]}>
+                {agreedToRentalAgreement ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
               </View>
               <Text style={styles.checkboxText}>
-                I have reviewed the rental contract and agree to its terms.
+                I have read and agree to the FleetX Vehicle Rental Agreement.
               </Text>
             </TouchableOpacity>
 
             <TextInput
               value={signatureName}
-              onChangeText={setSignatureName}
-              placeholder="Type your full name"
+              onChangeText={(value) => {
+                setContractSubmitError("");
+                setSignatureName(value);
+              }}
+              placeholder="Type your full name exactly as shown"
               placeholderTextColor="#98A2B3"
               style={styles.signatureInput}
+              autoCapitalize="words"
             />
-            <Text style={styles.contractHelperText}>
-              Typing your name serves as your electronic confirmation for this booking.
-            </Text>
+            <Text style={styles.contractHelperText}>Enter your name as shown: {expectedName || "Not available"}</Text>
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              activeOpacity={0.9}
+              onPress={() => {
+                setContractSubmitError("");
+                setSignatureName(expectedName);
+              }}
+            >
+              <Text style={styles.secondaryButtonText}>Copy name</Text>
+            </TouchableOpacity>
+            {!exactNameMatch && hasSignatureName ? (
+              <Text style={styles.inlineErrorText}>Please type your full name exactly as shown.</Text>
+            ) : null}
+            {!hasCheckedAgreement && !contractAccepting ? (
+              <Text style={styles.inlineErrorText}>
+                Please review and agree to the FleetX Rental Agreement.
+              </Text>
+            ) : null}
+            {(contractSubmitError ||
+              (disabledReason && hasCheckedAgreement && !(hasSignatureName && !exactNameMatch))) &&
+            !contractAccepting ? (
+              <Text style={styles.inlineErrorText}>{contractSubmitError || disabledReason}</Text>
+            ) : null}
 
             <TouchableOpacity
               style={[styles.primaryButton, (!canSubmitContractAcceptance || contractAccepting) && styles.buttonDisabled]}
