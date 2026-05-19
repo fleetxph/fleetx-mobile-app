@@ -120,6 +120,11 @@ export async function createBooking(payload) {
   return response.data;
 }
 
+export async function estimateCampaignPromo(payload) {
+  const response = await api.post("/client/bookings/promo-estimate", payload);
+  return response.data;
+}
+
 export async function estimateRouteMinimumDuration(payload) {
   try {
     const response = await api.post("/client/bookings/route-minimum-duration", payload, {

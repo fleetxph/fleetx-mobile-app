@@ -16,6 +16,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { getClientBookings, getClientProfile, getNotifications, getVehicles } from "../api/clientApi";
+import { getActivePromo } from "../api/publicApi";
 import NotificationIcon from "../components/NotificationIcon";
 import { styles } from "../styles/clientDashboardStyle";
 import { getProfileImageUrl, getVehicleImageUrl } from "../utils/imageUrl";
@@ -53,12 +54,33 @@ const QUICK_ACCESS_ITEMS = [
 ];
 
 const HOME_CAMPAIGN_BANNER = {
-  label: "Limited-time travel deals",
+  label: "FLEETX PROMO",
   title: "Book smarter with FleetX",
   subtitle:
     "Plan your trip, check vehicle options, and complete your booking from your phone.",
   cta: "Plan My Trip",
 };
+
+function getFallbackCampaignBanner() {
+  return {
+    id: "",
+    title: HOME_CAMPAIGN_BANNER.title,
+    subtitle: HOME_CAMPAIGN_BANNER.label,
+    description: HOME_CAMPAIGN_BANNER.subtitle,
+    promoCode: "",
+    code: "",
+    discountLabel: "",
+    discountValue: 0,
+    discountType: "none",
+    imageUrl: "",
+    ctaLabel: HOME_CAMPAIGN_BANNER.cta,
+    vehicleId: "",
+    vehicle: null,
+    isActive: false,
+    startsAt: null,
+    endsAt: null,
+  };
+}
 
 const getUnreadCountFromResponse = (notificationRes) => {
   const explicitCount = Number(
@@ -86,8 +108,10 @@ export default function ClientDashboard({ navigation }) {
   const [dashboardVehicles, setDashboardVehicles] = useState([]);
   const [featuredVehicles, setFeaturedVehicles] = useState([]);
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
+  const [promoLoading, setPromoLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const [failedImages, setFailedImages] = useState({});
+  const [activePromo, setActivePromo] = useState(null);
 
   const featuredCardWidth = Math.min(260, Math.max(220, width * 0.68));
 
@@ -116,6 +140,10 @@ export default function ClientDashboard({ navigation }) {
   const refreshDashboardData = async () => {
     try {
       setVehiclesLoading(true);
+      setPromoLoading(true);
+      if (__DEV__) {
+        console.log("[PromoBanner][fetch:start]");
+      }
       await loadCachedProfile();
       const token =
         Platform.OS === "web"
@@ -123,11 +151,12 @@ export default function ClientDashboard({ navigation }) {
           : (await AsyncStorage.getItem("clientToken")) || (await AsyncStorage.getItem("token"));
       const hasToken = Boolean(token);
       const localUnreadCount = hasToken ? await getUnreadLocalNotificationCount() : 0;
-      const [profileResult, vehicleResult, notificationResult, bookingsResult] = await Promise.allSettled([
+      const [profileResult, vehicleResult, notificationResult, bookingsResult, promoResult] = await Promise.allSettled([
         hasToken ? getClientProfile() : Promise.resolve(null),
         getVehicles(),
         hasToken ? getNotifications(50) : Promise.resolve({ unreadCount: 0, notifications: [] }),
         hasToken ? getClientBookings() : Promise.resolve({ bookings: [] }),
+        getActivePromo(),
       ]);
 
       const profileRes =
@@ -140,6 +169,10 @@ export default function ClientDashboard({ navigation }) {
           : { unreadCount: 0, notifications: [] };
       const bookingsRes =
         bookingsResult.status === "fulfilled" ? bookingsResult.value : { bookings: [] };
+      const promoRes = promoResult.status === "fulfilled" ? promoResult.value : null;
+      if (promoResult.status === "rejected") {
+        console.log("[PromoBanner][fetch:warning]", promoResult.reason?.message || promoResult.reason || "Unable to load promo");
+      }
 
       const profileUser = profileRes?.user || null;
       if (profileUser) {
@@ -168,6 +201,32 @@ export default function ClientDashboard({ navigation }) {
       setDashboardVehicles(backendVehicles);
       setFeaturedVehicles(backendVehicles.slice(0, 8));
       setUnreadCount(getUnreadCountFromResponse(notificationRes) + localUnreadCount);
+      setActivePromo(promoRes || null);
+
+      if (__DEV__) {
+        console.log("[PromoBanner][fetch:response]", {
+          hasPromo: Boolean(promoRes?.id || promoRes?.title),
+          hasVehicleId: Boolean(promoRes?.vehicleId),
+          hasVehicle: Boolean(promoRes?.vehicle),
+          hasCode: Boolean(promoRes?.promoCode),
+          hasDiscount: Boolean(promoRes?.discountLabel || Number(promoRes?.discountValue || 0) > 0),
+          hasImage: Boolean(promoRes?.imageUrl),
+        });
+        console.log("[PromoBanner][vehicle:resolve]", {
+          hasVehicleId: Boolean(promoRes?.vehicleId),
+          fetchedVehicle: Boolean(
+            promoRes?.vehicle?.dailyRate ||
+              promoRes?.vehicle?.rate24Hr ||
+              promoRes?.vehicle?.year ||
+              promoRes?.vehicle?.description ||
+              promoRes?.vehicle?.imageUrl ||
+              promoRes?.vehicle?.image ||
+              (Array.isArray(promoRes?.vehicle?.images) && promoRes.vehicle.images.length)
+          ),
+          hasVehicleImage: Boolean(getVehicleImageUrl(promoRes?.vehicle)),
+          hasVehicleName: Boolean(getVehicleName(promoRes?.vehicle || {})),
+        });
+      }
 
       if (hasToken) {
         await detectBookingStatusChanges(
@@ -179,8 +238,10 @@ export default function ClientDashboard({ navigation }) {
       setDashboardVehicles([]);
       setFeaturedVehicles([]);
       setUnreadCount(await getUnreadLocalNotificationCount());
+      setActivePromo(null);
     } finally {
       setVehiclesLoading(false);
+      setPromoLoading(false);
     }
   };
 
@@ -203,6 +264,21 @@ export default function ClientDashboard({ navigation }) {
     return [seats, vehicle.transmission, vehicle.fuel].filter(Boolean).join(" - ");
   };
 
+  const getVehicleRate = (vehicle) => {
+    const value = Number(
+      vehicle?.rate24Hr ??
+        vehicle?.dailyRate ??
+        vehicle?.price ??
+        vehicle?.rate ??
+        vehicle?.rentalPrice ??
+        NaN
+    );
+
+    return Number.isFinite(value) && value > 0 ? value : null;
+  };
+
+  const formatPeso = (value) => `PHP ${Math.round(Number(value || 0)).toLocaleString()}`;
+
   const categoryItems = useMemo(
     () =>
       vehicleTypes.map((type) => {
@@ -219,6 +295,69 @@ export default function ClientDashboard({ navigation }) {
 
   const markImageFailed = (key) => {
     setFailedImages((prev) => ({ ...prev, [key]: true }));
+  };
+
+  const promoBanner = activePromo || getFallbackCampaignBanner();
+  const hasActivePromo = Boolean(
+    activePromo &&
+      (activePromo.title ||
+        activePromo.description ||
+        activePromo.promoCode ||
+        activePromo.discountLabel ||
+        activePromo.imageUrl ||
+        activePromo.vehicleId ||
+        activePromo.vehicle)
+  );
+  const promoVehicle = promoBanner.vehicle || null;
+  const promoVehicleImage = getVehicleImageUrl(promoVehicle);
+  const promoDisplayImage = promoBanner.imageUrl || promoVehicleImage || "";
+  const promoImageKey = `promo-${promoBanner.id || promoBanner.vehicleId || "fallback"}`;
+  const promoDescription =
+    promoBanner.description || promoBanner.subtitle || HOME_CAMPAIGN_BANNER.subtitle;
+  const promoButtonLabel =
+    promoBanner.ctaLabel ||
+    (promoVehicle || promoBanner.vehicleId ? "Book Promo Vehicle" : HOME_CAMPAIGN_BANNER.cta);
+  const promoVehicleRate = getVehicleRate(promoVehicle);
+  const promoVehicleMeta = promoVehicle ? getVehicleMeta(promoVehicle) : "";
+
+  const openPromoTarget = (target = "banner") => {
+    const hasVehicleTarget = Boolean(promoBanner.vehicleId || promoVehicle);
+
+    if (__DEV__) {
+      console.log("[PromoBanner][press]", {
+        target,
+        hasVehicleId: Boolean(promoBanner.vehicleId),
+        hasPromoCode: Boolean(promoBanner.promoCode),
+      });
+    }
+
+    if (hasVehicleTarget) {
+      navigation.navigate("Browse", {
+        screen: "VehicleDetails",
+        params: {
+          vehicle: promoVehicle || undefined,
+          vehicleId: promoBanner.vehicleId || promoVehicle?._id || promoVehicle?.id || "",
+          promoCode: promoBanner.promoCode || "",
+          source: "promo_banner",
+        },
+      });
+      return;
+    }
+
+    navigation.navigate("Plan", {
+      promoCode: promoBanner.promoCode || "",
+      promoFeedback: promoBanner.promoCode
+        ? {
+            status: "info",
+            message: "Promo code added from FleetX promo. Tap Apply to validate.",
+          }
+        : undefined,
+      source: "promo_banner",
+    });
+  };
+
+  const handlePromoCodePress = () => {
+    openPromoTarget("use_code");
   };
 
   const promptGuestAuth = () => {
@@ -317,19 +456,107 @@ export default function ClientDashboard({ navigation }) {
         <View style={styles.campaignCard}>
           <View style={styles.campaignGlow} />
           <View style={styles.campaignAccent} />
-          <View style={styles.campaignContent}>
-            <Text style={styles.campaignLabel}>{HOME_CAMPAIGN_BANNER.label}</Text>
-            <Text style={styles.campaignTitle}>{HOME_CAMPAIGN_BANNER.title}</Text>
-            <Text style={styles.campaignSubtitle}>{HOME_CAMPAIGN_BANNER.subtitle}</Text>
+          {promoLoading ? (
+            <View style={styles.campaignContent}>
+              <Text style={styles.campaignLabel}>{HOME_CAMPAIGN_BANNER.label}</Text>
+              <View style={styles.campaignLoadingRow}>
+                <ActivityIndicator size="small" color="#F97316" />
+                <Text style={styles.campaignLoadingText}>Loading active promo...</Text>
+              </View>
+            </View>
+          ) : hasActivePromo ? (
+            <Pressable style={styles.campaignContent} onPress={() => openPromoTarget("banner")}>
+              <View style={styles.campaignHeaderRow}>
+                <View style={styles.campaignTextWrap}>
+                  <Text style={styles.campaignLabel}>{HOME_CAMPAIGN_BANNER.label}</Text>
+                  <Text style={styles.campaignTitle}>{promoBanner.title || HOME_CAMPAIGN_BANNER.title}</Text>
+                  <Text style={styles.campaignSubtitle}>{promoDescription}</Text>
+                </View>
+                {promoDisplayImage && !failedImages[promoImageKey] ? (
+                  <Image
+                    source={{ uri: promoDisplayImage }}
+                    style={styles.campaignImage}
+                    resizeMode="cover"
+                    onError={() => markImageFailed(promoImageKey)}
+                  />
+                ) : null}
+              </View>
 
-            <TouchableOpacity
-              style={styles.campaignButton}
-              activeOpacity={0.9}
-              onPress={() => navigation.navigate("Plan")}
-            >
-              <Text style={styles.campaignButtonText}>{HOME_CAMPAIGN_BANNER.cta}</Text>
-            </TouchableOpacity>
-          </View>
+              {promoBanner.discountLabel ? (
+                <View style={styles.campaignBadge}>
+                  <Text style={styles.campaignBadgeText}>{promoBanner.discountLabel}</Text>
+                </View>
+              ) : null}
+
+              {promoBanner.promoCode ? (
+                <View style={styles.campaignCodeRow}>
+                  <View style={styles.campaignCodeChip}>
+                    <Text style={styles.campaignCodeLabel}>Promo code</Text>
+                    <Text style={styles.campaignCodeValue}>{promoBanner.promoCode}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.campaignCodeButton}
+                    activeOpacity={0.9}
+                    onPress={handlePromoCodePress}
+                  >
+                    <Text style={styles.campaignCodeButtonText}>Use Code</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
+              {promoVehicle ? (
+                <View style={styles.campaignVehicleCard}>
+                  {promoVehicleImage && !failedImages[`promo-vehicle-${promoBanner.vehicleId || promoBanner.id || "card"}`] ? (
+                    <Image
+                      source={{ uri: promoVehicleImage }}
+                      style={styles.campaignVehicleImage}
+                      resizeMode="cover"
+                      onError={() =>
+                        markImageFailed(`promo-vehicle-${promoBanner.vehicleId || promoBanner.id || "card"}`)
+                      }
+                    />
+                  ) : (
+                    <View style={styles.campaignVehicleImageFallback}>
+                      <Text style={styles.campaignVehicleImageFallbackText}>FleetX Vehicle</Text>
+                    </View>
+                  )}
+                  <View style={styles.campaignVehicleBody}>
+                    <Text style={styles.campaignVehicleTitle}>{getVehicleName(promoVehicle)}</Text>
+                    <Text style={styles.campaignVehicleMeta}>{promoVehicleMeta || "Selected promo vehicle"}</Text>
+                    {promoVehicleRate ? (
+                      <Text style={styles.campaignVehicleRate}>{formatPeso(promoVehicleRate)}/day</Text>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
+
+              <TouchableOpacity
+                style={styles.campaignButton}
+                activeOpacity={0.9}
+                onPress={() => openPromoTarget("cta")}
+              >
+                <Text style={styles.campaignButtonText}>{promoButtonLabel}</Text>
+              </TouchableOpacity>
+            </Pressable>
+          ) : (
+            <View style={styles.campaignContent}>
+              <View style={styles.campaignHeaderRow}>
+                <View style={styles.campaignTextWrap}>
+                  <Text style={styles.campaignLabel}>{HOME_CAMPAIGN_BANNER.label}</Text>
+                  <Text style={styles.campaignTitle}>{HOME_CAMPAIGN_BANNER.title}</Text>
+                  <Text style={styles.campaignSubtitle}>{HOME_CAMPAIGN_BANNER.subtitle}</Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.campaignButton}
+                activeOpacity={0.9}
+                onPress={() => navigation.navigate("Plan")}
+              >
+                <Text style={styles.campaignButtonText}>{HOME_CAMPAIGN_BANNER.cta}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         <View style={styles.section}>

@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Image,
+  ActivityIndicator,
   ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
-import { getVehicleBookings } from "../api/clientApi";
+import { getVehicleBookings, getVehicleById } from "../api/clientApi";
 import { styles } from "../styles/vehicleDetailsStyle";
 import {
   addDays,
@@ -44,8 +45,11 @@ function formatCurrency(amount) {
 }
 
 export default function VehicleDetails({ route, navigation }) {
-  const { vehicle, tripData } = route.params || {};
-  const vehicleId = vehicle?._id || vehicle?.id || route.params?.vehicleId || null;
+  const routeVehicle = route?.params?.vehicle || null;
+  const { tripData } = route.params || {};
+  const vehicleId = routeVehicle?._id || routeVehicle?.id || route.params?.vehicleId || null;
+  const promoCode = String(route?.params?.promoCode || "").trim();
+  const promoSource = String(route?.params?.source || "").trim();
   const initialPickupDate = tripData?.startDate
     ? new Date(`${tripData.startDate}T00:00:00`)
     : null;
@@ -59,6 +63,8 @@ export default function VehicleDetails({ route, navigation }) {
   const [availabilityNotice, setAvailabilityNotice] = useState("");
   const [failedImages, setFailedImages] = useState({});
   const [activeImage, setActiveImage] = useState(null);
+  const [vehicleData, setVehicleData] = useState(routeVehicle);
+  const [vehicleLoading, setVehicleLoading] = useState(false);
   const [activeDateField, setActiveDateField] = useState(
     initialPickupDate && !initialReturnDate ? "return" : "pickup"
   );
@@ -66,6 +72,39 @@ export default function VehicleDetails({ route, navigation }) {
     getMonthStart(initialPickupDate || new Date())
   );
   const [bookedRanges, setBookedRanges] = useState([]);
+  const vehicle = vehicleData || routeVehicle || {};
+
+  useEffect(() => {
+    setVehicleData(routeVehicle || null);
+  }, [routeVehicle]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadVehicleDetails = async () => {
+      if (routeVehicle || !vehicleId) return;
+
+      try {
+        setVehicleLoading(true);
+        const response = await getVehicleById(vehicleId);
+        if (!isMounted) return;
+        setVehicleData(response?.vehicle || response || null);
+      } catch (error) {
+        if (!isMounted) return;
+        console.log("Load vehicle details error:", error?.response?.data || error?.message || error);
+      } finally {
+        if (isMounted) {
+          setVehicleLoading(false);
+        }
+      }
+    };
+
+    loadVehicleDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [routeVehicle, vehicleId]);
 
   const galleryImages = useMemo(() => getVehicleImageGallery(vehicle), [vehicle]);
   const today = useMemo(() => toMidnight(new Date()), []);
@@ -303,6 +342,14 @@ export default function VehicleDetails({ route, navigation }) {
       vehicle,
       vehicleId,
       selectedVehicle: vehicle,
+      promoCode,
+      promoFeedback: promoCode
+        ? {
+            status: "info",
+            message: "Promo code added from FleetX promo. Tap Apply to validate.",
+          }
+        : undefined,
+      source: promoSource || undefined,
       entryMode: "directVehicle",
       mode: "direct",
       pickupDate: bookingPreview.pickupDate,
@@ -337,6 +384,7 @@ export default function VehicleDetails({ route, navigation }) {
         estimatedDeposit: bookingPreview.estimatedDeposit,
         downPayment: bookingPreview.downPayment,
         remainingBalance: bookingPreview.remainingBalance,
+        promoCode,
       },
       bookingPreview,
     });
@@ -348,6 +396,13 @@ export default function VehicleDetails({ route, navigation }) {
       contentContainerStyle={[styles.contentContainer, { paddingBottom: 140 }]}
       showsVerticalScrollIndicator={false}
     >
+      {vehicleLoading && !routeVehicle ? (
+        <View style={styles.infoCard}>
+          <ActivityIndicator size="small" color="#F47C20" />
+          <Text style={styles.descriptionText}>Loading vehicle details...</Text>
+        </View>
+      ) : null}
+
       <View style={styles.imageSection}>
         {activeImage && !failedImages[activeImage] ? (
           <Image

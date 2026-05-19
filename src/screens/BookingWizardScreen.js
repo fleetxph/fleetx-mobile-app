@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isUnauthorizedError } from "../api/api";
 import {
   createBooking,
+  estimateCampaignPromo,
   estimateRouteMinimumDuration,
   getClientProfile,
   getPublicPaymentMethods,
@@ -999,9 +1000,10 @@ export default function BookingWizardScreen({ route, navigation }) {
     incomingTrip?.promoCode || route?.params?.promoCode || ""
   );
   const [promoFeedback, setPromoFeedback] = useState(() => ({
-    status: incomingTrip?.promoFeedback?.status || "idle",
+    status: incomingTrip?.promoFeedback?.status || route?.params?.promoFeedback?.status || "idle",
     message:
       incomingTrip?.promoFeedback?.message ||
+      route?.params?.promoFeedback?.message ||
       "Promo code will be validated before invoice issuance.",
   }));
   const [hasEditedSchedule, setHasEditedSchedule] = useState(false);
@@ -1139,6 +1141,20 @@ export default function BookingWizardScreen({ route, navigation }) {
     ]
   );
   const totalPrice = Number(rentalPricing.subtotal || pricingPreview?.estimatedTotal || 0);
+  useEffect(() => {
+    const incomingPromoCode = String(route?.params?.promoCode || "").trim();
+    if (!incomingPromoCode) return;
+
+    setPromoCode(incomingPromoCode);
+    setPromoFeedback((prev) => ({
+      status: route?.params?.promoFeedback?.status || "info",
+      message:
+        route?.params?.promoFeedback?.message ||
+        prev?.message ||
+        "Promo code added from FleetX promo. Tap Apply to validate.",
+    }));
+  }, [route?.params?.promoCode, route?.params?.promoFeedback?.message, route?.params?.promoFeedback?.status]);
+
   const defaultDeposit = Number(totalPrice > 0 ? totalPrice * 0.5 : pricingPreview?.downPayment || 0);
   const invoiceAmountDue = Number(
     paymentOption
@@ -2818,7 +2834,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     };
   };
 
-  const handleApplyPromoCode = () => {
+  const handleApplyPromoCode = async () => {
     const normalizedPromoCode = String(promoCode || "").trim();
 
     if (!normalizedPromoCode) {
@@ -2829,12 +2845,51 @@ export default function BookingWizardScreen({ route, navigation }) {
       return;
     }
 
-    // TODO: Connect promoCode to backend validation once endpoint is available.
     setPromoCode(normalizedPromoCode);
-    setPromoFeedback({
-      status: "info",
-      message: "Promo code will be validated before invoice issuance.",
-    });
+
+    if (!selectedVehicleId || totalPrice <= 0) {
+      setPromoFeedback({
+        status: "info",
+        message: "Promo code will be validated before invoice issuance.",
+      });
+      return;
+    }
+
+    try {
+      const response = await estimateCampaignPromo({
+        vehicleId: selectedVehicleId,
+        rentalSubtotal: totalPrice,
+        promoCode: normalizedPromoCode,
+      });
+      const promo = response?.promo || {};
+      const discountAmount = Number(promo?.discountAmount || 0);
+      const campaignTitle = String(promo?.campaignTitle || "").trim();
+      const appliedPromoCode = String(promo?.appliedPromoCode || normalizedPromoCode).trim().toUpperCase();
+
+      if (discountAmount > 0 || appliedPromoCode) {
+        setPromoCode(appliedPromoCode || normalizedPromoCode.toUpperCase());
+        setPromoFeedback({
+          status: "success",
+          message: campaignTitle
+            ? `Promo applied: ${campaignTitle}`
+            : "Promo applied.",
+        });
+        return;
+      }
+
+      setPromoFeedback({
+        status: "info",
+        message: "Promo code will be validated before invoice issuance.",
+      });
+    } catch (error) {
+      setPromoFeedback({
+        status: "error",
+        message:
+          error?.response?.data?.message ||
+          error?.message ||
+          "Unable to validate promo code right now.",
+      });
+    }
   };
 
   const savePendingGuestBooking = async () => {
