@@ -7,6 +7,7 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Modal,
+  PermissionsAndroid,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -176,9 +177,18 @@ const PICKUP_OPTION_OPTIONS = [
   },
   {
     value: "delivery",
-    label: "Deliver the vehicle",
-    description: "Ask FleetX to deliver the vehicle to your pickup location.",
+    label: "Deliver the vehicle to my location",
+    description: "Ask FleetX to deliver the vehicle to your location.",
   },
+];
+
+const PREFERRED_CATEGORY_OPTIONS = [
+  { value: "any", label: "Any category" },
+  { value: "sedan", label: "Sedan" },
+  { value: "suv", label: "SUV" },
+  { value: "van", label: "Van" },
+  { value: "mpv", label: "MPV" },
+  { value: "pickup", label: "Pickup" },
 ];
 
 const MIN_LOCATION_QUERY_LENGTH = 2;
@@ -208,16 +218,40 @@ function getVehicleSeatCapacity(vehicle) {
 }
 
 function getVehicleDailyRate(vehicle) {
-  const rawRate = Number(
-    vehicle?.rate24Hr ??
-      vehicle?.dailyRate ??
-      vehicle?.price ??
-      vehicle?.rate ??
-      vehicle?.rentalPrice ??
-      NaN
-  );
+  const candidates = [
+    vehicle?.rate24Hr,
+    vehicle?.pricePerDay,
+    vehicle?.dailyRate,
+    vehicle?.rentalRate,
+    vehicle?.ratePerDay,
+    vehicle?.baseRate24,
+    vehicle?.twentyFourHourRate,
+    vehicle?.baseRate,
+    vehicle?.pricing?.daily,
+    vehicle?.pricing?.day,
+    vehicle?.pricing?.ratePerDay,
+    vehicle?.rates?.daily,
+    vehicle?.rates?.day,
+    vehicle?.rates?.twentyFourHours,
+    vehicle?.price,
+    vehicle?.rate,
+    vehicle?.rentalPrice,
+  ];
 
-  return Number.isFinite(rawRate) && rawRate > 0 ? rawRate : null;
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined || candidate === "") continue;
+    const parsed = Number(candidate);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function formatVehicleDailyRateLabel(vehicle) {
+  const rate = getVehicleDailyRate(vehicle);
+  return rate ? `${formatPeso(rate)}/day` : "Rate to be confirmed";
 }
 
 function normalizeOptionalNumber(value) {
@@ -332,6 +366,35 @@ function normalizeTripType(value) {
 
 function normalizeTripTypeKey(value) {
   return normalizeTripType(value).replace(/-/g, "");
+}
+
+function normalizePreferredCategory(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+
+  if (!normalized || normalized === "any" || normalized === "anycategory") return "any";
+  if (normalized === "sportutilityvehicle") return "suv";
+  if (["sedan", "suv", "van", "mpv", "pickup"].includes(normalized)) return normalized;
+  return "any";
+}
+
+function normalizeVehicleCategory(vehicle) {
+  const raw = String(
+    vehicle?.category || vehicle?.type || vehicle?.vehicleCategory || vehicle?.bodyType || ""
+  )
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+
+  if (!raw) return "";
+  if (raw.includes("sportutility") || raw === "suv") return "suv";
+  if (raw.includes("sedan")) return "sedan";
+  if (raw.includes("van")) return "van";
+  if (raw.includes("mpv")) return "mpv";
+  if (raw.includes("pickup")) return "pickup";
+  return raw;
 }
 
 function isWithDriverTrip(value) {
@@ -825,7 +888,11 @@ function resolveInitialSchedule({
 
   return {
     destination: incomingTrip?.destination || routeSchedule?.destination || "",
-    pickupLocation: incomingTrip?.pickupLocation || routeSchedule?.pickupLocation || "",
+    pickupLocation:
+      incomingTrip?.deliveryAddress ||
+      incomingTrip?.pickupLocation ||
+      routeSchedule?.pickupLocation ||
+      "",
     startDate:
       routeSchedule?.startDate ||
       route?.params?.startDate ||
@@ -880,6 +947,7 @@ export default function BookingWizardScreen({ route, navigation }) {
   const fieldLayouts = useRef({});
   const focusedFieldRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
+  const stepAdvanceLockRef = useRef(false);
   const locationSearchRequestRef = useRef({ destination: 0, pickupLocation: 0 });
   const routeValidationRequestRef = useRef(0);
   const { width } = useWindowDimensions();
@@ -915,7 +983,13 @@ export default function BookingWizardScreen({ route, navigation }) {
     Boolean(route?.params?.selectedVehicle) ||
     Boolean(route?.params?.vehicleId) ||
     Boolean(incomingDraft);
-  const totalSteps = 4;
+  const isPlannerHandoff =
+    route?.params?.plannerSource === "planTrip" ||
+    route?.params?.source === "planTrip" ||
+    route?.params?.fromPlanMyTrip === true;
+  const plannerStepCount = 3;
+  const directBookingStepCount = 4;
+  const totalSteps = isDirectBooking ? directBookingStepCount : plannerStepCount;
   const initialSchedule = useMemo(
     () =>
       resolveInitialSchedule({
@@ -929,7 +1003,13 @@ export default function BookingWizardScreen({ route, navigation }) {
   );
 
   const [currentStep, setCurrentStep] = useState(
-    incomingDraft?.currentStep === "payment" || incomingDraft?.currentStep === "review" ? 4 : 1
+    incomingDraft?.currentStep === "payment" || incomingDraft?.currentStep === "review"
+      ? 4
+      : isPlannerHandoff
+      ? 4
+      : route?.params?.resumePlannerResults
+      ? 4
+      : 1
   );
   const [tripType, setTripType] = useState(
     normalizeTripType(incomingTrip?.tripType) ||
@@ -1041,6 +1121,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     errorMessage: "",
     isResolving: false,
   });
+  const [isOpeningLocationPicker, setIsOpeningLocationPicker] = useState("");
   const [restrictedAreaRules, setRestrictedAreaRules] = useState(() =>
     normalizeRestrictedAreaRules(incomingTrip?.restrictedAreaRules || [])
   );
@@ -1063,6 +1144,8 @@ export default function BookingWizardScreen({ route, navigation }) {
   const [routeValidation, setRouteValidation] = useState(() =>
     createRouteValidationState(incomingTrip?.routeValidation)
   );
+  const [isStepAdvancing, setIsStepAdvancing] = useState(false);
+  const [selectedVehicleActionId, setSelectedVehicleActionId] = useState("");
 
   const [picker, setPicker] = useState(null);
   const [schedule, setSchedule] = useState(initialSchedule);
@@ -1090,6 +1173,9 @@ export default function BookingWizardScreen({ route, navigation }) {
       incomingTrip?.luggageWeightKg ?? incomingTrip?.luggage?.weightKg
     ),
     transmission: incomingTrip?.transmission || "any",
+    preferredCategory: normalizePreferredCategory(
+      incomingTrip?.preferredCategory || incomingTrip?.vehicleCategoryPreference || ""
+    ),
     tripPurpose: resolvedTripPurpose,
     customPurpose:
       resolvedTripPurpose === "Other"
@@ -1101,6 +1187,10 @@ export default function BookingWizardScreen({ route, navigation }) {
     preferences.tripPurpose === "Other"
       ? preferences.customPurpose.trim()
       : preferences.tripPurpose;
+  const isPlannerResultsStep = !isDirectBooking && currentStep > plannerStepCount;
+  const normalizedPickupMode = normalizePickupOptionValue(vehicleHandoffOption);
+  const requiresDeliveryAddress = !isDirectBooking && normalizedPickupMode === "delivery";
+  const normalizedPreferredCategory = normalizePreferredCategory(preferences.preferredCategory);
   const heavyLuggageWarning = getHeavyLuggageWarning({
     luggageBags: preferences.luggageBags,
     luggageSize: preferences.luggageSize,
@@ -1108,6 +1198,27 @@ export default function BookingWizardScreen({ route, navigation }) {
   });
   const passengerMax = isDirectBooking ? getVehicleSeatCapacity(selectedVehicle) : 12;
   const selectedVehicleRate = getVehicleDailyRate(selectedVehicle);
+  const hasPlannerReviewData = useMemo(
+    () =>
+      Boolean(
+        selectedVehicle &&
+          normalizedTripType &&
+          schedule.destination.trim() &&
+          schedule.startDate &&
+          schedule.endDate &&
+          schedule.startTime &&
+          schedule.endTime
+      ),
+    [
+      normalizedTripType,
+      schedule.destination,
+      schedule.endDate,
+      schedule.endTime,
+      schedule.startDate,
+      schedule.startTime,
+      selectedVehicle,
+    ]
+  );
   const effectiveBudget = isDirectBooking
     ? selectedVehicleRate ?? normalizeOptionalNumber(preferences.budget)
     : normalizeOptionalNumber(preferences.budget);
@@ -1232,8 +1343,11 @@ export default function BookingWizardScreen({ route, navigation }) {
   const step2ValidationState = useMemo(() => {
     const hasDestination = Boolean(schedule.destination.trim());
     const hasDestinationCoords = Boolean(normalizeCoordinatePayload(locationPins.destination));
-    const hasPickup = Boolean(schedule.pickupLocation.trim());
-    const hasPickupCoords = Boolean(normalizeCoordinatePayload(locationPins.pickup));
+    const hasPickupMode = isDirectBooking ? true : Boolean(normalizedPickupMode);
+    const hasPickup = requiresDeliveryAddress ? Boolean(schedule.pickupLocation.trim()) : true;
+    const hasPickupCoords = requiresDeliveryAddress
+      ? Boolean(normalizeCoordinatePayload(locationPins.pickup))
+      : false;
     const hasStartDate = Boolean(schedule.startDate);
     const hasStartTime = Boolean(schedule.startTime);
     const hasEndDate = Boolean(schedule.endDate);
@@ -1251,10 +1365,12 @@ export default function BookingWizardScreen({ route, navigation }) {
 
     let blockerReason = "";
 
-    if (!hasDestination) {
+    if (!hasPickupMode) {
+      blockerReason = "Choose how you want to receive the vehicle.";
+    } else if (!hasDestination) {
       blockerReason = "Select a destination.";
     } else if (!hasPickup) {
-      blockerReason = "Select a pickup location.";
+      blockerReason = "Enter your delivery address.";
     } else if (!hasStartDate || !hasEndDate) {
       blockerReason = "Select your start and end dates.";
     } else if (!hasStartTime || !hasEndTime) {
@@ -1295,6 +1411,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     destinationGuidance.isAllowed,
     destinationGuidance.restrictionReason,
     destinationGuidance.warningMessage,
+    isDirectBooking,
     isRouteValidationReady,
     locationPins.destination,
     locationPins.pickup,
@@ -1302,6 +1419,8 @@ export default function BookingWizardScreen({ route, navigation }) {
     locationRestrictions.destination?.message,
     locationRestrictions.pickupLocation?.isRestricted,
     locationRestrictions.pickupLocation?.message,
+    normalizedPickupMode,
+    requiresDeliveryAddress,
     routeValidation.isLoading,
     routeValidation.lastValidatedSignature,
     routeValidation.source,
@@ -1550,6 +1669,25 @@ export default function BookingWizardScreen({ route, navigation }) {
   }, [incomingVehicleId, isDirectBooking, selectedVehicle]);
 
   useEffect(() => {
+    if (isSelfDrive) {
+      setPreferences((prev) => ({
+        ...prev,
+        preferredCategory: normalizePreferredCategory(prev.preferredCategory),
+      }));
+      return;
+    }
+
+    setPreferences((prev) =>
+      prev.preferredCategory === "any"
+        ? prev
+        : {
+            ...prev,
+            preferredCategory: "any",
+          }
+    );
+  }, [isSelfDrive]);
+
+  useEffect(() => {
     const loadVerification = async () => {
       try {
         const rawUser = await AsyncStorage.getItem("clientUser");
@@ -1701,14 +1839,6 @@ export default function BookingWizardScreen({ route, navigation }) {
   useEffect(() => {
     const normalizedPickupOption = normalizePickupOptionValue(vehicleHandoffOption);
 
-    if (isWithDriver) {
-      if (vehicleHandoffOption !== "") {
-        setVehicleHandoffOption("");
-      }
-      setErrors((prev) => ({ ...prev, vehicleHandoffOption: "" }));
-      return;
-    }
-
     if (normalizedPickupOption && normalizedPickupOption !== vehicleHandoffOption) {
       setVehicleHandoffOption(normalizedPickupOption);
       return;
@@ -1717,7 +1847,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     if (!normalizedPickupOption) {
       setVehicleHandoffOption("pickup");
     }
-  }, [isWithDriver, vehicleHandoffOption]);
+  }, [vehicleHandoffOption]);
 
   useEffect(() => {
     if (isWithDriver) {
@@ -2160,11 +2290,20 @@ export default function BookingWizardScreen({ route, navigation }) {
       const transmission = String(vehicle.transmission || "").toLowerCase();
       const status = String(vehicle.status || vehicle.availability || "").toLowerCase();
       const budgetLimit = normalizeOptionalNumber(preferences.budget);
+      const vehicleCategory = normalizeVehicleCategory(vehicle);
 
       if (vehicle.isActive === false) return false;
       if (status && ["unavailable", "maintenance", "booked"].includes(status)) return false;
       if (seats && seats < preferences.passengers) return false;
       if (budgetLimit !== "" && rate && rate > budgetLimit) return false;
+      if (
+        isSelfDrive &&
+        normalizedPreferredCategory !== "any" &&
+        vehicleCategory &&
+        vehicleCategory !== normalizedPreferredCategory
+      ) {
+        return false;
+      }
       if (
         preferences.transmission !== "any" &&
         transmission &&
@@ -2176,7 +2315,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     });
 
     return list.sort((a, b) => Number(getVehicleDailyRate(a) || 0) - Number(getVehicleDailyRate(b) || 0));
-  }, [vehicles, preferences]);
+  }, [isSelfDrive, normalizedPreferredCategory, preferences, vehicles]);
   const selectedVehicleFit = useMemo(
     () =>
       selectedVehicle
@@ -2471,7 +2610,47 @@ export default function BookingWizardScreen({ route, navigation }) {
     }
   };
 
+  const requestLocationPickerPermission = async () => {
+    if (Platform.OS !== "android") return true;
+
+    try {
+      const finePermission = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
+      const coarsePermission = PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION;
+      const granted = await PermissionsAndroid.requestMultiple([
+        finePermission,
+        coarsePermission,
+      ]);
+      const fineGranted = granted?.[finePermission] === PermissionsAndroid.RESULTS.GRANTED;
+      const coarseGranted = granted?.[coarsePermission] === PermissionsAndroid.RESULTS.GRANTED;
+
+      if (fineGranted || coarseGranted) {
+        return true;
+      }
+
+      Alert.alert(
+        "Location permission required",
+        "Location permission is required to pin your location. You can continue with manual address entry instead."
+      );
+      return false;
+    } catch {
+      Alert.alert(
+        "Location unavailable",
+        "We could not request location permission right now. You can continue with manual address entry instead."
+      );
+      return false;
+    }
+  };
+
   const openLocationPicker = async (mode) => {
+    if (locationPicker.visible || isOpeningLocationPicker) return;
+
+    setIsOpeningLocationPicker(mode);
+    const hasPermission = await requestLocationPickerPermission();
+    if (!hasPermission) {
+      setIsOpeningLocationPicker("");
+      return;
+    }
+
     const scheduleKey = mode === "pickup" ? "pickupLocation" : "destination";
     const existingPin = mode === "pickup" ? locationPins.pickup : locationPins.destination;
     const manualText = String(schedule[scheduleKey] || "").trim();
@@ -2506,6 +2685,7 @@ export default function BookingWizardScreen({ route, navigation }) {
           errorMessage: GOOGLE_PLACES_CONFIG_MESSAGE,
         }));
       }
+      setIsOpeningLocationPicker("");
       return;
     }
 
@@ -2557,10 +2737,13 @@ export default function BookingWizardScreen({ route, navigation }) {
         errorMessage:
           "We could not locate this address on the map. You can still continue with the typed address.",
       }));
+    } finally {
+      setIsOpeningLocationPicker("");
     }
   };
 
   const closeLocationPicker = () => {
+    setIsOpeningLocationPicker("");
     setLocationPicker((prev) => ({
       ...prev,
       visible: false,
@@ -2764,6 +2947,7 @@ export default function BookingWizardScreen({ route, navigation }) {
         ...(incomingTrip || {}),
         destination: schedule.destination,
         pickupLocation: schedule.pickupLocation,
+        deliveryAddress: schedule.pickupLocation,
         ...(pickupCoords
           ? {
               pickupCoords,
@@ -2797,12 +2981,15 @@ export default function BookingWizardScreen({ route, navigation }) {
           weightKg: Number(preferences.luggageWeightKg || 0),
         },
         transmission: preferences.transmission,
+        preferredCategory: isSelfDrive ? normalizedPreferredCategory : "any",
         tripPurpose: preferences.tripPurpose,
         customPurpose: preferences.customPurpose,
+        customTripPurpose: preferences.customPurpose,
         purposeOfTravel,
         withDriver: isWithDriver,
         tripType: normalizedTripType || tripType,
         vehicleHandoffOption,
+        pickupMode: normalizedPickupMode,
         locationRestrictions,
         routeValidation,
         restrictedAreaRules:
@@ -2978,6 +3165,7 @@ export default function BookingWizardScreen({ route, navigation }) {
       luggageSize: "",
       luggageWeightKg: "",
       transmission: "any",
+      preferredCategory: "any",
       tripPurpose: "",
       customPurpose: "",
     });
@@ -3176,6 +3364,202 @@ export default function BookingWizardScreen({ route, navigation }) {
     setErrors((prev) => ({ ...prev, returnPickupAddress: "" }));
   };
 
+  const handlePickupModeChange = (value) => {
+    const normalizedValue = normalizePickupOptionValue(value);
+    setVehicleHandoffOption(normalizedValue);
+    setErrors((prev) => ({
+      ...prev,
+      vehicleHandoffOption: "",
+      pickupLocation: "",
+    }));
+  };
+
+  const applyDurationPreset = (days) => {
+    if (!schedule.startDate) {
+      setErrors((prev) => ({
+        ...prev,
+        startDate: "Select a start date first.",
+      }));
+      return;
+    }
+
+    const baseDate = parseDateOnly(schedule.startDate);
+    if (!baseDate) return;
+
+    const nextEndDate = toDateInput(addDays(baseDate, days));
+    updateSchedule("endDate", nextEndDate);
+    if (!schedule.endTime && schedule.startTime) {
+      updateSchedule("endTime", schedule.startTime);
+    }
+  };
+
+  const releaseStepAdvanceLock = () => {
+    setTimeout(() => {
+      stepAdvanceLockRef.current = false;
+      setIsStepAdvancing(false);
+    }, 250);
+  };
+
+  const buildPlannerTripData = () => {
+    const pickupCoords = normalizeCoordinatePayload(locationPins.pickup);
+    const destinationCoords = normalizeCoordinatePayload(locationPins.destination);
+
+    return {
+      ...(incomingTrip || {}),
+      destination: schedule.destination,
+      pickupLocation: schedule.pickupLocation,
+      deliveryAddress: schedule.pickupLocation,
+      ...(pickupCoords
+        ? {
+            pickupCoords,
+            pickupCoordinates: pickupCoords,
+            pickupPlaceId: locationPins.pickup?.placeId || "",
+          }
+        : {}),
+      ...(destinationCoords
+        ? {
+            destinationCoords,
+            destinationCoordinates: destinationCoords,
+            destinationPlaceId: locationPins.destination?.placeId || "",
+          }
+        : {}),
+      startDate: schedule.startDate,
+      endDate: schedule.endDate,
+      startTime: schedule.startTime,
+      endTime: schedule.endTime,
+      passengers: preferences.passengers,
+      numberOfPax: preferences.passengers,
+      budget: preferences.budget,
+      luggageCount: preferences.luggageBags,
+      luggageBags: preferences.luggageBags,
+      bagCount: preferences.luggageBags,
+      bags: preferences.luggageBags,
+      luggageSize: preferences.luggageSize,
+      luggageWeightKg: preferences.luggageWeightKg,
+      luggage: {
+        count: normalizeNonNegativeCount(preferences.luggageBags),
+        size: preferences.luggageSize || "",
+        weightKg: Number(preferences.luggageWeightKg || 0),
+      },
+      transmission: preferences.transmission,
+      preferredCategory: isSelfDrive ? normalizedPreferredCategory : "any",
+      tripPurpose: preferences.tripPurpose,
+      customPurpose: preferences.customPurpose,
+      customTripPurpose: preferences.customPurpose,
+      purposeOfTravel,
+      withDriver: isWithDriver,
+      tripType: normalizedTripType || tripType,
+      vehicleHandoffOption,
+      pickupMode: normalizedPickupMode,
+      locationRestrictions,
+      routeValidation,
+      restrictedAreaRules: restrictedAreasMeta.source === "backend" ? restrictedAreaRules : [],
+      promoCode,
+      promoFeedback,
+      returnArrangementType,
+      returnPickupAddress,
+      returnPickupCoordinates,
+      returnPickupFee,
+      returnPickupFeeStatus,
+      returnNotes,
+      restrictedAreaSource: restrictedAreasMeta.source,
+    };
+  };
+
+  const buildPlannerPricingPreview = (vehicle) => {
+    const pricing = calculateRentalPricing({
+      vehicle: vehicle || {},
+      pickupDateTime: buildLocalDateTime(schedule.startDate, schedule.startTime || "00:00"),
+      returnDateTime: buildLocalDateTime(schedule.endDate, schedule.endTime || "00:00"),
+      rentalType: normalizedTripType,
+      tripType: normalizedTripType,
+      withDriver: isWithDriver,
+      paymentOption: "",
+    });
+
+    return {
+      totalHours: pricing.totalHours || 0,
+      billingLabel: pricing.billingLabel || "",
+      estimatedTotal: Number(pricing.subtotal || 0),
+      downPayment: Number(pricing.amountDue || pricing.subtotal * 0.5 || 0),
+      remainingBalance: Number(pricing.remainingBalance || pricing.subtotal * 0.5 || 0),
+      vehicleTotal: Number(pricing.vehicleTotal || 0),
+      driverTotal: Number(pricing.driverTotal || 0),
+    };
+  };
+
+  const openDirectBookingForVehicle = (vehicle) => {
+    const vehicleId = vehicle?._id || vehicle?.id || getVehicleName(vehicle);
+    const planTripData = buildPlannerTripData();
+    const pricingPreviewForVehicle = buildPlannerPricingPreview(vehicle);
+
+    navigation.navigate("Browse", {
+      screen: "BookingWizard",
+      params: {
+        vehicle,
+        vehicleId,
+        selectedVehicle: vehicle,
+        entryMode: "directVehicle",
+        mode: "direct",
+        fromPlanMyTrip: true,
+        source: "planTrip",
+        plannerSource: "planTrip",
+        pickupDate: schedule.startDate
+          ? new Date(`${schedule.startDate}T00:00:00`).toISOString()
+          : "",
+        returnDate: schedule.endDate
+          ? new Date(`${schedule.endDate}T00:00:00`).toISOString()
+          : "",
+        pricingPreview: pricingPreviewForVehicle,
+        tripData: {
+          ...planTripData,
+          estimatedTotal: pricingPreviewForVehicle.estimatedTotal,
+          downPayment: pricingPreviewForVehicle.downPayment,
+          remainingBalance: pricingPreviewForVehicle.remainingBalance,
+          totalHours: pricingPreviewForVehicle.totalHours,
+          billingLabel: pricingPreviewForVehicle.billingLabel,
+        },
+      },
+    });
+  };
+
+  const returnToPlannerResults = () => {
+    const params = {
+      planData: buildPlannerTripData(),
+      resumePlannerResults: true,
+    };
+
+    const parentNavigation = navigation.getParent?.();
+
+    navigation.reset?.({
+      index: 0,
+      routes: [{ name: "BrowseMain" }],
+    });
+
+    if (parentNavigation?.navigate) {
+      InteractionManager.runAfterInteractions(() => {
+        parentNavigation.navigate("Plan", params);
+      });
+      return;
+    }
+
+    InteractionManager.runAfterInteractions(() => {
+      navigation.navigate("Plan", params);
+    });
+  };
+
+  const handleSelectRecommendedVehicle = (vehicle) => {
+    const vehicleId = vehicle?._id || vehicle?.id || getVehicleName(vehicle);
+
+    if (!vehicleId || selectedVehicleActionId) return;
+
+    setSelectedVehicleActionId(vehicleId);
+    openDirectBookingForVehicle(vehicle);
+    setTimeout(() => {
+      setSelectedVehicleActionId("");
+    }, 300);
+  };
+
   const validateStep = () => {
     const nextErrors = {};
 
@@ -3184,11 +3568,14 @@ export default function BookingWizardScreen({ route, navigation }) {
     }
 
     if (currentStep === 2) {
+      if (!isDirectBooking && !normalizedPickupMode) {
+        nextErrors.vehicleHandoffOption = "Please choose a pickup mode.";
+      }
       if (!step2ValidationState.hasDestination) {
         nextErrors.destination = "Destination is required.";
       }
-      if (!step2ValidationState.hasPickup) {
-        nextErrors.pickupLocation = "Pickup Location is required.";
+      if (requiresDeliveryAddress && !step2ValidationState.hasPickup) {
+        nextErrors.pickupLocation = "Delivery Address is required.";
       }
       if (!step2ValidationState.hasStartDate) nextErrors.startDate = "Start date is required.";
       if (!step2ValidationState.hasStartTime) nextErrors.startTime = "Start time is required.";
@@ -3232,7 +3619,21 @@ export default function BookingWizardScreen({ route, navigation }) {
   };
 
   const handleNext = () => {
-    if (!validateStep()) return;
+    if (stepAdvanceLockRef.current || isStepAdvancing) return;
+
+    stepAdvanceLockRef.current = true;
+    setIsStepAdvancing(true);
+
+    if (!validateStep()) {
+      releaseStepAdvanceLock();
+      return;
+    }
+
+    if (!isDirectBooking && currentStep === plannerStepCount) {
+      setCurrentStep(plannerStepCount + 1);
+      releaseStepAdvanceLock();
+      return;
+    }
 
     if (isDirectBooking && currentStep === 3) {
       if (!selectedVehicle?._id && !selectedVehicle?.id) {
@@ -3240,19 +3641,36 @@ export default function BookingWizardScreen({ route, navigation }) {
           "Vehicle unavailable",
           "We could not load the selected vehicle. Please return to Browse and choose a vehicle again."
         );
+        releaseStepAdvanceLock();
         return;
       }
       setCurrentStep(4);
       setReviewVisible(true);
+      releaseStepAdvanceLock();
       return;
     }
 
     setCurrentStep((prev) => Math.min(totalSteps, prev + 1));
+    releaseStepAdvanceLock();
   };
 
   const handleBack = () => {
+    if (isPlannerHandoff && currentStep === 4) {
+      returnToPlannerResults();
+      return;
+    }
+
+    if (isPlannerResultsStep) {
+      setCurrentStep(plannerStepCount);
+      return;
+    }
+
     if (currentStep === 1) {
       if (hasExplicitVehicleSelectionIntent) {
+        if (isPlannerHandoff) {
+          returnToPlannerResults();
+          return;
+        }
         handleExitBookingWizard("Browse");
         return;
       }
@@ -3385,8 +3803,8 @@ export default function BookingWizardScreen({ route, navigation }) {
       },
       purposeOfTravel,
       notes: isDirectBooking
-        ? `Trip Type: ${getTripTypeLabel(normalizedTripType || tripType)}. Start Time: ${schedule.startTime}. End Time: ${schedule.endTime}. Transmission preference: ${preferences.transmission}. Billing label: ${rentalPricing.billingLabel || "Not set"}. Estimated total: ${totalPrice}.`
-        : `Trip Type: ${getTripTypeLabel(normalizedTripType || tripType)}. Start Time: ${schedule.startTime}. End Time: ${schedule.endTime}. Transmission preference: ${preferences.transmission}. Budget target: ${effectiveBudget === "" ? "Not set" : effectiveBudget}. Billing label: ${rentalPricing.billingLabel || "Not set"}. Estimated total: ${totalPrice}.`,
+        ? `Trip Type: ${getTripTypeLabel(normalizedTripType || tripType)}. Pickup mode: ${normalizedPickupMode || "Not set"}. Start Time: ${schedule.startTime}. End Time: ${schedule.endTime}. Transmission preference: ${preferences.transmission}. Preferred category: ${isSelfDrive ? normalizedPreferredCategory : "Not applicable"}. Billing label: ${rentalPricing.billingLabel || "Not set"}. Estimated total: ${totalPrice}.`
+        : `Trip Type: ${getTripTypeLabel(normalizedTripType || tripType)}. Pickup mode: ${normalizedPickupMode || "Not set"}. Start Time: ${schedule.startTime}. End Time: ${schedule.endTime}. Transmission preference: ${preferences.transmission}. Preferred category: ${isSelfDrive ? normalizedPreferredCategory : "Not applicable"}. Budget target: ${effectiveBudget === "" ? "Not set" : effectiveBudget}. Billing label: ${rentalPricing.billingLabel || "Not set"}. Estimated total: ${totalPrice}.`,
       withDriver: isWithDriver,
       contact,
       selectedPaymentMethodId,
@@ -3801,9 +4219,13 @@ export default function BookingWizardScreen({ route, navigation }) {
   const renderStepper = () => (
     <View style={styles.stepperCard}>
       <View style={styles.stepperTop}>
-        <Text style={styles.stepCount}>Step {currentStep} of {totalSteps}</Text>
+        <Text style={styles.stepCount}>
+          {isPlannerResultsStep ? "Recommended Vehicles" : `Step ${currentStep} of ${totalSteps}`}
+        </Text>
         <Text style={styles.stepHint}>
-          {currentStep === 4
+          {isPlannerResultsStep
+            ? "Choose a vehicle to continue to booking confirmation"
+            : currentStep === 4
             ? isDirectBooking
               ? "Review and submit your selected vehicle"
               : "Recommended Vehicles"
@@ -3814,7 +4236,7 @@ export default function BookingWizardScreen({ route, navigation }) {
         <View
           style={[
             styles.progressFill,
-            { width: `${(currentStep / totalSteps) * 100}%` },
+            { width: `${(Math.min(currentStep, totalSteps) / totalSteps) * 100}%` },
           ]}
         />
       </View>
@@ -3872,6 +4294,11 @@ export default function BookingWizardScreen({ route, navigation }) {
   const handleChangeVehicle = () => {
     if (!hasExplicitVehicleSelectionIntent) return;
 
+    if (isPlannerHandoff) {
+      returnToPlannerResults();
+      return;
+    }
+
     handleExitBookingWizard("Browse");
   };
 
@@ -3884,7 +4311,9 @@ export default function BookingWizardScreen({ route, navigation }) {
           <View style={styles.directVehicleHeaderText}>
             <Text style={styles.cardTitle}>Selected Vehicle</Text>
             <Text style={styles.cardSubtitle}>
-              You selected this vehicle from Browse.
+              {isPlannerHandoff
+                ? "You selected this vehicle from Plan My Trip."
+                : "You selected this vehicle from Browse."}
             </Text>
           </View>
           <TouchableOpacity
@@ -3930,7 +4359,7 @@ export default function BookingWizardScreen({ route, navigation }) {
               <Text style={styles.vehicleMeta}>Plate No: {selectedVehicle.plateNo}</Text>
             )}
             <Text style={styles.vehicleRate}>
-              {selectedVehicleRate ? `${formatPeso(selectedVehicleRate)}/day` : "Rate unavailable"}
+              {formatVehicleDailyRateLabel(selectedVehicle)}
             </Text>
           </View>
         </View>
@@ -3940,12 +4369,69 @@ export default function BookingWizardScreen({ route, navigation }) {
 
   const renderSchedule = () => (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Set the destination and timing</Text>
+      <Text style={styles.cardTitle}>Set the route and schedule</Text>
       <Text style={styles.cardSubtitle}>
         {isDirectBooking
           ? "Add the route and schedule for this vehicle so we can prepare your booking correctly."
           : "Add the route and schedule so recommendations can reflect your trip window."}
       </Text>
+
+      {!isDirectBooking ? (
+        <View style={styles.controlBlock}>
+          <Text style={styles.label}>Pickup Mode</Text>
+          <View style={styles.pickupModeOptions}>
+            {PICKUP_OPTION_OPTIONS.map((option) => {
+              const isSelected = normalizedPickupMode === option.value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[styles.pickupModeCard, isSelected && styles.pickupModeCardActive]}
+                  onPress={() => handlePickupModeChange(option.value)}
+                  activeOpacity={0.85}
+                >
+                  <View style={[styles.pickupModeIcon, isSelected && styles.pickupModeIconActive]}>
+                    <Ionicons
+                      name={option.value === "delivery" ? "car-outline" : "business-outline"}
+                      size={18}
+                      color={isSelected ? "#FFFFFF" : "#F47C20"}
+                    />
+                  </View>
+                  <View style={styles.pickupModeBody}>
+                    <Text
+                      style={[styles.pickupModeTitle, isSelected && styles.pickupModeTitleActive]}
+                    >
+                      {option.value === "delivery"
+                        ? "Deliver the vehicle to my location"
+                        : "I'll pick up the vehicle"}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.pickupModeDescription,
+                        isSelected && styles.pickupModeDescriptionActive,
+                      ]}
+                    >
+                      {option.value === "delivery"
+                        ? "We'll deliver the vehicle to your address."
+                        : "Exact location confirmed after you select a vehicle."}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {!!errors.vehicleHandoffOption && (
+            <Text style={styles.errorText}>{errors.vehicleHandoffOption}</Text>
+          )}
+          {normalizedPickupMode === "delivery" ? (
+            <View style={styles.inlineNoticeWarning}>
+              <Ionicons name="information-circle-outline" size={18} color="#B45309" />
+              <Text style={styles.inlineNoticeWarningText}>
+                Additional delivery charges may apply and will be reviewed by FleetX.
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       <View>
         <Text style={styles.label}>Destination</Text>
@@ -3968,9 +4454,16 @@ export default function BookingWizardScreen({ route, navigation }) {
             style={[
               styles.locationPinButton,
               locationPins.destination && styles.locationPinButtonActive,
+              (isOpeningLocationPicker === "destination" ||
+                (locationPicker.visible && locationPicker.mode === "destination")) &&
+                styles.buttonDisabled,
             ]}
             activeOpacity={0.9}
             onPress={() => openLocationPicker("destination")}
+            disabled={
+              isOpeningLocationPicker === "destination" ||
+              (locationPicker.visible && locationPicker.mode === "destination")
+            }
             hitSlop={SMALL_HIT_SLOP}
           >
             <Ionicons
@@ -4081,14 +4574,19 @@ export default function BookingWizardScreen({ route, navigation }) {
         ))}
       </View>
 
+      {isDirectBooking || requiresDeliveryAddress ? (
       <View>
-        <Text style={styles.label}>Pickup Location</Text>
+        <Text style={styles.label}>
+          {isDirectBooking ? "Pickup Location" : "Delivery Address"}
+        </Text>
         <View style={[styles.inputWrap, styles.inputWrapMultiline]}>
           <Feather name="navigation" size={18} color="#98A2B3" />
           <TextInput
             value={schedule.pickupLocation}
             onChangeText={(value) => handleLocationTextChange("pickupLocation", value)}
-            placeholder="Enter full pickup address"
+            placeholder={
+              isDirectBooking ? "Enter full pickup address" : "Enter full delivery address"
+            }
             placeholderTextColor="#98A2B3"
             style={[styles.input, styles.multilineInput]}
             multiline
@@ -4099,9 +4597,19 @@ export default function BookingWizardScreen({ route, navigation }) {
             onBlur={() => handleLocationBlur("pickupLocation")}
           />
           <TouchableOpacity
-            style={[styles.locationPinButton, locationPins.pickup && styles.locationPinButtonActive]}
+            style={[
+              styles.locationPinButton,
+              locationPins.pickup && styles.locationPinButtonActive,
+              (isOpeningLocationPicker === "pickup" ||
+                (locationPicker.visible && locationPicker.mode === "pickup")) &&
+                styles.buttonDisabled,
+            ]}
             activeOpacity={0.9}
             onPress={() => openLocationPicker("pickup")}
+            disabled={
+              isOpeningLocationPicker === "pickup" ||
+              (locationPicker.visible && locationPicker.mode === "pickup")
+            }
             hitSlop={SMALL_HIT_SLOP}
           >
             <Ionicons
@@ -4169,7 +4677,9 @@ export default function BookingWizardScreen({ route, navigation }) {
           </Text>
         ) : null}
         <Text style={styles.locationHelperText}>
-          Optional: type an address or use the pin button.
+          {isDirectBooking
+            ? "Optional: type an address or use the pin button."
+            : "Type your address or use the pin button."}
         </Text>
         {!!errors.pickupLocation && <Text style={styles.errorText}>{errors.pickupLocation}</Text>}
         {!!errors.pickupLocationRule && (
@@ -4184,6 +4694,7 @@ export default function BookingWizardScreen({ route, navigation }) {
           </View>
         ) : null}
       </View>
+      ) : null}
 
       {restrictedAreasMeta.error ? (
         <View style={styles.inlineNoticeWarning}>
@@ -4359,6 +4870,32 @@ export default function BookingWizardScreen({ route, navigation }) {
         ))}
       </View>
 
+      {!isDirectBooking ? (
+        <View>
+          <Text style={styles.label}>Quick Duration</Text>
+          <View style={styles.chipsWrap}>
+            {[
+              ["1 day", 1],
+              ["2 days", 2],
+              ["3 days", 3],
+              ["7 days", 7],
+            ].map(([label, days]) => (
+              <TouchableOpacity
+                key={label}
+                style={styles.chip}
+                onPress={() => applyDurationPreset(days)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.chipText}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+            <View style={styles.chip}>
+              <Text style={styles.chipText}>Custom</Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
       <View
         style={[
           styles.durationBox,
@@ -4496,38 +5033,49 @@ export default function BookingWizardScreen({ route, navigation }) {
         </View>
       ) : null}
       <View style={[styles.inlineActionRow, isCompactScreen && styles.inlineActionRowStacked]}>
-          <TouchableOpacity
-            style={[styles.secondaryButton, isCompactScreen && styles.inlineActionButtonFull]}
-            onPress={handleBack}
-            activeOpacity={0.85}
-          >
-        <Text style={styles.secondaryButtonText}>Back</Text>
-      </TouchableOpacity>
-      {currentStep < 4 ? (
+        <TouchableOpacity
+          style={[
+            styles.secondaryButton,
+            isCompactScreen && styles.inlineActionButtonFull,
+            isStepAdvancing && styles.buttonDisabled,
+          ]}
+          onPress={handleBack}
+          activeOpacity={0.85}
+          disabled={isStepAdvancing}
+        >
+          <Text style={styles.secondaryButtonText}>Back</Text>
+        </TouchableOpacity>
+        {isPlannerResultsStep ? null : currentStep < 4 ? (
           <TouchableOpacity
             style={[
               styles.primaryButton,
               isCompactScreen && styles.inlineActionButtonFull,
-              shouldDisableContinue && styles.buttonDisabled,
+              (shouldDisableContinue || isStepAdvancing) && styles.buttonDisabled,
             ]}
             onPress={handleNext}
             activeOpacity={0.9}
-            disabled={shouldDisableContinue}
+            disabled={shouldDisableContinue || isStepAdvancing}
           >
-          <Text style={styles.primaryButtonText}>Continue</Text>
-        </TouchableOpacity>
-      ) : (
-        <TouchableOpacity
-          style={[styles.primaryButton, isCompactScreen && styles.inlineActionButtonFull]}
-          onPress={() => (isDirectBooking ? setReviewVisible(true) : setCurrentStep(3))}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.primaryButtonText}>
-            {isDirectBooking ? "Review Booking" : "Edit Trip Details"}
-          </Text>
-        </TouchableOpacity>
-      )}
-    </View>
+            <Text style={styles.primaryButtonText}>
+              {isStepAdvancing
+                ? "Please wait..."
+                : !isDirectBooking && currentStep === 3
+                ? "Show Available Vehicles"
+                : "Continue"}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.primaryButton, isCompactScreen && styles.inlineActionButtonFull]}
+            onPress={() => (isDirectBooking ? setReviewVisible(true) : setCurrentStep(3))}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.primaryButtonText}>
+              {isDirectBooking ? "Review Booking" : "Edit Trip Details"}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 
@@ -4672,20 +5220,19 @@ export default function BookingWizardScreen({ route, navigation }) {
         ))}
       </View>
 
-      <Text style={styles.label}>Luggage Size</Text>
-      <View style={styles.segmentRow}>
-        {["Small", "Medium", "Large", "Extra Large"].map((item) => (
-          <TouchableOpacity
-            key={item}
-            style={[styles.segment, preferences.luggageSize === item && styles.segmentActive]}
-            onPress={() => updatePreference("luggageSize", item)}
-            activeOpacity={0.85}
-          >
-            <Text style={[styles.segmentText, preferences.luggageSize === item && styles.segmentTextActive]}>
-              {item}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      <View onLayout={(event) => handleFieldLayout("luggageSize", event)}>
+        <Text style={styles.label}>Luggage Size</Text>
+        <View style={styles.inputWrap}>
+          <MaterialCommunityIcons name="bag-personal-outline" size={18} color="#98A2B3" />
+          <TextInput
+            value={preferences.luggageSize}
+            onChangeText={(value) => updatePreference("luggageSize", value)}
+            placeholder="Not sure yet"
+            placeholderTextColor="#98A2B3"
+            style={styles.input}
+            onFocus={() => handleInputFocus("luggageSize")}
+          />
+        </View>
       </View>
       {preferences.luggageBags === 0 ? (
         <Text style={styles.locationHelperText}>
@@ -4703,7 +5250,7 @@ export default function BookingWizardScreen({ route, navigation }) {
               const cleaned = value.replace(/[^0-9.]/g, "");
               updatePreference("luggageWeightKg", cleaned ? cleaned : "");
             }}
-            placeholder={preferences.luggageBags > 0 ? "Optional total luggage weight" : "Optional"}
+            placeholder="kg"
             placeholderTextColor="#98A2B3"
             style={styles.input}
             keyboardType="decimal-pad"
@@ -4733,6 +5280,34 @@ export default function BookingWizardScreen({ route, navigation }) {
           </TouchableOpacity>
         ))}
       </View>
+
+      {isSelfDrive ? (
+        <View>
+          <Text style={styles.label}>Preferred Vehicle Category</Text>
+          <View style={styles.segmentRow}>
+            {PREFERRED_CATEGORY_OPTIONS.map((item) => (
+              <TouchableOpacity
+                key={item.value}
+                style={[
+                  styles.segment,
+                  normalizedPreferredCategory === item.value && styles.segmentActive,
+                ]}
+                onPress={() => updatePreference("preferredCategory", item.value)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.segmentText,
+                    normalizedPreferredCategory === item.value && styles.segmentTextActive,
+                  ]}
+                >
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      ) : null}
 
       <Text style={styles.label}>Trip Purpose</Text>
       <View style={styles.purposeGrid}>
@@ -4807,16 +5382,16 @@ export default function BookingWizardScreen({ route, navigation }) {
           <Text style={styles.vehicleFitSecondary}>{vehicleFit.luggageMessage}</Text>
         </View>
         <Text style={styles.vehicleRate}>
-          {getVehicleDailyRate(vehicle) ? `${formatPeso(getVehicleDailyRate(vehicle))}/day` : "Rate unavailable"}
+          {formatVehicleDailyRateLabel(vehicle)}
         </Text>
         <TouchableOpacity
           style={styles.bookButton}
-          onPress={() => {
-            setSelectedVehicle(vehicle);
-            setReviewVisible(true);
-          }}
+          onPress={() => handleSelectRecommendedVehicle(vehicle)}
+          disabled={selectedVehicleActionId === vehicleKey}
         >
-          <Text style={styles.bookButtonText}>Book This Vehicle</Text>
+          <Text style={styles.bookButtonText}>
+            {selectedVehicleActionId === vehicleKey ? "Opening Booking..." : "Book This Vehicle"}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -4861,7 +5436,7 @@ export default function BookingWizardScreen({ route, navigation }) {
           </View>
         ) : null}
         <Text style={styles.vehicleRate}>
-          {selectedVehicleRate ? `${formatPeso(selectedVehicleRate)}/day` : "Rate unavailable"}
+          {formatVehicleDailyRateLabel(selectedVehicle)}
         </Text>
       </View>
     </View>
@@ -4871,7 +5446,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     <View style={styles.card}>
       <Text style={styles.cardTitle}>Recommended Vehicles</Text>
       <Text style={styles.cardSubtitle}>
-        Filtered by trip type, passenger count, optional budget, transmission, and current vehicle status where available.
+        Matched using your trip type, schedule, passenger count, optional budget, transmission, current availability, and preferred category when applicable.
       </Text>
 
       {vehiclesLoading ? (
@@ -4882,7 +5457,7 @@ export default function BookingWizardScreen({ route, navigation }) {
         <View style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>No matching vehicles found</Text>
           <Text style={styles.emptyText}>
-            Go back and adjust your passengers, budget preference, or transmission filter.
+            Go back and adjust your passengers, budget, transmission, or preferred category.
           </Text>
         </View>
       )}
@@ -4895,6 +5470,16 @@ export default function BookingWizardScreen({ route, navigation }) {
       <Text style={styles.cardSubtitle}>
         Your selected vehicle is locked in. Review the booking details and continue to confirmation.
       </Text>
+
+      {isPlannerHandoff && !hasPlannerReviewData ? (
+        <View style={styles.inlineNoticeError}>
+          <Ionicons name="alert-circle-outline" size={18} color="#DC2626" />
+          <Text style={styles.inlineNoticeErrorText}>
+            Some trip details are missing. Please go back to Plan My Trip and complete the route,
+            schedule, and trip type before booking this vehicle.
+          </Text>
+        </View>
+      ) : null}
 
       {selectedVehicle && renderSelectedVehicle()}
 
@@ -4922,8 +5507,9 @@ export default function BookingWizardScreen({ route, navigation }) {
       </View>
 
       <TouchableOpacity
-        style={styles.primaryButton}
+        style={[styles.primaryButton, isPlannerHandoff && !hasPlannerReviewData && styles.buttonDisabled]}
         onPress={() => setReviewVisible(true)}
+        disabled={isPlannerHandoff && !hasPlannerReviewData}
       >
         <Text style={styles.primaryButtonText}>Open Booking Review</Text>
       </TouchableOpacity>
@@ -5084,6 +5670,7 @@ export default function BookingWizardScreen({ route, navigation }) {
             }
             statusMessage={locationPicker.statusMessage}
             errorMessage={locationPicker.errorMessage}
+            isLoading={locationPicker.isResolving || Boolean(isOpeningLocationPicker)}
             onClose={closeLocationPicker}
             onConfirm={handleConfirmLocationPin}
           />

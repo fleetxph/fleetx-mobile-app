@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  Modal,
+  Platform,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import MapView, { Marker } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
+import Constants from "expo-constants";
 import {
   GOOGLE_PLACES_CONFIG_MESSAGE,
   hasGooglePlacesApiKey,
@@ -58,14 +68,32 @@ function getBestLocationLabel(location, fallbackLabel = "") {
   return normalizeLabelText(fallbackLabel || location?.address || location?.label || "");
 }
 
-function createLocationState(location, fallbackLabel, defaultRegion, fallbackSource = "manual") {
+function createLocationState(
+  location,
+  fallbackLabel,
+  defaultRegion,
+  fallbackSource = "manual",
+  { useFallbackCoordinates = true } = {}
+) {
   const resolvedLabel = getBestLocationLabel(location, fallbackLabel);
+  const latitudeValue = Number(location?.latitude);
+  const longitudeValue = Number(location?.longitude);
+  const hasExplicitCoordinates =
+    Number.isFinite(latitudeValue) && Number.isFinite(longitudeValue);
 
   return {
     label: resolvedLabel,
     address: resolvedLabel,
-    latitude: Number(location?.latitude ?? defaultRegion.latitude),
-    longitude: Number(location?.longitude ?? defaultRegion.longitude),
+    latitude: hasExplicitCoordinates
+      ? latitudeValue
+      : useFallbackCoordinates
+      ? Number(defaultRegion.latitude)
+      : null,
+    longitude: hasExplicitCoordinates
+      ? longitudeValue
+      : useFallbackCoordinates
+      ? Number(defaultRegion.longitude)
+      : null,
     placeId: String(location?.placeId || "").trim(),
     source: location?.source || fallbackSource,
   };
@@ -93,6 +121,16 @@ function formatCoordinate(value, fallback) {
   return Number.isFinite(numeric) ? numeric.toFixed(4) : fallback;
 }
 
+function hasConfiguredNativeGoogleMapsKey() {
+  const expoConfig = Constants.expoConfig || Constants.manifest2?.extra?.expoClient || {};
+  const configKey = String(
+    expoConfig?.android?.config?.googleMaps?.apiKey ||
+      ""
+  ).trim();
+  const booleanFlag = expoConfig?.extra?.hasNativeGoogleMapsKey === true;
+  return Boolean(configKey || booleanFlag);
+}
+
 export default function LocationPickerModal({
   visible,
   mode = "destination",
@@ -101,6 +139,7 @@ export default function LocationPickerModal({
   initialLabel,
   statusMessage = "",
   errorMessage = "",
+  isLoading = false,
   onClose,
   onConfirm,
 }) {
@@ -111,14 +150,18 @@ export default function LocationPickerModal({
   const title = mode === "pickup" ? "Pin Pickup Location" : "Pin Destination";
   const placeholderLabel = "Selected map location";
   const canReverseGeocode = hasGooglePlacesApiKey();
+  const nativeGoogleMapsConfigured = hasConfiguredNativeGoogleMapsKey();
   const activeLocation = resolvedLocation || initialLocation || null;
   const defaultRegion = useMemo(() => getRegionFromLocation(activeLocation, mode), [activeLocation, mode]);
+  const canRenderMap =
+    Platform.OS !== "android" || __DEV__ || nativeGoogleMapsConfigured;
   const [selectedLocation, setSelectedLocation] = useState(() =>
     createLocationState(
       activeLocation,
       initialLabel,
       defaultRegion,
-      resolvedLocation ? "geocoded" : "manual"
+      resolvedLocation ? "geocoded" : "manual",
+      { useFallbackCoordinates: canRenderMap }
     )
   );
   const [localStatusMessage, setLocalStatusMessage] = useState(statusMessage);
@@ -133,7 +176,8 @@ export default function LocationPickerModal({
       activeLocation,
       initialLabel,
       defaultRegion,
-      resolvedLocation ? "geocoded" : "manual"
+      resolvedLocation ? "geocoded" : "manual",
+      { useFallbackCoordinates: canRenderMap }
     );
 
     setSelectedLocation(nextLocation);
@@ -142,12 +186,13 @@ export default function LocationPickerModal({
       errorMessage ||
         (canReverseGeocode ? "" : GOOGLE_PLACES_CONFIG_MESSAGE)
     );
-  }, [activeLocation, canReverseGeocode, defaultRegion.latitude, defaultRegion.longitude, errorMessage, initialLabel, resolvedLocation, statusMessage]);
+  }, [activeLocation, canRenderMap, canReverseGeocode, defaultRegion.latitude, defaultRegion.longitude, errorMessage, initialLabel, resolvedLocation, statusMessage]);
 
   useEffect(() => {
+    if (!canRenderMap) return;
     if (!visible || !mapRef.current) return;
     mapRef.current.animateToRegion(getRegionFromLocation(selectedLocation, mode), 250);
-  }, [mode, selectedLocation, visible]);
+  }, [canRenderMap, mode, selectedLocation, visible]);
 
   useEffect(() => {
     if (!visible) return undefined;
@@ -269,21 +314,42 @@ export default function LocationPickerModal({
 
             <View style={styles.mapPreviewCard}>
               <View style={styles.mapGrid}>
-                <MapView
-                  ref={mapRef}
-                  style={styles.map}
-                  initialRegion={defaultRegion}
-                  onPress={(event) => updatePinPosition(event.nativeEvent.coordinate)}
-                >
-                  <Marker
-                    coordinate={{
-                      latitude: Number(selectedLocation.latitude || defaultRegion.latitude),
-                      longitude: Number(selectedLocation.longitude || defaultRegion.longitude),
-                    }}
-                    draggable
-                    onDragEnd={(event) => updatePinPosition(event.nativeEvent.coordinate)}
-                  />
-                </MapView>
+                {isLoading ? (
+                  <View style={styles.mapState}>
+                    <ActivityIndicator size="small" color="#F47C20" />
+                    <Text style={styles.mapStateText}>Preparing map...</Text>
+                  </View>
+                ) : canRenderMap ? (
+                  <MapView
+                    ref={mapRef}
+                    style={styles.map}
+                    initialRegion={defaultRegion}
+                    onPress={(event) => updatePinPosition(event.nativeEvent.coordinate)}
+                  >
+                    <Marker
+                      coordinate={{
+                        latitude: Number.isFinite(Number(selectedLocation.latitude))
+                          ? Number(selectedLocation.latitude)
+                          : defaultRegion.latitude,
+                        longitude: Number.isFinite(Number(selectedLocation.longitude))
+                          ? Number(selectedLocation.longitude)
+                          : defaultRegion.longitude,
+                      }}
+                      draggable
+                      onDragEnd={(event) => updatePinPosition(event.nativeEvent.coordinate)}
+                    />
+                  </MapView>
+                ) : (
+                  <View style={styles.mapState}>
+                    <Ionicons name="map-outline" size={24} color="#F47C20" />
+                    <Text style={styles.mapStateText}>
+                      Map pinning is unavailable in this Android build right now.
+                    </Text>
+                    <Text style={styles.mapStateSubtext}>
+                      You can continue using the manual pickup or destination address field.
+                    </Text>
+                  </View>
+                )}
               </View>
             </View>
 

@@ -57,6 +57,26 @@ export const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  mapState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  mapStateText: {
+    color: colors.heading,
+    fontSize: 14,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  mapStateSubtext: {
+    color: colors.subtext,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "600",
+    textAlign: "center",
+  },
   previewCard: {
     borderRadius: 18,
     backgroundColor: "#FFFFFF",

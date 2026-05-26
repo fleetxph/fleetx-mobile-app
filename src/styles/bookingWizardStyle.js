@@ -742,6 +742,60 @@ export const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 12,
   },
+  pickupModeOptions: {
+    gap: 12,
+    marginBottom: 10,
+  },
+  pickupModeCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    backgroundColor: "#FFFFFF",
+  },
+  pickupModeCardActive: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accentSoft,
+  },
+  pickupModeIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFF7ED",
+    borderWidth: 1,
+    borderColor: "#FED7AA",
+  },
+  pickupModeIconActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  pickupModeBody: {
+    flex: 1,
+  },
+  pickupModeTitle: {
+    color: colors.heading,
+    fontSize: 15,
+    fontWeight: "900",
+    lineHeight: 20,
+    marginBottom: 4,
+  },
+  pickupModeTitleActive: {
+    color: "#9A3412",
+  },
+  pickupModeDescription: {
+    color: colors.subtext,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  pickupModeDescriptionActive: {
+    color: "#9A3412",
+  },
   segment: {
     flex: 1,
     minWidth: 92,
