@@ -15,15 +15,14 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
+import { getFriendlyApiErrorMessage } from "../api/api";
 import { getClientBookings, getClientProfile, getNotifications, getVehicles } from "../api/clientApi";
 import { getActivePromo } from "../api/publicApi";
 import NotificationIcon from "../components/NotificationIcon";
 import { styles } from "../styles/clientDashboardStyle";
 import { getProfileImageUrl, getVehicleImageUrl } from "../utils/imageUrl";
-import {
-  detectBookingStatusChanges,
-  getUnreadLocalNotificationCount,
-} from "../services/notificationService";
+import { formatVehicleDailyRateLabel, getVehicleDailyRate } from "../utils/vehicleRate";
+import { getUnreadLocalNotificationCount } from "../services/notificationService";
 
 const vehicleTypes = [
   { key: "suv", label: "SUV" },
@@ -52,6 +51,7 @@ const QUICK_ACCESS_ITEMS = [
       }),
   },
 ];
+const DASHBOARD_VEHICLE_CACHE_KEY = "fleetx_dashboard_vehicles_cache_v1";
 
 const HOME_CAMPAIGN_BANNER = {
   label: "FLEETX PROMO",
@@ -145,6 +145,22 @@ export default function ClientDashboard({ navigation }) {
         console.log("[PromoBanner][fetch:start]");
       }
       await loadCachedProfile();
+      try {
+        const cachedVehiclesRaw =
+          Platform.OS === "web"
+            ? window.localStorage.getItem(DASHBOARD_VEHICLE_CACHE_KEY)
+            : await AsyncStorage.getItem(DASHBOARD_VEHICLE_CACHE_KEY);
+        if (cachedVehiclesRaw) {
+          const parsedVehicles = JSON.parse(cachedVehiclesRaw);
+          if (Array.isArray(parsedVehicles) && parsedVehicles.length) {
+            setDashboardVehicles(parsedVehicles);
+            setFeaturedVehicles(parsedVehicles.slice(0, 8));
+          }
+        }
+      } catch {
+        // Ignore cache parsing issues and continue with live refresh.
+      }
+
       const token =
         Platform.OS === "web"
           ? window.localStorage.getItem("clientToken") || window.localStorage.getItem("token")
@@ -200,6 +216,17 @@ export default function ClientDashboard({ navigation }) {
       );
       setDashboardVehicles(backendVehicles);
       setFeaturedVehicles(backendVehicles.slice(0, 8));
+      if (Platform.OS === "web") {
+        window.localStorage.setItem(
+          DASHBOARD_VEHICLE_CACHE_KEY,
+          JSON.stringify(backendVehicles)
+        );
+      } else {
+        await AsyncStorage.setItem(
+          DASHBOARD_VEHICLE_CACHE_KEY,
+          JSON.stringify(backendVehicles)
+        );
+      }
       setUnreadCount(getUnreadCountFromResponse(notificationRes) + localUnreadCount);
       setActivePromo(promoRes || null);
 
@@ -228,15 +255,14 @@ export default function ClientDashboard({ navigation }) {
         });
       }
 
-      if (hasToken) {
-        await detectBookingStatusChanges(
-          Array.isArray(bookingsRes?.bookings) ? bookingsRes.bookings : []
-        );
-      }
     } catch (err) {
       console.log("Load dashboard data error:", err?.response?.data || err.message);
-      setDashboardVehicles([]);
-      setFeaturedVehicles([]);
+      if (__DEV__) {
+        console.log(
+          "[Dashboard][friendly-error]",
+          getFriendlyApiErrorMessage(err, "Dashboard data is temporarily unavailable.")
+        );
+      }
       setUnreadCount(await getUnreadLocalNotificationCount());
       setActivePromo(null);
     } finally {
@@ -262,19 +288,6 @@ export default function ClientDashboard({ navigation }) {
   const getVehicleMeta = (vehicle) => {
     const seats = vehicle.seats || `${vehicle.seater || "N/A"} seats`;
     return [seats, vehicle.transmission, vehicle.fuel].filter(Boolean).join(" - ");
-  };
-
-  const getVehicleRate = (vehicle) => {
-    const value = Number(
-      vehicle?.rate24Hr ??
-        vehicle?.dailyRate ??
-        vehicle?.price ??
-        vehicle?.rate ??
-        vehicle?.rentalPrice ??
-        NaN
-    );
-
-    return Number.isFinite(value) && value > 0 ? value : null;
   };
 
   const formatPeso = (value) => `PHP ${Math.round(Number(value || 0)).toLocaleString()}`;
@@ -317,7 +330,7 @@ export default function ClientDashboard({ navigation }) {
   const promoButtonLabel =
     promoBanner.ctaLabel ||
     (promoVehicle || promoBanner.vehicleId ? "Book Promo Vehicle" : HOME_CAMPAIGN_BANNER.cta);
-  const promoVehicleRate = getVehicleRate(promoVehicle);
+  const promoVehicleRate = getVehicleDailyRate(promoVehicle);
   const promoVehicleMeta = promoVehicle ? getVehicleMeta(promoVehicle) : "";
 
   const openPromoTarget = (target = "banner") => {
@@ -733,7 +746,7 @@ export default function ClientDashboard({ navigation }) {
 
                     <View style={styles.vehicleFooter}>
                       <Text style={styles.vehiclePrice}>
-                        PHP {Number(vehicle.dailyRate || 0).toLocaleString()}/day
+                        {formatVehicleDailyRateLabel(vehicle)}
                       </Text>
                       <Text style={styles.vehicleButtonText}>View</Text>
                     </View>

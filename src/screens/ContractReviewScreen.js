@@ -99,6 +99,12 @@ function shouldShowPendingContractReview(message) {
   );
 }
 
+function isContractAcceptTimeout(error) {
+  const code = String(error?.code || "").toUpperCase();
+  const message = String(error?.message || "").toLowerCase();
+  return code === "ECONNABORTED" || message.includes("timeout") || message.includes("timed out");
+}
+
 function getContractTemplateNotice() {
   return "Generated from the current rental contract template using your booking details.";
 }
@@ -245,6 +251,7 @@ export default function ContractReviewScreen({ navigation, route }) {
   const [contractTemplate, setContractTemplate] = useState(null);
   const [contractLoading, setContractLoading] = useState(true);
   const [contractAccepting, setContractAccepting] = useState(false);
+  const [contractAcceptTimedOut, setContractAcceptTimedOut] = useState(false);
   const [contractError, setContractError] = useState("");
   const [contractSubmitError, setContractSubmitError] = useState("");
   const [contractNotice, setContractNotice] = useState("");
@@ -642,6 +649,7 @@ export default function ContractReviewScreen({ navigation, route }) {
       }
 
       setContractAccepting(true);
+      setContractAcceptTimedOut(false);
       setContractSubmitError("");
       setContractError("");
       const acceptedAt = new Date().toISOString();
@@ -773,6 +781,65 @@ export default function ContractReviewScreen({ navigation, route }) {
         },
       ]);
     } catch (error) {
+      if (isContractAcceptTimeout(error)) {
+        try {
+          const detailResponse = await getClientBookingById(bookingId, { rawResponse: true });
+          const refreshedBooking = extractBookingFromResponse(detailResponse?.data);
+          const refreshedAcceptance = getContractAcceptanceState(refreshedBooking, null);
+
+          if (refreshedBooking && refreshedAcceptance.contractAccepted) {
+            const acceptedBooking = mergeBookingData(booking, refreshedBooking);
+            const confirmedAcceptedAt =
+              refreshedAcceptance.acceptedAt ||
+              refreshedBooking.contractAcceptedAt ||
+              new Date().toISOString();
+
+            setBooking(acceptedBooking);
+            setContractAcceptTimedOut(false);
+            setContractSubmitError("");
+            DeviceEventEmitter.emit("contractAccepted", {
+              bookingId,
+              acceptedAt: confirmedAcceptedAt,
+              updatedBooking: acceptedBooking,
+            });
+
+            Alert.alert(
+              "Contract accepted",
+              "Your contract acceptance was saved. You can now upload your payment proof.",
+              [
+                {
+                  text: "OK",
+                  onPress: () => {
+                    navigation.navigate({
+                      name: route?.params?.sourceRoute || "PaymentInstructions",
+                      params: {
+                        booking: acceptedBooking,
+                        bookingId,
+                        bookingReference,
+                        contractAccepted: true,
+                        refreshBooking: true,
+                      },
+                      merge: true,
+                    });
+                  },
+                },
+              ]
+            );
+            return;
+          }
+        } catch (refreshError) {
+          logBookingDocsError("contractAcceptRefresh", refreshError);
+        }
+
+        const timeoutMessage =
+          "Contract acceptance is taking longer than expected. Please tap Retry.";
+        setContractAcceptTimedOut(true);
+        setContractSubmitError(timeoutMessage);
+        logBookingDocsError("contractAccept", error);
+        Alert.alert("Acceptance taking longer than expected", timeoutMessage);
+        return;
+      }
+
       const message = getFriendlyContractErrorMessage(
         error,
         "Unable to accept contract. Please try again."
@@ -787,6 +854,7 @@ export default function ContractReviewScreen({ navigation, route }) {
         });
       }
       logBookingDocsError("contractAccept", error);
+      setContractAcceptTimedOut(false);
       setContractSubmitError(message);
       Alert.alert("Unable to accept contract", message);
     } finally {
@@ -961,7 +1029,11 @@ export default function ContractReviewScreen({ navigation, route }) {
               onPress={handleAcceptContract}
             >
               <Text style={styles.primaryButtonText}>
-                {contractAccepting ? "Accepting..." : "Accept Contract"}
+                {contractAccepting
+                  ? "Accepting..."
+                  : contractAcceptTimedOut
+                  ? "Retry Accept Contract"
+                  : "Accept Contract"}
               </Text>
             </TouchableOpacity>
           </View>

@@ -1,11 +1,24 @@
+import Constants from "expo-constants";
 import axios from "axios";
 
 export const GOOGLE_PLACES_CONFIG_MESSAGE =
-  "Google Places is not configured. Add EXPO_PUBLIC_GOOGLE_MAPS_API_KEY to enable suggestions and address lookup.";
+  "Location search is unavailable right now. You can still enter the address manually.";
+
+function getExpoConfigGoogleMapsKey() {
+  const expoConfig = Constants.expoConfig || Constants.manifest2?.extra?.expoClient || {};
+  return String(
+    expoConfig?.extra?.googleMapsPublicApiKey ||
+      expoConfig?.extra?.expoPublicGoogleMapsApiKey ||
+      ""
+  ).trim();
+}
+
+const EXPO_CONFIG_GOOGLE_MAPS_API_KEY = getExpoConfigGoogleMapsKey();
 
 const GOOGLE_ENV_CANDIDATES = [
   ["EXPO_PUBLIC_GOOGLE_MAPS_API_KEY", process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY],
   ["EXPO_PUBLIC_GOOGLE_PLACES_API_KEY", process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY],
+  ["expo.extra.googleMapsPublicApiKey", EXPO_CONFIG_GOOGLE_MAPS_API_KEY],
   ["GOOGLE_MAPS_API_KEY", process.env.GOOGLE_MAPS_API_KEY],
   ["GOOGLE_PLACES_API_KEY", process.env.GOOGLE_PLACES_API_KEY],
   ["REACT_APP_GOOGLE_MAPS_API_KEY", process.env.REACT_APP_GOOGLE_MAPS_API_KEY],
@@ -69,7 +82,9 @@ function ensureGoogleApiKey() {
 
   if (__DEV__ && !hasWarnedMissingGoogleKey) {
     hasWarnedMissingGoogleKey = true;
-    console.log(`[Location] ${GOOGLE_PLACES_CONFIG_MESSAGE}`);
+    console.warn(
+      "[GooglePlaces] Missing Google Maps API key. Set EXPO_PUBLIC_GOOGLE_MAPS_API_KEY for local runs and in EAS before rebuilding Android."
+    );
   }
 
   throw createGoogleApiError("GOOGLE_MAPS_KEY_MISSING", GOOGLE_PLACES_CONFIG_MESSAGE);

@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import api from "../api/api";
+import { getFriendlyApiErrorMessage } from "../api/api";
 import { styles } from "../styles/authStyle";
 import LoadingOverlay from "../components/LoadingOverlay";
 import {
@@ -135,7 +136,10 @@ export default function RegisterClient({ navigation }) {
         message: "Account created. Please check your email for verification.",
       });
     } catch (err) {
-      const message = err?.response?.data?.message || err.message || "Unable to create account right now. Please try again.";
+      const message = getFriendlyApiErrorMessage(
+        err,
+        "Unable to create account right now. Please try again."
+      );
       const mappedError = mapApiFieldError(message, "register");
 
       if (mappedError?.field) {

@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "FleetX",
-    "slug": "mobile-app-clean",
+    "slug": "fleetx",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
@@ -50,9 +50,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "abde5794-357f-4205-82fc-bb240ffa397b"
+        "projectId": "a363c64d-73b7-4944-830a-9f1a4ac360ff"
       }
     },
-    "owner": ""
+    "owner": "kenjie04s-organization"
   }
 }

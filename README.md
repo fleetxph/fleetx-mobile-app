@@ -2,6 +2,17 @@
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
+## FleetX build environment
+
+Set these Expo public variables locally and in the EAS environment used to build an APK:
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=https://fleetx-backend-u4k6.onrender.com/api
+EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=your-google-maps-key
+```
+
+`EXPO_PUBLIC_API_BASE_URL` controls mobile API calls in release builds. If it is absent, the app keeps the current Render API URL as a compatibility fallback.
+
 ## Get started
 
 1. Install dependencies

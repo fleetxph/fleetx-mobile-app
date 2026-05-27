@@ -12,6 +12,7 @@ import {
   SafeAreaView,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { getFriendlyApiErrorMessage } from "../api/api";
 import { loginClient } from "../api/clientApi";
 import { styles } from "../styles/authStyle";
 import LoadingOverlay from "../components/LoadingOverlay";
@@ -74,7 +75,10 @@ function buildGuestResumeTarget(pending) {
 
 function getFriendlyLoginMessage(error) {
   if (!error?.response) {
-    return "Connection problem. Please check your internet and try again.";
+    return getFriendlyApiErrorMessage(
+      error,
+      "Connection problem. Please check your internet and try again."
+    );
   }
 
   const status = error.response?.status;
@@ -112,7 +116,10 @@ function getFriendlyLoginMessage(error) {
     return "Server rejected login";
   }
 
-  return rawMessage || "Unable to sign in right now. Please try again.";
+  return getFriendlyApiErrorMessage(
+    error,
+    rawMessage || "Unable to sign in right now. Please try again."
+  );
 }
 
 export default function LoginClient({ navigation, route }) {

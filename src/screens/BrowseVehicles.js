@@ -12,11 +12,14 @@ import {
   ScrollView,
   useWindowDimensions,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather, Ionicons } from "@expo/vector-icons";
+import { getFriendlyApiErrorMessage } from "../api/api";
 import { getVehicles } from "../api/clientApi";
 import { styles } from "../styles/browseVehiclesStyle";
 import { getVehicleImageUrl } from "../utils/imageUrl";
 import { formatLuggageSummary, getVehicleLuggageFit } from "../utils/luggageFit";
+import { formatVehicleDailyRateLabel, getVehicleDailyRate } from "../utils/vehicleRate";
 
 const PAGE_SIZE = 10;
 const VEHICLE_TYPE_OPTIONS = ["All Types", "Sedan", "SUV", "Van", "Pickup", "MPV"];
@@ -43,6 +46,7 @@ const SORT_OPTIONS = [
   "Seats: Low to High",
   "Seats: High to Low",
 ];
+const VEHICLE_CACHE_KEY = "fleetx_public_vehicles_cache_v1";
 
 const createDefaultFilters = (vehicleType = "All Types") => ({
   vehicleType,
@@ -55,19 +59,6 @@ const createDefaultFilters = (vehicleType = "All Types") => ({
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
-}
-
-function getVehicleRate(vehicle) {
-  const rawRate = Number(
-    vehicle?.dailyRate ??
-      vehicle?.price ??
-      vehicle?.rate24Hr ??
-      vehicle?.rate12Hr ??
-      vehicle?.rentalPrice ??
-      0
-  );
-
-  return Number.isFinite(rawRate) ? rawRate : 0;
 }
 
 function getSeatCount(vehicle) {
@@ -121,6 +112,8 @@ export default function BrowseVehicles({ navigation, route }) {
   );
 
   const [vehicles, setVehicles] = useState([]);
+  const [vehiclesLoading, setVehiclesLoading] = useState(true);
+  const [loadMessage, setLoadMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOption, setSortOption] = useState("Recommended");
   const [filtersVisible, setFiltersVisible] = useState(false);
@@ -133,9 +126,20 @@ export default function BrowseVehicles({ navigation, route }) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [failedImages, setFailedImages] = useState({});
   const isCompactHero = width < 380;
+  const vehicleCacheKey = `${VEHICLE_CACHE_KEY}:${tripData?.startDate || "none"}:${tripData?.endDate || "none"}`;
 
   const loadVehicles = async () => {
     try {
+      setVehiclesLoading(true);
+      setLoadMessage("");
+      const cachedVehicles = await AsyncStorage.getItem(vehicleCacheKey);
+      if (cachedVehicles) {
+        const parsed = JSON.parse(cachedVehicles);
+        if (Array.isArray(parsed) && parsed.length) {
+          setVehicles(parsed);
+        }
+      }
+
       const res = await getVehicles({
         startDate: tripData?.startDate,
         endDate: tripData?.endDate,
@@ -146,8 +150,17 @@ export default function BrowseVehicles({ navigation, route }) {
         ? res
         : [];
       setVehicles(nextVehicles);
+      await AsyncStorage.setItem(vehicleCacheKey, JSON.stringify(nextVehicles));
     } catch (err) {
       console.log("Load vehicles error:", err?.response?.data || err.message);
+      setLoadMessage(
+        getFriendlyApiErrorMessage(
+          err,
+          "Could not load vehicles right now. Please try again."
+        )
+      );
+    } finally {
+      setVehiclesLoading(false);
     }
   };
 
@@ -201,7 +214,7 @@ export default function BrowseVehicles({ navigation, route }) {
 
     if (filters.priceRange !== "All") {
       result = result.filter((vehicle) => {
-        const rate = getVehicleRate(vehicle);
+        const rate = getVehicleDailyRate(vehicle) || 0;
 
         if (filters.priceRange === "Under PHP 2,000") return rate > 0 && rate < 2000;
         if (filters.priceRange === "PHP 2,000 - PHP 4,000") return rate >= 2000 && rate <= 4000;
@@ -249,7 +262,10 @@ export default function BrowseVehicles({ navigation, route }) {
 
       if (hasBudgetPreference(tripData.budget)) {
         result = result.filter(
-          (vehicle) => Number(vehicle.dailyRate || 0) <= Number(tripData.budget)
+          (vehicle) => {
+            const rate = getVehicleDailyRate(vehicle);
+            return rate !== null && rate <= Number(tripData.budget);
+          }
         );
       }
 
@@ -263,9 +279,9 @@ export default function BrowseVehicles({ navigation, route }) {
     }
 
     if (sortOption === "Price: Low to High") {
-      result.sort((a, b) => getVehicleRate(a) - getVehicleRate(b));
+      result.sort((a, b) => Number(getVehicleDailyRate(a) || 0) - Number(getVehicleDailyRate(b) || 0));
     } else if (sortOption === "Price: High to Low") {
-      result.sort((a, b) => getVehicleRate(b) - getVehicleRate(a));
+      result.sort((a, b) => Number(getVehicleDailyRate(b) || 0) - Number(getVehicleDailyRate(a) || 0));
     } else if (sortOption === "Seats: Low to High") {
       result.sort((a, b) => getSeatCount(a) - getSeatCount(b));
     } else if (sortOption === "Seats: High to Low") {
@@ -479,7 +495,7 @@ export default function BrowseVehicles({ navigation, route }) {
           </View>
 
           <View style={styles.priceRow}>
-            <Text style={styles.price}>PHP {getVehicleRate(item).toLocaleString()}/day</Text>
+            <Text style={styles.price}>{formatVehicleDailyRateLabel(item)}</Text>
           </View>
         </View>
       </TouchableOpacity>
@@ -638,13 +654,18 @@ export default function BrowseVehicles({ navigation, route }) {
         ) : null}
       </View>
 
-      <View style={styles.resultRow}>
-        <Text style={styles.resultText}>
-          {filteredVehicles.length} result
-          {filteredVehicles.length !== 1 ? "s" : ""}
-        </Text>
+        <View style={styles.resultRow}>
+          <Text style={styles.resultText}>
+            {filteredVehicles.length} result
+            {filteredVehicles.length !== 1 ? "s" : ""}
+          </Text>
+        </View>
+        {!!loadMessage ? (
+          <View style={styles.emptyStateCard}>
+            <Text style={styles.emptyText}>{loadMessage}</Text>
+          </View>
+        ) : null}
       </View>
-    </View>
   );
 
   const renderFooter = () => {
@@ -687,17 +708,28 @@ export default function BrowseVehicles({ navigation, route }) {
           ListFooterComponent={renderFooter}
           ListEmptyComponent={
             <View style={styles.emptyStateCard}>
-              <Text style={styles.emptyTitle}>No vehicles match your filters.</Text>
-              <Text style={styles.emptyText}>
-                Try adjusting your search or clearing filters.
-              </Text>
-              <TouchableOpacity
-                style={styles.emptyStateButton}
-                activeOpacity={0.9}
-                onPress={clearAllFilters}
-              >
-                <Text style={styles.emptyStateButtonText}>Clear Filters</Text>
-              </TouchableOpacity>
+              {vehiclesLoading ? (
+                <>
+                  <Text style={styles.emptyTitle}>Loading vehicles...</Text>
+                  <Text style={styles.emptyText}>
+                    FleetX is preparing the latest available vehicles for you.
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.emptyTitle}>No vehicles match your filters.</Text>
+                  <Text style={styles.emptyText}>
+                    Try adjusting your search or clearing filters.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.emptyStateButton}
+                    activeOpacity={0.9}
+                    onPress={clearAllFilters}
+                  >
+                    <Text style={styles.emptyStateButtonText}>Clear Filters</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           }
         />

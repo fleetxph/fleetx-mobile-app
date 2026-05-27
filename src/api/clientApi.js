@@ -1,6 +1,7 @@
 import api, { BASE_URL } from "./api";
 
 const ROUTE_VALIDATION_TIMEOUT_MS = 7000;
+const CONTRACT_ACCEPT_TIMEOUT_MS = 45000;
 
 export async function loginClient(payload) {
   const url = `${BASE_URL}/client/login`;
@@ -86,7 +87,7 @@ export async function updateClientProfilePhoto(payload) {
 export async function getVehicles(params = {}) {
   const requestParams = {
     page: 1,
-    limit: 1000,
+    limit: 100,
     ...params,
   };
   const query = Object.fromEntries(
@@ -216,6 +217,19 @@ export async function clearNotifications() {
   return response.data;
 }
 
+export async function registerPushToken(token, platform = "", deviceId = "") {
+  const response = await api.post("/client/push-token", { token, platform, deviceId });
+  return response.data;
+}
+
+export async function removePushToken(token) {
+  const response = await api.delete("/client/push-token", {
+    data: { token },
+    timeout: 3000,
+  });
+  return response.data;
+}
+
 export async function submitPaymentProof(bookingId, payload) {
   const response = await api.post(`/client/bookings/${bookingId}/payment-proof`, payload);
   return response.data;
@@ -246,7 +260,9 @@ export async function getContractTemplate(options = {}) {
 }
 
 export async function acceptBookingContract(bookingId, payload = {}, options = {}) {
-  const response = await api.post(`/client/bookings/${bookingId}/contract/accept`, payload);
+  const response = await api.post(`/client/bookings/${bookingId}/contract/accept`, payload, {
+    timeout: CONTRACT_ACCEPT_TIMEOUT_MS,
+  });
   return options?.rawResponse ? response : response.data;
 }
 

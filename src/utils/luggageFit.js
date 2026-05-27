@@ -24,10 +24,33 @@ export function normalizeLuggageDetails(input = {}) {
   };
 }
 
+function formatLuggageSizeLabel(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (!normalized || ["not_sure_yet", "notsureyet", "notsure", "unknown"].includes(normalized)) {
+    return "";
+  }
+  if (normalized === "small") return "Small";
+  if (normalized === "medium") return "Medium";
+  if (normalized === "large") return "Large";
+  if (["extra_large", "extralarge", "xl", "xlarge"].includes(normalized)) {
+    return "Extra Large";
+  }
+  if (["mixed_sizes", "mixedsize", "mixed"].includes(normalized)) {
+    return "Mixed sizes";
+  }
+
+  return String(value || "").trim();
+}
+
 export function formatLuggageSummary(input = {}) {
   const { luggageBags, luggageSize, luggageWeightKg } = normalizeLuggageDetails(input);
+  const luggageSizeLabel = formatLuggageSizeLabel(luggageSize);
 
-  if (!luggageBags && !luggageSize && luggageWeightKg === "") {
+  if (!luggageBags && !luggageSizeLabel && luggageWeightKg === "") {
     return "None specified";
   }
 
@@ -37,8 +60,8 @@ export function formatLuggageSummary(input = {}) {
     parts.push(`${luggageBags} ${luggageBags === 1 ? "bag" : "bags"}`);
   }
 
-  if (luggageSize) {
-    parts.push(luggageSize);
+  if (luggageSizeLabel) {
+    parts.push(luggageSizeLabel);
   }
 
   if (luggageWeightKg !== "") {

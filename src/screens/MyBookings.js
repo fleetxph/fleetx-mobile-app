@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { isUnauthorizedError } from "../api/api";
+import { getFriendlyApiErrorMessage, isUnauthorizedError } from "../api/api";
 import {
   cancelClientBooking,
   getClientBookings,
@@ -40,8 +40,6 @@ import {
   isAwaitingPaymentBooking,
 } from "../utils/bookingPaymentDisplay";
 import {
-  detectBookingStatusChanges,
-  notifyWithVibration,
   syncStoredBookingStatusSnapshot,
 } from "../services/notificationService";
 
@@ -136,13 +134,15 @@ export default function MyBookings({ navigation }) {
         const res = await getClientBookings();
         const nextBookings = Array.isArray(res?.bookings) ? res.bookings : [];
         setBookings(nextBookings);
-        await detectBookingStatusChanges(nextBookings);
       } catch (err) {
         if (isUnauthorizedError(err)) {
           navigation.replace("ClientLogin");
           return;
         }
-        Alert.alert("Could not load bookings", err?.response?.data?.message || "Please try again.");
+        Alert.alert(
+          "Could not load bookings",
+          getFriendlyApiErrorMessage(err, "Please try again.")
+        );
         setBookings([]);
       } finally {
         setLoading(false);
@@ -221,7 +221,10 @@ export default function MyBookings({ navigation }) {
         tripData: res?.booking || booking,
       });
     } catch (err) {
-      Alert.alert("Could not continue booking", err?.response?.data?.message || "Please try again.");
+      Alert.alert(
+        "Could not continue booking",
+        getFriendlyApiErrorMessage(err, "Please try again.")
+      );
     }
   };
 
@@ -244,18 +247,12 @@ export default function MyBookings({ navigation }) {
                 ? { ...booking, ...updatedBooking }
                 : { ...booking, status: "cancelled", bookingStatus: "cancelled" },
             ]);
-            await notifyWithVibration({
-              title: "Booking cancelled",
-              body: "Your booking has been cancelled.",
-              data: {
-                bookingId,
-                bookingReference: getReferenceNo(booking),
-                notificationType: "booking_cancelled",
-              },
-            });
             await loadBookings("refresh");
           } catch (err) {
-            Alert.alert("Cancel failed", err?.response?.data?.message || "Please try again.");
+            Alert.alert(
+              "Cancel failed",
+              getFriendlyApiErrorMessage(err, "Please try again.")
+            );
           }
         },
       },

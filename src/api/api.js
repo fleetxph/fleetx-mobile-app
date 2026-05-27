@@ -1,9 +1,11 @@
 import axios from "axios";
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Constants from "expo-constants";
 
 const ENV_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ||
+  Constants.expoConfig?.extra?.apiBaseUrl ||
   process.env.REACT_APP_API_BASE_URL ||
   "";
 
@@ -15,6 +17,8 @@ export const BASE_URL = String(ENV_BASE_URL || DEFAULT_BASE_URL)
   .replace(/\/+$/, "");
 export const API_BASE_URL = BASE_URL;
 export const BACKEND_ORIGIN = BASE_URL.replace(/\/api\/?$/, "");
+const DEFAULT_TIMEOUT_MESSAGE =
+  "Server is starting. Please try again in a few seconds.";
 const sessionExpiredListeners = new Set();
 
 function buildDebugUrl(config = {}) {
@@ -37,6 +41,7 @@ const PROTECTED_PREFIXES = [
   "/client/bookings",
   "/client/profile",
   "/client/verification",
+  "/client/push-token",
   "/client/change-password",
   "/client/change-email",
   "/notifications",
@@ -105,6 +110,35 @@ export function isUnauthorizedError(error) {
     message.includes("expired token") ||
     message.includes("invalid or expired token")
   );
+}
+
+export function isLikelyServerStartingError(error) {
+  const code = String(error?.code || "").toUpperCase();
+  const status = Number(error?.response?.status || 0);
+  const message = String(
+    error?.response?.data?.message || error?.message || ""
+  ).toLowerCase();
+
+  return (
+    code === "ECONNABORTED" ||
+    message.includes("timeout") ||
+    message.includes("network error") ||
+    message.includes("failed to fetch") ||
+    status === 502 ||
+    status === 503 ||
+    status === 504
+  );
+}
+
+export function getFriendlyApiErrorMessage(
+  error,
+  fallbackMessage = "Something went wrong. Please try again."
+) {
+  if (isLikelyServerStartingError(error)) {
+    return DEFAULT_TIMEOUT_MESSAGE;
+  }
+
+  return String(error?.response?.data?.message || error?.message || fallbackMessage);
 }
 
 const api = axios.create({
@@ -190,5 +224,21 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+export async function warmUpBackend() {
+  try {
+    await api.get("/health", {
+      timeout: 6000,
+      headers: { "Cache-Control": "no-cache" },
+    });
+  } catch (error) {
+    if (__DEV__) {
+      console.log("[API][warmup:warning]", {
+        message: error?.message || "Unknown warm-up error",
+        code: error?.code || "",
+      });
+    }
+  }
+}
 
 export default api;

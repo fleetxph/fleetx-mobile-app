@@ -4,16 +4,20 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import { getBookingStatusMeta } from "../utils/bookingStatusDisplay";
+import { registerPushToken, removePushToken } from "../api/clientApi";
 
 const PUSH_TOKEN_KEY = "expoPushToken";
+const PUSH_DEVICE_ID_KEY = "expoPushDeviceId";
 const PERMISSION_STATUS_KEY = "notificationPermissionStatus";
 const PERMISSION_ASKED_KEY = "notificationPermissionAsked";
 const LOCAL_NOTIFICATION_INBOX_KEY = "localNotificationInbox";
 const BOOKING_STATUS_SNAPSHOT_KEY = "bookingStatusSnapshot";
+const LAST_REMOTE_NOTIFICATION_RESPONSE_KEY = "lastRemoteNotificationResponse";
 const MAX_LOCAL_NOTIFICATION_ITEMS = 50;
 const DEFAULT_VIBRATION_PATTERN = Platform.OS === "android" ? [0, 180] : 180;
 
 let notificationsConfigured = false;
+let notificationResponseSubscription = null;
 
 function normalizeLower(value) {
   return String(value || "").trim().toLowerCase();
@@ -222,6 +226,26 @@ export async function configureNotifications() {
       });
     }
 
+    if (!notificationResponseSubscription) {
+      notificationResponseSubscription = Notifications.addNotificationResponseReceivedListener(
+        (response) => {
+          const data = response?.notification?.request?.content?.data || {};
+          setStoredJson(LAST_REMOTE_NOTIFICATION_RESPONSE_KEY, {
+            data,
+            receivedAt: new Date().toISOString(),
+          }).catch(() => {});
+        }
+      );
+    }
+
+    const initialResponse = await Notifications.getLastNotificationResponseAsync();
+    if (initialResponse?.notification?.request?.content?.data) {
+      await setStoredJson(LAST_REMOTE_NOTIFICATION_RESPONSE_KEY, {
+        data: initialResponse.notification.request.content.data,
+        receivedAt: new Date().toISOString(),
+      });
+    }
+
     notificationsConfigured = true;
     return true;
   } catch (error) {
@@ -367,26 +391,67 @@ export async function clearStoredPushToken() {
   await removeStoredItem(PUSH_TOKEN_KEY);
 }
 
+async function getPushDeviceId() {
+  const storedId = await getStoredItem(PUSH_DEVICE_ID_KEY);
+  if (storedId) return storedId;
+
+  const generatedId = `fleetx-${Platform.OS}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 12)}`;
+  await setStoredItem(PUSH_DEVICE_ID_KEY, generatedId);
+  return generatedId;
+}
+
 export async function maybeSyncPushTokenToBackend(token) {
   const hasToken = Boolean(String(token || "").trim());
+  if (!hasToken) return { attempted: false, success: false, hasToken };
 
-  // TODO: Sync the Expo push token to the backend when a mobile endpoint is added.
-  const result = {
-    attempted: false,
-    success: false,
-    endpointFound: false,
-    hasToken,
-  };
+  const deviceId = await getPushDeviceId();
+  let success = false;
+
+  for (let attempt = 0; attempt < 2 && !success; attempt += 1) {
+    try {
+      await registerPushToken(token, Platform.OS, deviceId);
+      success = true;
+    } catch (error) {
+      if (__DEV__) {
+        console.log("[PushNotifications][sync:error]", {
+          attempt: attempt + 1,
+          status: error?.response?.status || null,
+          message: error?.message || "Unknown error",
+        });
+      }
+    }
+  }
+
+  const result = { attempted: true, success, hasToken };
 
   if (__DEV__) {
     console.log("[PushNotifications][sync]", {
       attempted: result.attempted,
       success: result.success,
-      endpointFound: result.endpointFound,
     });
   }
 
   return result;
+}
+
+export async function unregisterPushNotificationsForSession() {
+  const token = await getStoredPushToken();
+  if (token) {
+    try {
+      await removePushToken(token);
+    } catch (error) {
+      if (__DEV__) {
+        console.log("[PushNotifications][remove]", {
+          success: false,
+          message: error?.message || "Unknown error",
+        });
+      }
+    }
+  }
+
+  await clearStoredPushToken();
 }
 
 export async function initializePushNotificationsForSession() {

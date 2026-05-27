@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { isUnauthorizedError } from "../api/api";
+import { getFriendlyApiErrorMessage, isUnauthorizedError } from "../api/api";
 import { getClientProfile, updateClientProfile } from "../api/clientApi";
 import { styles } from "../styles/personalInfoStyle";
 import { getProfileImageUrl } from "../utils/imageUrl";
@@ -46,6 +46,22 @@ export default function PersonalInfoScreen({ navigation }) {
   const loadProfile = async () => {
     try {
       setLoading(true);
+      try {
+        const rawStoredUser = await AsyncStorage.getItem("clientUser");
+        const storedUser = rawStoredUser ? JSON.parse(rawStoredUser) : null;
+
+        if (storedUser) {
+          setUser(storedUser);
+          setForm({
+            contactNumber:
+              storedUser?.contact || storedUser?.phone || storedUser?.mobile || "",
+            address: storedUser?.address || storedUser?.location || "",
+          });
+        }
+      } catch {
+        // Ignore malformed cache and continue with live profile fetch.
+      }
+
       const data = await getClientProfile();
       const nextUser = data?.user || null;
       setUser(nextUser);
@@ -66,7 +82,10 @@ export default function PersonalInfoScreen({ navigation }) {
         return;
       }
 
-      Alert.alert("Load failed", err?.response?.data?.message || "Could not load profile.");
+      Alert.alert(
+        "Load failed",
+        getFriendlyApiErrorMessage(err, "Could not load profile.")
+      );
       navigation.goBack();
     } finally {
       setLoading(false);
@@ -147,7 +166,7 @@ export default function PersonalInfoScreen({ navigation }) {
 
       Alert.alert(
         "Update failed",
-        err?.response?.data?.message || "Could not update profile."
+        getFriendlyApiErrorMessage(err, "Could not update profile.")
       );
     } finally {
       setSubmitting(false);

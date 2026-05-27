@@ -16,6 +16,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { configureNotifications } from "./src/services/notificationService";
+import { warmUpBackend } from "./src/api/api";
 
 // Auth screens
 import WelcomeScreen from "./src/screens/WelcomeScreen";
@@ -294,6 +295,7 @@ function AppNavigator() {
 
   useEffect(() => {
     configureNotifications().catch(() => {});
+    warmUpBackend().catch(() => {});
   }, []);
 
   useEffect(() => {

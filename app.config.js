@@ -1,3 +1,5 @@
+require("dotenv/config");
+
 const appJson = require("./app.json");
 
 const googleMapsAndroidApiKey = String(
@@ -7,6 +9,12 @@ const googleMapsAndroidApiKey = String(
     process.env.GOOGLE_PLACES_API_KEY ||
     ""
 ).trim();
+const apiBaseUrl = String(
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+    "https://fleetx-backend-u4k6.onrender.com/api"
+)
+  .trim()
+  .replace(/\/+$/, "");
 
 const baseConfig = appJson.expo || {};
 
@@ -32,5 +40,7 @@ module.exports = () => ({
   extra: {
     ...(baseConfig.extra || {}),
     hasNativeGoogleMapsKey: Boolean(googleMapsAndroidApiKey),
+    googleMapsPublicApiKey: googleMapsAndroidApiKey || "",
+    apiBaseUrl,
   },
 });

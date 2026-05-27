@@ -32,17 +32,15 @@ import {
   buildLocalDateTime,
   calculateRentalPricing,
   formatRentalHours,
-  getVehicleRate24Hr,
 } from "../utils/rentalPricing";
 import { formatLuggageSummary, getVehicleLuggageFit } from "../utils/luggageFit";
+import {
+  formatCurrency,
+  formatVehicleDailyRateLabel,
+  getVehicleDailyRate,
+} from "../utils/vehicleRate";
 
 const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-
-function formatCurrency(amount) {
-  const value = Number(amount);
-  if (!Number.isFinite(value)) return "Rate unavailable";
-  return `\u20b1${Math.round(value).toLocaleString("en-PH")}`;
-}
 
 export default function VehicleDetails({ route, navigation }) {
   const routeVehicle = route?.params?.vehicle || null;
@@ -109,7 +107,7 @@ export default function VehicleDetails({ route, navigation }) {
   const galleryImages = useMemo(() => getVehicleImageGallery(vehicle), [vehicle]);
   const today = useMemo(() => toMidnight(new Date()), []);
   const selectedVehicleRate = useMemo(() => {
-    const rate = getVehicleRate24Hr(vehicle);
+    const rate = getVehicleDailyRate(vehicle);
     return Number.isFinite(rate) && rate > 0 ? rate : null;
   }, [vehicle]);
   const rentalPricing = useMemo(
@@ -307,9 +305,9 @@ export default function VehicleDetails({ route, navigation }) {
     }
 
     if (!selectedVehicleRate) {
-      const message = "Rate unavailable for this vehicle right now.";
+      const message = "The daily rate for this vehicle must be confirmed before booking.";
       setErrorMsg(message);
-      Alert.alert("Rate unavailable", message);
+      Alert.alert("Rate to be confirmed", message);
       return;
     }
 
@@ -485,7 +483,7 @@ export default function VehicleDetails({ route, navigation }) {
         <View style={styles.rateBox}>
           <Text style={styles.rateLabel}>Rental Rate</Text>
           <Text style={styles.rateValue}>
-            {selectedVehicleRate ? `${formatCurrency(selectedVehicleRate)}/day` : "Rate unavailable"}
+            {formatVehicleDailyRateLabel(vehicle)}
           </Text>
         </View>
 

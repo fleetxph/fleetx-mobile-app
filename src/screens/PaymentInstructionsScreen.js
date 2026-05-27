@@ -514,7 +514,6 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
   const [countdownText, setCountdownText] = useState(
     getCountdownText(route?.params?.booking?.paymentDueAt || route?.params?.booking?.paymentDeadline)
   );
-  const invoiceNotificationShownRef = useRef({});
   const contractPromptShownRef = useRef({});
   const bookingRefreshInFlightRef = useRef(false);
 
@@ -807,23 +806,6 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
   ]);
 
   useEffect(() => {
-    if (!bookingId || !paymentProofEligibility.hasInvoiceOrPaymentDetails) return;
-    if (invoiceNotificationShownRef.current[bookingId]) return;
-
-    invoiceNotificationShownRef.current[bookingId] = true;
-
-    notifyWithVibration({
-      title: "Invoice ready",
-      body: "Your invoice is available. Please review payment instructions.",
-      data: {
-        bookingId,
-        bookingReference,
-        notificationType: "invoice_ready",
-      },
-    }).catch(() => {});
-  }, [bookingId, bookingReference, paymentProofEligibility.hasInvoiceOrPaymentDetails]);
-
-  useEffect(() => {
     if (__DEV__) {
       console.log("[ContractAPI][id]", {
         usingIdSource: bookingIdSource || "none",
@@ -968,15 +950,6 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
       }
 
       await syncStoredBookingStatusSnapshot([nextBooking]);
-      await notifyWithVibration({
-        title: "Payment proof submitted",
-        body: "Your payment proof is now under review.",
-        data: {
-          bookingId,
-          bookingReference,
-          notificationType: "payment_proof_submitted",
-        },
-      });
       setPaymentAsset(null);
       setProofSuccessVisible(true);
     } catch (error) {

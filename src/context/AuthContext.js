@@ -3,7 +3,11 @@ import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { clearClientSession, isUnauthorizedError, subscribeToSessionExpired } from "../api/api";
 import { getClientProfile } from "../api/clientApi";
-import { clearStoredPushToken, initializePushNotificationsForSession } from "../services/notificationService";
+import {
+  clearStoredPushToken,
+  initializePushNotificationsForSession,
+  unregisterPushNotificationsForSession,
+} from "../services/notificationService";
 import {
   clearStoredBookingIntent,
   getBookingIntentMeta,
@@ -68,6 +72,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = useCallback(async () => {
+    await unregisterPushNotificationsForSession();
     await clearClientSession();
     await clearStoredBookingIntent({ reason: "logout" });
     setUser(null);

@@ -21,7 +21,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { isUnauthorizedError } from "../api/api";
+import { getFriendlyApiErrorMessage, isUnauthorizedError } from "../api/api";
 import {
   createBooking,
   estimateCampaignPromo,
@@ -91,7 +91,6 @@ import {
   getPaymentMethodSelectionKey,
 } from "../utils/paymentMethods";
 import {
-  notifyWithVibration,
   syncStoredBookingStatusSnapshot,
 } from "../services/notificationService";
 import {
@@ -99,6 +98,7 @@ import {
   PENDING_GUEST_BOOKING_KEY,
   saveStoredBookingIntent,
 } from "../utils/bookingState";
+import { formatVehicleDailyRateLabel, getVehicleDailyRate } from "../utils/vehicleRate";
 
 const TRIP_TYPES = [
   {
@@ -191,6 +191,15 @@ const PREFERRED_CATEGORY_OPTIONS = [
   { value: "pickup", label: "Pickup" },
 ];
 
+const LUGGAGE_SIZE_OPTIONS = [
+  { value: "not_sure_yet", label: "Not sure yet" },
+  { value: "small", label: "Small" },
+  { value: "medium", label: "Medium" },
+  { value: "large", label: "Large" },
+  { value: "extra_large", label: "Extra Large" },
+  { value: "mixed_sizes", label: "Mixed sizes" },
+];
+
 const MIN_LOCATION_QUERY_LENGTH = 2;
 const KEYBOARD_FOCUS_DELAY = 300;
 const KEYBOARD_RESYNC_DELAY = 60;
@@ -217,43 +226,6 @@ function getVehicleSeatCapacity(vehicle) {
   return rawSeats > 0 ? rawSeats : 12;
 }
 
-function getVehicleDailyRate(vehicle) {
-  const candidates = [
-    vehicle?.rate24Hr,
-    vehicle?.pricePerDay,
-    vehicle?.dailyRate,
-    vehicle?.rentalRate,
-    vehicle?.ratePerDay,
-    vehicle?.baseRate24,
-    vehicle?.twentyFourHourRate,
-    vehicle?.baseRate,
-    vehicle?.pricing?.daily,
-    vehicle?.pricing?.day,
-    vehicle?.pricing?.ratePerDay,
-    vehicle?.rates?.daily,
-    vehicle?.rates?.day,
-    vehicle?.rates?.twentyFourHours,
-    vehicle?.price,
-    vehicle?.rate,
-    vehicle?.rentalPrice,
-  ];
-
-  for (const candidate of candidates) {
-    if (candidate === null || candidate === undefined || candidate === "") continue;
-    const parsed = Number(candidate);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-
-  return null;
-}
-
-function formatVehicleDailyRateLabel(vehicle) {
-  const rate = getVehicleDailyRate(vehicle);
-  return rate ? `${formatPeso(rate)}/day` : "Rate to be confirmed";
-}
-
 function normalizeOptionalNumber(value) {
   if (value === null || value === undefined || value === "") return "";
   const parsed = Number(value);
@@ -278,10 +250,14 @@ function formatOptionalWeight(value) {
 
 function formatLuggageSummary({ count, size, weightKg }) {
   const normalizedCount = normalizeNonNegativeCount(count);
-  const normalizedSize = String(size || "").trim();
+  const normalizedSize = getLuggageSizeLabel(size);
   const normalizedWeight = String(weightKg || "").trim();
 
-  if (!normalizedCount && !normalizedSize && !normalizedWeight) {
+  if (
+    !normalizedCount &&
+    (!size || normalizeLuggageSize(size) === "not_sure_yet") &&
+    !normalizedWeight
+  ) {
     return "None specified";
   }
 
@@ -291,7 +267,7 @@ function formatLuggageSummary({ count, size, weightKg }) {
     parts.push(`${normalizedCount} ${normalizedCount === 1 ? "bag" : "bags"}`);
   }
 
-  if (normalizedSize) {
+  if (size && normalizeLuggageSize(size) !== "not_sure_yet") {
     parts.push(normalizedSize);
   }
 
@@ -378,6 +354,72 @@ function normalizePreferredCategory(value) {
   if (normalized === "sportutilityvehicle") return "suv";
   if (["sedan", "suv", "van", "mpv", "pickup"].includes(normalized)) return normalized;
   return "any";
+}
+
+function normalizePreferredCategories(value) {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+    ? value.split(",")
+    : value
+    ? [value]
+    : [];
+  const normalized = source
+    .map((item) => normalizePreferredCategory(item))
+    .filter(Boolean);
+  const unique = Array.from(new Set(normalized));
+
+  if (!unique.length || unique.includes("any")) return ["any"];
+  return unique.filter((item) => item !== "any");
+}
+
+function getCompatibilityPreferredCategory(categories = []) {
+  const normalized = normalizePreferredCategories(categories);
+  if (normalized.includes("any")) return "any";
+  return normalized[0] || "any";
+}
+
+function normalizeLuggageSize(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (!normalized) return "not_sure_yet";
+  if (["notsureyet", "not_sure_yet", "notsure", "unknown"].includes(normalized)) {
+    return "not_sure_yet";
+  }
+  if (normalized === "small") return "small";
+  if (normalized === "medium") return "medium";
+  if (normalized === "large") return "large";
+  if (["extra_large", "extralarge", "xl", "xlarge"].includes(normalized)) {
+    return "extra_large";
+  }
+  if (["mixed_sizes", "mixedsize", "mixed"].includes(normalized)) {
+    return "mixed_sizes";
+  }
+
+  return "not_sure_yet";
+}
+
+function getLuggageSizeLabel(value) {
+  const normalized = normalizeLuggageSize(value);
+  return (
+    LUGGAGE_SIZE_OPTIONS.find((option) => option.value === normalized)?.label ||
+    "Not sure yet"
+  );
+}
+
+function getBackendLuggageSize(value) {
+  return getLuggageSizeLabel(value);
+}
+
+function getPreferredCategoryLabel(value) {
+  return (
+    PREFERRED_CATEGORY_OPTIONS.find(
+      (option) => option.value === normalizePreferredCategory(value)
+    )?.label || "Any category"
+  );
 }
 
 function normalizeVehicleCategory(vehicle) {
@@ -1018,6 +1060,7 @@ export default function BookingWizardScreen({ route, navigation }) {
   const [errors, setErrors] = useState({});
   const [vehicles, setVehicles] = useState(incomingVehicle ? [incomingVehicle] : []);
   const [vehiclesLoading, setVehiclesLoading] = useState(false);
+  const [vehiclesLoadMessage, setVehiclesLoadMessage] = useState("");
   const [selectedVehicle, setSelectedVehicle] = useState(incomingVehicle);
   const [reviewVisible, setReviewVisible] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
@@ -1148,6 +1191,7 @@ export default function BookingWizardScreen({ route, navigation }) {
   const [selectedVehicleActionId, setSelectedVehicleActionId] = useState("");
 
   const [picker, setPicker] = useState(null);
+  const [optionPicker, setOptionPicker] = useState("");
   const [schedule, setSchedule] = useState(initialSchedule);
   const [activeCalendarField, setActiveCalendarField] = useState(
     initialSchedule.startDate && !initialSchedule.endDate ? "endDate" : "startDate"
@@ -1157,6 +1201,12 @@ export default function BookingWizardScreen({ route, navigation }) {
   );
   const incomingTripPurpose =
     incomingTrip?.tripPurpose || incomingTrip?.purpose || incomingTrip?.purposeOfTravel || "";
+  const initialPreferredCategories = normalizePreferredCategories(
+    incomingTrip?.preferredCategories ||
+      incomingTrip?.preferredCategory ||
+      incomingTrip?.vehicleCategoryPreference ||
+      ""
+  );
   const resolvedTripPurpose = PURPOSE_OPTIONS.includes(incomingTripPurpose)
     ? incomingTripPurpose
     : incomingTripPurpose
@@ -1168,14 +1218,15 @@ export default function BookingWizardScreen({ route, navigation }) {
     luggageBags: normalizeNonNegativeCount(
       incomingTrip?.luggageBags ?? incomingTrip?.luggageCount
     ),
-    luggageSize: incomingTrip?.luggageSize || incomingTrip?.luggage?.size || "",
+    luggageSize: normalizeLuggageSize(
+      incomingTrip?.luggageSize || incomingTrip?.luggage?.size || ""
+    ),
     luggageWeightKg: normalizeOptionalNumber(
       incomingTrip?.luggageWeightKg ?? incomingTrip?.luggage?.weightKg
     ),
     transmission: incomingTrip?.transmission || "any",
-    preferredCategory: normalizePreferredCategory(
-      incomingTrip?.preferredCategory || incomingTrip?.vehicleCategoryPreference || ""
-    ),
+    preferredCategories: initialPreferredCategories,
+    preferredCategory: getCompatibilityPreferredCategory(initialPreferredCategories),
     tripPurpose: resolvedTripPurpose,
     customPurpose:
       resolvedTripPurpose === "Other"
@@ -1189,8 +1240,15 @@ export default function BookingWizardScreen({ route, navigation }) {
       : preferences.tripPurpose;
   const isPlannerResultsStep = !isDirectBooking && currentStep > plannerStepCount;
   const normalizedPickupMode = normalizePickupOptionValue(vehicleHandoffOption);
-  const requiresDeliveryAddress = !isDirectBooking && normalizedPickupMode === "delivery";
-  const normalizedPreferredCategory = normalizePreferredCategory(preferences.preferredCategory);
+  const requiresDeliveryAddress = normalizedPickupMode === "delivery";
+  const normalizedPreferredCategories = normalizePreferredCategories(
+    preferences.preferredCategories?.length
+      ? preferences.preferredCategories
+      : preferences.preferredCategory
+  );
+  const normalizedPreferredCategory = getCompatibilityPreferredCategory(
+    normalizedPreferredCategories
+  );
   const heavyLuggageWarning = getHeavyLuggageWarning({
     luggageBags: preferences.luggageBags,
     luggageSize: preferences.luggageSize,
@@ -1629,6 +1687,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     const loadVehicles = async () => {
       try {
         setVehiclesLoading(true);
+        setVehiclesLoadMessage("");
         const res = await getVehicles({
           startDate: schedule.startDate,
           endDate: schedule.endDate,
@@ -1637,6 +1696,12 @@ export default function BookingWizardScreen({ route, navigation }) {
         setVehicles(incomingVehicle ? [incomingVehicle, ...list.filter((v) => v._id !== incomingVehicle._id)] : list);
       } catch (err) {
         console.log("Load vehicles error:", err?.response?.data || err.message);
+        setVehiclesLoadMessage(
+          getFriendlyApiErrorMessage(
+            err,
+            "Could not load available vehicles right now."
+          )
+        );
       } finally {
         setVehiclesLoading(false);
       }
@@ -1651,6 +1716,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     const loadDirectVehicle = async () => {
       try {
         setVehiclesLoading(true);
+        setVehiclesLoadMessage("");
         const res = await getVehicleById(incomingVehicleId);
         const vehicle = res?.vehicle || null;
 
@@ -1660,6 +1726,9 @@ export default function BookingWizardScreen({ route, navigation }) {
         }
       } catch (err) {
         console.log("Load direct vehicle error:", err?.response?.data || err.message);
+        setVehiclesLoadMessage(
+          getFriendlyApiErrorMessage(err, "Could not load vehicle details right now.")
+        );
       } finally {
         setVehiclesLoading(false);
       }
@@ -1672,16 +1741,23 @@ export default function BookingWizardScreen({ route, navigation }) {
     if (isSelfDrive) {
       setPreferences((prev) => ({
         ...prev,
-        preferredCategory: normalizePreferredCategory(prev.preferredCategory),
+        preferredCategories: normalizePreferredCategories(
+          prev.preferredCategories?.length ? prev.preferredCategories : prev.preferredCategory
+        ),
+        preferredCategory: getCompatibilityPreferredCategory(
+          prev.preferredCategories?.length ? prev.preferredCategories : prev.preferredCategory
+        ),
       }));
       return;
     }
 
     setPreferences((prev) =>
-      prev.preferredCategory === "any"
+      prev.preferredCategory === "any" &&
+      normalizePreferredCategories(prev.preferredCategories).includes("any")
         ? prev
         : {
             ...prev,
+            preferredCategories: ["any"],
             preferredCategory: "any",
           }
     );
@@ -2298,9 +2374,9 @@ export default function BookingWizardScreen({ route, navigation }) {
       if (budgetLimit !== "" && rate && rate > budgetLimit) return false;
       if (
         isSelfDrive &&
-        normalizedPreferredCategory !== "any" &&
+        !normalizedPreferredCategories.includes("any") &&
         vehicleCategory &&
-        vehicleCategory !== normalizedPreferredCategory
+        !normalizedPreferredCategories.includes(vehicleCategory)
       ) {
         return false;
       }
@@ -2315,7 +2391,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     });
 
     return list.sort((a, b) => Number(getVehicleDailyRate(a) || 0) - Number(getVehicleDailyRate(b) || 0));
-  }, [isSelfDrive, normalizedPreferredCategory, preferences, vehicles]);
+  }, [isSelfDrive, normalizedPreferredCategories, preferences, vehicles]);
   const selectedVehicleFit = useMemo(
     () =>
       selectedVehicle
@@ -2886,12 +2962,18 @@ export default function BookingWizardScreen({ route, navigation }) {
       return;
     }
 
+    if (key === "luggageSize") {
+      setOptionPicker("luggageSize");
+      return;
+    }
+
     setPicker(key);
   };
 
   const closeTransientBookingUi = () => {
     setReviewVisible(false);
     setPicker(null);
+    setOptionPicker("");
   };
 
   const closeGateAndNavigate = (routeName, params = {}) => {
@@ -2969,19 +3051,21 @@ export default function BookingWizardScreen({ route, navigation }) {
         passengers: preferences.passengers,
         numberOfPax: preferences.passengers,
         budget: preferences.budget,
-        luggageCount: preferences.luggageBags,
-        luggageBags: preferences.luggageBags,
-        bagCount: preferences.luggageBags,
-        bags: preferences.luggageBags,
-        luggageSize: preferences.luggageSize,
-        luggageWeightKg: preferences.luggageWeightKg,
-        luggage: {
-          count: normalizeNonNegativeCount(preferences.luggageBags),
-          size: preferences.luggageSize || "",
-          weightKg: Number(preferences.luggageWeightKg || 0),
-        },
-        transmission: preferences.transmission,
-        preferredCategory: isSelfDrive ? normalizedPreferredCategory : "any",
+      luggageCount: preferences.luggageBags,
+      luggageBags: preferences.luggageBags,
+      bagCount: preferences.luggageBags,
+      bags: preferences.luggageBags,
+      luggageSize: normalizeLuggageSize(preferences.luggageSize),
+      luggageWeightKg: preferences.luggageWeightKg,
+      luggage: {
+        count: normalizeNonNegativeCount(preferences.luggageBags),
+        size: normalizeLuggageSize(preferences.luggageSize),
+        weightKg: Number(preferences.luggageWeightKg || 0),
+      },
+      transmission: preferences.transmission,
+      preferredCategories: isSelfDrive ? normalizedPreferredCategories : ["any"],
+      vehicleCategoryPreference: isSelfDrive ? normalizedPreferredCategories : [],
+      preferredCategory: isSelfDrive ? normalizedPreferredCategory : "any",
         tripPurpose: preferences.tripPurpose,
         customPurpose: preferences.customPurpose,
         customTripPurpose: preferences.customPurpose,
@@ -3147,6 +3231,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     setLocationRestrictions(createEmptyLocationRestrictions());
     setRouteValidation(createRouteValidationState());
     setPicker(null);
+    setOptionPicker("");
     setActiveCalendarField("startDate");
     setCalendarMonth(getMonthStart(new Date()));
     setSchedule(
@@ -3162,9 +3247,10 @@ export default function BookingWizardScreen({ route, navigation }) {
       passengers: 2,
       budget: "",
       luggageBags: 0,
-      luggageSize: "",
+      luggageSize: "not_sure_yet",
       luggageWeightKg: "",
       transmission: "any",
+      preferredCategories: ["any"],
       preferredCategory: "any",
       tripPurpose: "",
       customPurpose: "",
@@ -3336,9 +3422,41 @@ export default function BookingWizardScreen({ route, navigation }) {
   const updatePreference = (key, value) => {
     setPreferences((prev) => ({
       ...prev,
-      [key]: key === "passengers" ? clampPassengerCount(value, passengerMax) : value,
+      [key]:
+        key === "passengers"
+          ? clampPassengerCount(value, passengerMax)
+          : key === "luggageSize"
+          ? normalizeLuggageSize(value)
+          : value,
     }));
     setErrors((prev) => ({ ...prev, [key]: "" }));
+  };
+
+  const handlePreferredCategoryToggle = (value) => {
+    setPreferences((prev) => {
+      const normalizedValue = normalizePreferredCategory(value);
+      const currentSelection = normalizePreferredCategories(prev.preferredCategories);
+
+      if (normalizedValue === "any") {
+        return {
+          ...prev,
+          preferredCategories: ["any"],
+          preferredCategory: "any",
+        };
+      }
+
+      const nextSelection = currentSelection.includes(normalizedValue)
+        ? currentSelection.filter((item) => item !== normalizedValue)
+        : [...currentSelection.filter((item) => item !== "any"), normalizedValue];
+      const finalSelection = nextSelection.length ? nextSelection : ["any"];
+
+      return {
+        ...prev,
+        preferredCategories: finalSelection,
+        preferredCategory: getCompatibilityPreferredCategory(finalSelection),
+      };
+    });
+    setErrors((prev) => ({ ...prev, preferredCategory: "" }));
   };
 
   const applyReturnPickupPreset = (source) => {
@@ -3434,14 +3552,16 @@ export default function BookingWizardScreen({ route, navigation }) {
       luggageBags: preferences.luggageBags,
       bagCount: preferences.luggageBags,
       bags: preferences.luggageBags,
-      luggageSize: preferences.luggageSize,
+      luggageSize: normalizeLuggageSize(preferences.luggageSize),
       luggageWeightKg: preferences.luggageWeightKg,
       luggage: {
         count: normalizeNonNegativeCount(preferences.luggageBags),
-        size: preferences.luggageSize || "",
+        size: normalizeLuggageSize(preferences.luggageSize),
         weightKg: Number(preferences.luggageWeightKg || 0),
       },
       transmission: preferences.transmission,
+      preferredCategories: isSelfDrive ? normalizedPreferredCategories : ["any"],
+      vehicleCategoryPreference: isSelfDrive ? normalizedPreferredCategories : [],
       preferredCategory: isSelfDrive ? normalizedPreferredCategory : "any",
       tripPurpose: preferences.tripPurpose,
       customPurpose: preferences.customPurpose,
@@ -3720,10 +3840,14 @@ export default function BookingWizardScreen({ route, navigation }) {
     const normalizedBudget = normalizeBudgetForPayload(preferences.budget);
     const normalizedLuggageBags = normalizeNonNegativeCount(preferences.luggageBags);
     const normalizedLuggageWeightKg = Number(preferences.luggageWeightKg || 0);
-    const normalizedLuggageSize = String(preferences.luggageSize || "").trim();
-    const effectiveVehicleHandoffOption = isWithDriver
-      ? ""
-      : normalizePickupOptionValue(vehicleHandoffOption);
+    const normalizedLuggageSize = normalizeLuggageSize(preferences.luggageSize);
+    const backendLuggageSize = getBackendLuggageSize(normalizedLuggageSize);
+    const effectiveVehicleHandoffOption = normalizePickupOptionValue(vehicleHandoffOption);
+    const submittedPickupLocation =
+      String(schedule.pickupLocation || "").trim() ||
+      (effectiveVehicleHandoffOption === "pickup"
+        ? "FleetX pickup location to be confirmed"
+        : "");
     const effectiveReturnArrangement = isWithDriver
       ? (
           // Backend currently requires returnArrangementType on submit. With-driver returns
@@ -3740,12 +3864,19 @@ export default function BookingWizardScreen({ route, navigation }) {
       returnArrangementType === "pickup_different_location"
         ? normalizeCoordinatePayload(returnPickupCoordinates)
         : null;
-    const shouldUseDeliveryFields = !isWithDriver && effectiveVehicleHandoffOption === "delivery";
+    const shouldUseDeliveryFields = effectiveVehicleHandoffOption === "delivery";
 
-    if (isSelfDrive && !effectiveVehicleHandoffOption) {
+    if (!effectiveVehicleHandoffOption) {
       const error = new Error("Please choose how you want to receive the vehicle.");
       error.code = "MISSING_VEHICLE_HANDOFF_OPTION";
       error.field = "vehicleHandoffOption";
+      throw error;
+    }
+
+    if (shouldUseDeliveryFields && !submittedPickupLocation) {
+      const error = new Error("Delivery Address is required.");
+      error.code = "MISSING_DELIVERY_ADDRESS";
+      error.field = "pickupLocation";
       throw error;
     }
 
@@ -3781,7 +3912,7 @@ export default function BookingWizardScreen({ route, navigation }) {
       vehicleId: selectedVehicle?._id || selectedVehicle?.id,
       tripType: normalizedTripType || tripType,
       destination: String(schedule.destination || "").trim(),
-      pickupLocation: String(schedule.pickupLocation || "").trim(),
+      pickupLocation: submittedPickupLocation,
       startDate: schedule.startDate,
       startTime: schedule.startTime,
       endDate: schedule.endDate,
@@ -3794,17 +3925,17 @@ export default function BookingWizardScreen({ route, navigation }) {
       bagCount: normalizedLuggageBags,
       bags: normalizedLuggageBags,
       luggageCount: normalizedLuggageBags,
-      luggageSize: normalizedLuggageSize,
+      luggageSize: backendLuggageSize,
       luggageWeightKg: normalizedLuggageWeightKg,
       luggage: {
         count: normalizedLuggageBags,
         size: normalizedLuggageSize,
         weightKg: normalizedLuggageWeightKg,
       },
+      preferredCategories: isSelfDrive ? normalizedPreferredCategories : ["any"],
+      vehicleCategoryPreference: isSelfDrive ? normalizedPreferredCategories : [],
       purposeOfTravel,
-      notes: isDirectBooking
-        ? `Trip Type: ${getTripTypeLabel(normalizedTripType || tripType)}. Pickup mode: ${normalizedPickupMode || "Not set"}. Start Time: ${schedule.startTime}. End Time: ${schedule.endTime}. Transmission preference: ${preferences.transmission}. Preferred category: ${isSelfDrive ? normalizedPreferredCategory : "Not applicable"}. Billing label: ${rentalPricing.billingLabel || "Not set"}. Estimated total: ${totalPrice}.`
-        : `Trip Type: ${getTripTypeLabel(normalizedTripType || tripType)}. Pickup mode: ${normalizedPickupMode || "Not set"}. Start Time: ${schedule.startTime}. End Time: ${schedule.endTime}. Transmission preference: ${preferences.transmission}. Preferred category: ${isSelfDrive ? normalizedPreferredCategory : "Not applicable"}. Budget target: ${effectiveBudget === "" ? "Not set" : effectiveBudget}. Billing label: ${rentalPricing.billingLabel || "Not set"}. Estimated total: ${totalPrice}.`,
+      notes: `Trip Type: ${getTripTypeLabel(normalizedTripType || tripType)}. Pickup mode: ${normalizedPickupMode || "Not set"}. Start Time: ${schedule.startTime}. End Time: ${schedule.endTime}. Transmission preference: ${preferences.transmission}. Preferred category: ${isSelfDrive ? normalizedPreferredCategories.map(getPreferredCategoryLabel).join(", ") : "Not applicable"}. Budget target: ${normalizedBudget === "" ? "Not set" : normalizedBudget}. Billing label: ${rentalPricing.billingLabel || "Not set"}. Estimated total: ${totalPrice}.`,
       withDriver: isWithDriver,
       contact,
       selectedPaymentMethodId,
@@ -3816,7 +3947,7 @@ export default function BookingWizardScreen({ route, navigation }) {
       currentStep: "submitted",
       ...(shouldUseDeliveryFields
         ? {
-            deliveryAddress: String(schedule.pickupLocation || "").trim(),
+            deliveryAddress: submittedPickupLocation,
             ...(pickupCoords ? { deliveryCoords: pickupCoords } : {}),
           }
         : {}),
@@ -3903,7 +4034,7 @@ export default function BookingWizardScreen({ route, navigation }) {
         return;
       }
 
-      if (isSelfDrive && !normalizePickupOptionValue(vehicleHandoffOption)) {
+      if (!normalizePickupOptionValue(vehicleHandoffOption)) {
         setErrors((prev) => ({
           ...prev,
           vehicleHandoffOption: "Please choose how you want to receive the vehicle.",
@@ -3958,17 +4089,6 @@ export default function BookingWizardScreen({ route, navigation }) {
         : await createBooking(payload);
       const submittedBooking = res?.booking || res;
       await syncStoredBookingStatusSnapshot(submittedBooking ? [submittedBooking] : []);
-      await notifyWithVibration({
-        title: "Booking submitted",
-        body: "Your booking request has been submitted for review.",
-        data: {
-          bookingId:
-            submittedBooking?._id || submittedBooking?.id || submittedBooking?.bookingId || "",
-          bookingReference:
-            submittedBooking?.bookingReference || submittedBooking?.bookingCode || "",
-          notificationType: "booking_submitted",
-        },
-      });
       await clearStoredBookingIntent({ reason: "booking-submitted" });
       setReviewVisible(false);
       setSuccess(submittedBooking);
@@ -5143,7 +5263,7 @@ export default function BookingWizardScreen({ route, navigation }) {
           <View style={styles.controlHeader}>
             <Text style={styles.controlTitle}>Selected Vehicle Rate</Text>
             <Text style={styles.controlValue}>
-              {selectedVehicleRate ? `${formatPeso(selectedVehicleRate)} / day` : "Rate unavailable"}
+              {formatVehicleDailyRateLabel(selectedVehicle)}
             </Text>
           </View>
           <Text
@@ -5222,17 +5342,20 @@ export default function BookingWizardScreen({ route, navigation }) {
 
       <View onLayout={(event) => handleFieldLayout("luggageSize", event)}>
         <Text style={styles.label}>Luggage Size</Text>
-        <View style={styles.inputWrap}>
-          <MaterialCommunityIcons name="bag-personal-outline" size={18} color="#98A2B3" />
-          <TextInput
-            value={preferences.luggageSize}
-            onChangeText={(value) => updatePreference("luggageSize", value)}
-            placeholder="Not sure yet"
-            placeholderTextColor="#98A2B3"
-            style={styles.input}
-            onFocus={() => handleInputFocus("luggageSize")}
-          />
-        </View>
+        <TouchableOpacity
+          style={styles.pickerButton}
+          onPress={() => {
+            handleInputFocus("luggageSize");
+            openPicker("luggageSize");
+          }}
+          activeOpacity={0.85}
+        >
+          <View style={styles.pickerContent}>
+            <MaterialCommunityIcons name="bag-personal-outline" size={18} color="#98A2B3" />
+            <Text style={styles.pickerText}>{getLuggageSizeLabel(preferences.luggageSize)}</Text>
+          </View>
+          <Feather name="chevron-down" size={16} color="#98A2B3" />
+        </TouchableOpacity>
       </View>
       {preferences.luggageBags === 0 ? (
         <Text style={styles.locationHelperText}>
@@ -5290,15 +5413,16 @@ export default function BookingWizardScreen({ route, navigation }) {
                 key={item.value}
                 style={[
                   styles.segment,
-                  normalizedPreferredCategory === item.value && styles.segmentActive,
+                  normalizedPreferredCategories.includes(item.value) && styles.segmentActive,
                 ]}
-                onPress={() => updatePreference("preferredCategory", item.value)}
+                onPress={() => handlePreferredCategoryToggle(item.value)}
                 activeOpacity={0.85}
               >
                 <Text
                   style={[
                     styles.segmentText,
-                    normalizedPreferredCategory === item.value && styles.segmentTextActive,
+                    normalizedPreferredCategories.includes(item.value) &&
+                      styles.segmentTextActive,
                   ]}
                 >
                   {item.label}
@@ -5451,16 +5575,21 @@ export default function BookingWizardScreen({ route, navigation }) {
 
       {vehiclesLoading ? (
         <Text style={styles.emptyText}>Loading available vehicles...</Text>
+      ) : vehiclesLoadMessage ? (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyTitle}>Vehicle loading delayed</Text>
+          <Text style={styles.emptyText}>{vehiclesLoadMessage}</Text>
+        </View>
       ) : recommendedVehicles.length ? (
         recommendedVehicles.map(renderVehicleCard)
       ) : (
         <View style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>No matching vehicles found</Text>
-          <Text style={styles.emptyText}>
-            Go back and adjust your passengers, budget, transmission, or preferred category.
-          </Text>
-        </View>
-      )}
+            <Text style={styles.emptyTitle}>No matching vehicles found</Text>
+            <Text style={styles.emptyText}>
+              Go back and adjust your passengers, budget, transmission, or preferred categories.
+            </Text>
+          </View>
+        )}
     </View>
   );
 
@@ -5569,10 +5698,16 @@ export default function BookingWizardScreen({ route, navigation }) {
       "Luggage",
       formatLuggageSummaryText({
         luggageBags: preferences.luggageBags,
-        luggageSize: preferences.luggageSize,
+        luggageSize: normalizeLuggageSize(preferences.luggageSize),
         luggageWeightKg: preferences.luggageWeightKg,
       }),
     ],
+    ...(isSelfDrive
+      ? [[
+          "Preferred Categories",
+          normalizedPreferredCategories.map(getPreferredCategoryLabel).join(", "),
+        ]]
+      : []),
     ["Transmission", preferences.transmission === "any" ? "Any" : preferences.transmission],
     ["Trip Purpose", purposeOfTravel || "Not set"],
     [
@@ -5743,6 +5878,65 @@ export default function BookingWizardScreen({ route, navigation }) {
             onChange={handlePickerChange}
           />
         )}
+
+        <Modal
+          visible={optionPicker === "luggageSize"}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setOptionPicker("")}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.optionPickerSheet}>
+              <View style={styles.optionPickerHandle} />
+              <Text style={styles.optionPickerTitle}>Luggage Size</Text>
+              <Text style={styles.optionPickerSubtitle}>
+                Choose the luggage size that best matches your trip.
+              </Text>
+
+              <View style={styles.optionPickerList}>
+                {LUGGAGE_SIZE_OPTIONS.map((option) => {
+                  const isSelected =
+                    normalizeLuggageSize(preferences.luggageSize) === option.value;
+
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[
+                        styles.optionPickerItem,
+                        isSelected && styles.optionPickerItemSelected,
+                      ]}
+                      onPress={() => {
+                        updatePreference("luggageSize", option.value);
+                        setOptionPicker("");
+                      }}
+                      activeOpacity={0.85}
+                    >
+                      <Text
+                        style={[
+                          styles.optionPickerItemText,
+                          isSelected && styles.optionPickerItemTextSelected,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                      {isSelected ? (
+                        <Feather name="check" size={16} color="#F47C20" />
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={() => setOptionPicker("")}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.secondaryButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
 
           <Modal visible={reviewVisible} animationType="slide" transparent onRequestClose={() => setReviewVisible(false)}>
           <View style={styles.modalOverlay}>
