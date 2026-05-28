@@ -22,6 +22,7 @@ module.exports = () => ({
   ...baseConfig,
   android: {
     ...(baseConfig.android || {}),
+    googleServicesFile: "./google-services.json",
     permissions: [
       "ACCESS_COARSE_LOCATION",
       "ACCESS_FINE_LOCATION",

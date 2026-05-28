@@ -13,6 +13,20 @@ EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=your-google-maps-key
 
 `EXPO_PUBLIC_API_BASE_URL` controls mobile API calls in release builds. If it is absent, the app keeps the current Render API URL as a compatibility fallback.
 
+## Android push notification setup
+
+Expo push tokens on Android require Firebase Cloud Messaging configuration for the same EAS project and Android package (`com.fleetx.app`).
+
+1. Create or select the Firebase Android app for `com.fleetx.app`.
+2. Download `google-services.json`, place it in this mobile project, and configure `expo.android.googleServicesFile` in the Expo app config.
+3. Upload the Firebase service account key to Expo/EAS as the Android FCM V1 push notification credential for this EAS project.
+4. Rebuild and reinstall the development build or APK after Firebase/EAS credential or app config changes.
+
+Do not commit Firebase service account private-key JSON files. For the current Expo instructions, see:
+
+- https://docs.expo.dev/push-notifications/push-notifications-setup/
+- https://docs.expo.dev/push-notifications/fcm-credentials/
+
 ## Get started
 
 1. Install dependencies

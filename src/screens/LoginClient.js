@@ -74,6 +74,10 @@ function buildGuestResumeTarget(pending) {
 }
 
 function getFriendlyLoginMessage(error) {
+  if (error?.authColdStartRetryExhausted) {
+    return "Server is taking longer than expected. Please try again.";
+  }
+
   if (!error?.response) {
     return getFriendlyApiErrorMessage(
       error,
@@ -130,6 +134,7 @@ export default function LoginClient({ navigation, route }) {
   const [fieldErrors, setFieldErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [wakingServer, setWakingServer] = useState(false);
   const [focusedField, setFocusedField] = useState("");
 
   useEffect(() => {
@@ -174,6 +179,7 @@ export default function LoginClient({ navigation, route }) {
 
     try {
       setLoading(true);
+      setWakingServer(false);
       const cleanLogin = login.includes("@")
         ? normalizeEmail(login)
         : normalizeUsername(login).toLowerCase();
@@ -182,6 +188,11 @@ export default function LoginClient({ navigation, route }) {
         email: cleanLogin,
         login: cleanLogin,
         password,
+      }, {
+        onRetry: () => {
+          setWakingServer(true);
+          setMsg("Server is waking up. Please wait...");
+        },
       });
 
       const token = res?.token || "";
@@ -261,6 +272,7 @@ export default function LoginClient({ navigation, route }) {
       }
     } finally {
       setLoading(false);
+      setWakingServer(false);
     }
   };
 
@@ -443,7 +455,10 @@ export default function LoginClient({ navigation, route }) {
             </View>
         </ScrollView>
 
-        <LoadingOverlay visible={loading} text="Signing you in..." />
+        <LoadingOverlay
+          visible={loading}
+          text={wakingServer ? "Server is waking up. Please wait..." : "Signing you in..."}
+        />
       </SafeAreaView>
     </KeyboardAvoidingView>
   );

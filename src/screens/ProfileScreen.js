@@ -8,8 +8,10 @@ import {
   Platform,
   Alert,
   SafeAreaView,
+  ActivityIndicator,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { styles } from "../styles/profileStyle";
@@ -28,7 +30,12 @@ import {
 } from "../utils/verification";
 import { getProfileImageUrl } from "../utils/imageUrl";
 import { useAuth } from "../context/AuthContext";
-import { getStoredNotificationPermissionState } from "../services/notificationService";
+import {
+  generatePushTokenForDebug,
+  getPushRegistrationDiagnosticState,
+  getStoredNotificationPermissionState,
+  syncPushTokenForDebug,
+} from "../services/notificationService";
 
 function getToneStyles(tone) {
   if (tone === "warning") {
@@ -56,6 +63,12 @@ export default function ProfileScreen({ navigation }) {
   const [profileImage, setProfileImage] = useState(null);
   const [verificationData, setVerificationData] = useState(null);
   const [notificationPermissionStatus, setNotificationPermissionStatus] = useState("undetermined");
+  const [pushDiagnostic, setPushDiagnostic] = useState(null);
+  const [pushDebugToken, setPushDebugToken] = useState("");
+  const [pushTokenResult, setPushTokenResult] = useState(null);
+  const [pushSyncResult, setPushSyncResult] = useState(null);
+  const [generatingPushToken, setGeneratingPushToken] = useState(false);
+  const [syncingPushToken, setSyncingPushToken] = useState(false);
 
   const loadProfile = async () => {
     try {
@@ -73,6 +86,7 @@ export default function ProfileScreen({ navigation }) {
         setProfileImage(null);
         setVerificationData(null);
         setNotificationPermissionStatus(await getStoredNotificationPermissionState());
+        setPushDiagnostic(null);
         return;
       }
 
@@ -168,6 +182,14 @@ export default function ProfileScreen({ navigation }) {
       console.log("Load profile error:", err?.message || err);
     } finally {
       setNotificationPermissionStatus(await getStoredNotificationPermissionState());
+      try {
+        setPushDiagnostic(await getPushRegistrationDiagnosticState());
+      } catch (diagnosticError) {
+        console.info("[PushNotifications][diagnostic]", {
+          success: false,
+          message: diagnosticError?.message || "Unable to read push diagnostics.",
+        });
+      }
     }
   };
 
@@ -189,9 +211,69 @@ export default function ProfileScreen({ navigation }) {
   const verificationTone = getVerificationStatusTone(verificationData);
   const eligibility = getBookingEligibility(verificationData);
   const notificationsDisabled = notificationPermissionStatus === "denied";
+  const showPushDebug = process.env.EXPO_PUBLIC_SHOW_PUSH_DEBUG === "true";
   const [badgeBoxStyle, badgeTextStyle] = getToneStyles(verificationTone);
   const [withDriverBoxStyle, withDriverTextStyle] = getToneStyles(eligibility.withDriverTone);
   const [selfDriveBoxStyle, selfDriveTextStyle] = getToneStyles(eligibility.selfDriveTone);
+
+  const refreshPushDiagnostic = async () => {
+    setPushDiagnostic(await getPushRegistrationDiagnosticState());
+    setNotificationPermissionStatus(await getStoredNotificationPermissionState());
+  };
+
+  const handleGeneratePushToken = async () => {
+    if (generatingPushToken) return;
+    setGeneratingPushToken(true);
+    setPushTokenResult(null);
+    try {
+      const result = await generatePushTokenForDebug();
+      setPushTokenResult(result);
+      setPushDebugToken(result.token || "");
+      await refreshPushDiagnostic();
+    } catch (error) {
+      setPushTokenResult({
+        success: false,
+        tokenGenerated: false,
+        token: "",
+        message: error?.message || "Unable to generate an Expo push token.",
+      });
+    } finally {
+      setGeneratingPushToken(false);
+    }
+  };
+
+  const handleCopyPushToken = async () => {
+    if (!pushDebugToken) return;
+    await Clipboard.setStringAsync(pushDebugToken);
+    Alert.alert("Token copied", "Token copied.");
+  };
+
+  const handleSyncPushToken = async () => {
+    if (syncingPushToken) return;
+    setSyncingPushToken(true);
+    setPushSyncResult(null);
+    try {
+      const result = await syncPushTokenForDebug(pushDebugToken);
+      setPushSyncResult(result);
+      await refreshPushDiagnostic();
+    } catch (error) {
+      setPushSyncResult({
+        success: false,
+        backendReached: false,
+        status: null,
+        message: error?.message || "Unable to sync the token to the backend.",
+      });
+    } finally {
+      setSyncingPushToken(false);
+    }
+  };
+
+  const DiagnosticRow = ({ label, value }) => (
+    <View style={styles.diagnosticRow}>
+      <Text style={styles.diagnosticLabel}>{label}</Text>
+      <Text style={styles.diagnosticValue}>{value}</Text>
+    </View>
+  );
 
   const pickImage = async () => {
     try {
@@ -577,6 +659,176 @@ export default function ProfileScreen({ navigation }) {
                 </View>
               </TouchableOpacity>
             </View>
+
+            {/* Temporary push notification diagnostics. Hidden by default; enable with EXPO_PUBLIC_SHOW_PUSH_DEBUG=true if needed. */}
+            {showPushDebug ? (
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionLabel}>PUSH NOTIFICATION TEST</Text>
+                <View style={styles.diagnosticBody}>
+                  <Text style={styles.diagnosticNotice}>
+                    Debug only. Do not share this token publicly.
+                  </Text>
+                  <DiagnosticRow
+                    label="Permission"
+                    value={pushDiagnostic?.permissionStatus || notificationPermissionStatus}
+                  />
+                  <DiagnosticRow
+                    label="Physical device"
+                    value={pushDiagnostic?.isPhysicalDevice ? "Yes" : "No"}
+                  />
+                  <DiagnosticRow
+                    label="EAS project ID"
+                    value={pushDiagnostic?.hasProjectId ? "Present" : "Missing"}
+                  />
+                  <DiagnosticRow
+                    label="Project ID source"
+                    value={pushDiagnostic?.projectIdSource || "Unknown"}
+                  />
+                  <DiagnosticRow
+                    label="Token generated"
+                    value={pushDebugToken ? "Yes" : "No"}
+                  />
+                  <DiagnosticRow
+                    label="Stored token available"
+                    value={pushDiagnostic?.hasStoredToken ? "Yes" : "No"}
+                  />
+                  <DiagnosticRow
+                    label="Auth token"
+                    value={pushDiagnostic?.hasAuthToken ? "Available" : "Missing"}
+                  />
+                  <DiagnosticRow
+                    label="API URL"
+                    value={pushDiagnostic?.apiUrl || "Loading..."}
+                  />
+                  <DiagnosticRow
+                    label="Last attempt"
+                    value={pushDiagnostic?.lastSyncAttemptTime || "None yet"}
+                  />
+                  <DiagnosticRow
+                    label="Last sync result"
+                    value={
+                      pushDiagnostic?.lastSyncAttemptTime
+                        ? pushDiagnostic?.lastSyncSuccess
+                          ? "Success"
+                          : "Failed"
+                        : "Not attempted"
+                    }
+                  />
+                  <DiagnosticRow
+                    label="Backend reached"
+                    value={pushDiagnostic?.lastSyncBackendReached ? "Yes" : "No"}
+                  />
+                  <DiagnosticRow
+                    label="Status code"
+                    value={
+                      pushDiagnostic?.lastSyncStatus
+                        ? String(pushDiagnostic.lastSyncStatus)
+                        : "None"
+                    }
+                  />
+                  <DiagnosticRow
+                    label="Last error/result"
+                    value={pushDiagnostic?.lastSyncMessage || "None"}
+                  />
+                  <DiagnosticRow
+                    label="Token generation error"
+                    value={pushDiagnostic?.tokenGenerationError || "None"}
+                  />
+
+                  {pushTokenResult ? (
+                    <View
+                      style={[
+                        styles.diagnosticResult,
+                        pushTokenResult.success
+                          ? styles.diagnosticResultSuccess
+                          : styles.diagnosticResultError,
+                      ]}
+                    >
+                      <Text style={styles.diagnosticResultTitle}>
+                        {pushTokenResult.success ? "Token generated" : "Token generation failed"}
+                      </Text>
+                      <Text style={styles.diagnosticResultText}>{pushTokenResult.message}</Text>
+                    </View>
+                  ) : null}
+
+                  {pushDebugToken ? (
+                    <View style={styles.debugTokenWrap}>
+                      <Text style={styles.debugTokenLabel}>Expo Push Token</Text>
+                      <Text selectable style={styles.debugTokenValue}>
+                        {pushDebugToken}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.diagnosticSecondaryButton}
+                        activeOpacity={0.85}
+                        onPress={handleCopyPushToken}
+                      >
+                        <Feather name="copy" size={16} color="#f97316" />
+                        <Text style={styles.diagnosticSecondaryButtonText}>Copy Push Token</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+
+                  <TouchableOpacity
+                    style={[
+                      styles.diagnosticButton,
+                      generatingPushToken && styles.diagnosticButtonDisabled,
+                    ]}
+                    activeOpacity={0.85}
+                    disabled={generatingPushToken}
+                    onPress={handleGeneratePushToken}
+                  >
+                    {generatingPushToken ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Ionicons name="notifications-outline" size={17} color="#fff" />
+                    )}
+                    <Text style={styles.diagnosticButtonText}>
+                      {generatingPushToken ? "Generating Token..." : "Generate / Show Expo Push Token"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.diagnosticButton,
+                      styles.diagnosticSyncButton,
+                      syncingPushToken && styles.diagnosticButtonDisabled,
+                    ]}
+                    activeOpacity={0.85}
+                    disabled={syncingPushToken}
+                    onPress={handleSyncPushToken}
+                  >
+                    {syncingPushToken ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Feather name="upload-cloud" size={17} color="#fff" />
+                    )}
+                    <Text style={styles.diagnosticButtonText}>
+                      {syncingPushToken ? "Syncing Token..." : "Sync Token to Backend"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {pushSyncResult ? (
+                    <View
+                      style={[
+                        styles.diagnosticResult,
+                        pushSyncResult.success
+                          ? styles.diagnosticResultSuccess
+                          : styles.diagnosticResultError,
+                      ]}
+                    >
+                      <Text style={styles.diagnosticResultTitle}>
+                        {pushSyncResult.success ? "Backend sync succeeded" : "Backend sync failed"}
+                      </Text>
+                      <Text style={styles.diagnosticResultText}>
+                        Backend reached: {pushSyncResult.backendReached ? "Yes" : "No"} | Status:{" "}
+                        {pushSyncResult.status || "None"}
+                      </Text>
+                      <Text style={styles.diagnosticResultText}>{pushSyncResult.message}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
 
             <View style={styles.sectionCard}>
               <Text style={styles.sectionLabel}>ACTIVITY</Text>

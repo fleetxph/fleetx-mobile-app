@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "501862583959",
+    "project_id": "fleetx-4f762",
+    "storage_bucket": "fleetx-4f762.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:501862583959:android:8bfc05936f8792a56123d2",
+        "android_client_info": {
+          "package_name": "com.fleetx.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAC6i5PNgf0bzVkaNzM7ocmm2N2YOj29AQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

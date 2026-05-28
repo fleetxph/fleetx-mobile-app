@@ -61,6 +61,14 @@ export function AuthProvider({ children }) {
     setIsAuthenticated(true);
     setAuthEvent({ type: "login", at: Date.now() });
 
+    initializePushNotificationsForSession().catch((error) => {
+      console.info("[PushNotifications][init]", {
+        success: false,
+        phase: "post_login",
+        message: error?.message || "Unknown error",
+      });
+    });
+
     if (__DEV__) {
       console.log("[Session][save]", {
         hasToken: Boolean(token),
@@ -105,7 +113,7 @@ export function AuthProvider({ children }) {
 
       if (token) {
         try {
-          const profileResponse = await getClientProfile();
+          const profileResponse = await getClientProfile({ retryColdStart: true });
           const profileUser = profileResponse?.user || parsedUser || {};
           setUser(profileUser);
           setIsAuthenticated(true);
@@ -157,14 +165,14 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (!isAuthenticated) return;
+    if (authEvent?.type === "login") return;
 
     initializePushNotificationsForSession().catch((error) => {
-      if (__DEV__) {
-        console.log("[PushNotifications][init]", {
-          success: false,
-          message: error?.message || "Unknown error",
-        });
-      }
+      console.info("[PushNotifications][init]", {
+        success: false,
+        phase: "session_restore",
+        message: error?.message || "Unknown error",
+      });
     });
   }, [authEvent?.type, isAuthenticated]);
 

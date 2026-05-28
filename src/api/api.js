@@ -75,6 +75,9 @@ export async function clearClientSession() {
     "profileImage",
     "sessionSavedAt",
     "expoPushToken",
+    "lastSyncedExpoPushToken",
+    "lastPushSyncState",
+    "lastPushTokenGenerationState",
     "localNotificationInbox",
     "bookingStatusSnapshot",
   ]);

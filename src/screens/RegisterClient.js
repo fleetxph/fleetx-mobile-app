@@ -12,8 +12,8 @@ import {
   Image,
 } from "react-native";
 import { Ionicons, Feather } from "@expo/vector-icons";
-import api from "../api/api";
 import { getFriendlyApiErrorMessage } from "../api/api";
+import { registerClient } from "../api/clientApi";
 import { styles } from "../styles/authStyle";
 import LoadingOverlay from "../components/LoadingOverlay";
 import {
@@ -64,6 +64,7 @@ export default function RegisterClient({ navigation }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [wakingServer, setWakingServer] = useState(false);
   const [focusedField, setFocusedField] = useState("");
 
   const scrollToBottom = () => {
@@ -120,8 +121,9 @@ export default function RegisterClient({ navigation }) {
 
     try {
       setLoading(true);
+      setWakingServer(false);
 
-      const res = await api.post("/client/register", {
+      const res = await registerClient({
         firstName: cleanFirstName,
         middleInitial: cleanMiddleInitial,
         lastName: cleanLastName,
@@ -129,17 +131,24 @@ export default function RegisterClient({ navigation }) {
         username: cleanUsername,
         email: cleanEmail,
         password,
+      }, {
+        onRetry: () => {
+          setWakingServer(true);
+          setMsg("Server is waking up. Please wait...");
+        },
       });
 
       navigation.navigate("ClientOTP", {
-        email: res.data?.email || cleanEmail,
+        email: res?.email || cleanEmail,
         message: "Account created. Please check your email for verification.",
       });
     } catch (err) {
-      const message = getFriendlyApiErrorMessage(
-        err,
-        "Unable to create account right now. Please try again."
-      );
+      const message = err?.authColdStartRetryExhausted
+        ? "Server is taking longer than expected. Please try again."
+        : getFriendlyApiErrorMessage(
+            err,
+            "Unable to create account right now. Please try again."
+          );
       const mappedError = mapApiFieldError(message, "register");
 
       if (mappedError?.field) {
@@ -150,6 +159,7 @@ export default function RegisterClient({ navigation }) {
       }
     } finally {
       setLoading(false);
+      setWakingServer(false);
     }
   };
 
@@ -552,7 +562,10 @@ export default function RegisterClient({ navigation }) {
             </View>
         </ScrollView>
 
-        <LoadingOverlay visible={loading} text="Creating your account..." />
+        <LoadingOverlay
+          visible={loading}
+          text={wakingServer ? "Server is waking up. Please wait..." : "Creating your account..."}
+        />
       </SafeAreaView>
     </KeyboardAvoidingView>
   );

@@ -164,6 +164,143 @@ export const styles = StyleSheet.create({
     color: "#c2410c",
   },
 
+  diagnosticBody: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+
+  diagnosticNotice: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#64748b",
+    backgroundColor: "#fff7ed",
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 10,
+  },
+
+  diagnosticRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingVertical: 5,
+  },
+
+  diagnosticLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#64748b",
+    flexShrink: 0,
+  },
+
+  diagnosticValue: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: "#111827",
+    fontWeight: "600",
+    textAlign: "right",
+    flex: 1,
+  },
+
+  diagnosticResult: {
+    marginTop: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 11,
+  },
+
+  diagnosticResultSuccess: {
+    backgroundColor: "#f0fdf4",
+    borderColor: "#bbf7d0",
+  },
+
+  diagnosticResultError: {
+    backgroundColor: "#fef2f2",
+    borderColor: "#fecaca",
+  },
+
+  diagnosticResultTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#111827",
+    marginBottom: 5,
+  },
+
+  diagnosticResultText: {
+    fontSize: 12,
+    color: "#475569",
+    lineHeight: 18,
+  },
+
+  debugTokenWrap: {
+    marginTop: 12,
+    padding: 11,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#fed7aa",
+    backgroundColor: "#fff7ed",
+  },
+
+  debugTokenLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#9a3412",
+    marginBottom: 7,
+  },
+
+  debugTokenValue: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#111827",
+    fontWeight: "600",
+  },
+
+  diagnosticSecondaryButton: {
+    height: 42,
+    borderRadius: 11,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: "#fdba74",
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 7,
+  },
+
+  diagnosticSecondaryButtonText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#c2410c",
+  },
+
+  diagnosticButton: {
+    height: 48,
+    marginTop: 14,
+    borderRadius: 13,
+    backgroundColor: "#f97316",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+
+  diagnosticButtonDisabled: {
+    opacity: 0.65,
+  },
+
+  diagnosticSyncButton: {
+    backgroundColor: "#c2410c",
+    marginTop: 10,
+  },
+
+  diagnosticButtonText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#fff",
+  },
+
   smallBadge: {
     paddingHorizontal: 10,
     paddingVertical: 5,

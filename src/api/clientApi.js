@@ -2,31 +2,98 @@ import api, { BASE_URL } from "./api";
 
 const ROUTE_VALIDATION_TIMEOUT_MS = 7000;
 const CONTRACT_ACCEPT_TIMEOUT_MS = 45000;
+const AUTH_REQUEST_TIMEOUT_MS = 45000;
+const AUTH_RETRY_DELAY_MS = 2500;
 
-export async function loginClient(payload) {
-  const url = `${BASE_URL}/client/login`;
+function wait(delayMs) {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
 
-  if (__DEV__) {
-    console.log("[AuthAPI][login:start]", {
-      url,
-      method: "POST",
-      hasEmail: Boolean(payload?.email || payload?.login),
-      hasPassword: Boolean(payload?.password),
-    });
+function isRetryableAuthNetworkError(error) {
+  const code = String(error?.code || "").toUpperCase();
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    !error?.response &&
+    (code === "ECONNABORTED" ||
+      message.includes("timeout") ||
+      message.includes("network error") ||
+      message.includes("failed to fetch"))
+  );
+}
+
+async function withAuthColdStartRetry({
+  endpoint,
+  request,
+  onRetry,
+  debugLabel = "request",
+}) {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    if (__DEV__) {
+      console.log(`[AuthAPI][${debugLabel}:start]`, {
+        endpoint,
+        attempt,
+        timeout: AUTH_REQUEST_TIMEOUT_MS,
+      });
+    }
+
+    try {
+      const response = await request();
+      if (__DEV__) {
+        console.log(`[AuthAPI][${debugLabel}:response]`, {
+          endpoint,
+          attempt,
+          status: response?.status || null,
+        });
+      }
+      return response;
+    } catch (error) {
+      const retryable = isRetryableAuthNetworkError(error);
+      if (__DEV__) {
+        console.log(`[AuthAPI][${debugLabel}:error]`, {
+          endpoint,
+          attempt,
+          status: error?.response?.status || null,
+          code: error?.code || "",
+          timeoutOrNetwork: retryable,
+        });
+      }
+
+      if (!retryable || attempt === 2) {
+        if (retryable && attempt === 2) error.authColdStartRetryExhausted = true;
+        throw error;
+      }
+
+      if (__DEV__) {
+        console.log(`[AuthAPI][${debugLabel}:retry]`, { endpoint, nextAttempt: 2 });
+      }
+      onRetry?.();
+      await wait(AUTH_RETRY_DELAY_MS);
+    }
   }
+}
+
+export async function loginClient(payload, options = {}) {
+  const endpoint = `${BASE_URL}/client/login`;
 
   try {
-    const response = await api.post("/client/login", payload);
+    const response = await withAuthColdStartRetry({
+      endpoint,
+      debugLabel: "login",
+      onRetry: options.onRetry,
+      request: () =>
+        api.post("/client/login", payload, {
+          timeout: AUTH_REQUEST_TIMEOUT_MS,
+        }),
+    });
     return response.data;
   } catch (error) {
     if (__DEV__) {
       console.log("[AuthAPI][login:error]", {
-        url,
+        endpoint,
         reachedResponse: Boolean(error?.response),
         status: error?.response?.status || null,
         code: error?.code || null,
         message: error?.message || "Unknown error",
-        responseData: error?.response?.data || null,
       });
     }
 
@@ -34,8 +101,17 @@ export async function loginClient(payload) {
   }
 }
 
-export async function registerClient(payload) {
-  const response = await api.post("/client/register", payload);
+export async function registerClient(payload, options = {}) {
+  const endpoint = `${BASE_URL}/client/register`;
+  const response = await withAuthColdStartRetry({
+    endpoint,
+    debugLabel: "register",
+    onRetry: options.onRetry,
+    request: () =>
+      api.post("/client/register", payload, {
+        timeout: AUTH_REQUEST_TIMEOUT_MS,
+      }),
+  });
   return response.data;
 }
 
@@ -69,7 +145,19 @@ export async function changeClientPassword(payload) {
   return response.data;
 }
 
-export async function getClientProfile() {
+export async function getClientProfile(options = {}) {
+  if (options.retryColdStart) {
+    const response = await withAuthColdStartRetry({
+      endpoint: `${BASE_URL}/client/profile`,
+      debugLabel: "session",
+      request: () =>
+        api.get("/client/profile", {
+          timeout: AUTH_REQUEST_TIMEOUT_MS,
+        }),
+    });
+    return response.data;
+  }
+
   const response = await api.get("/client/profile");
   return response.data;
 }
@@ -218,7 +306,11 @@ export async function clearNotifications() {
 }
 
 export async function registerPushToken(token, platform = "", deviceId = "") {
-  const response = await api.post("/client/push-token", { token, platform, deviceId });
+  const response = await api.post(
+    "/client/push-token",
+    { token, platform, deviceId },
+    { timeout: 45000 }
+  );
   return response.data;
 }
 
