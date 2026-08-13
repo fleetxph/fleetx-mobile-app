@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Modal,
   Pressable,
   View,
@@ -10,7 +11,6 @@ import {
   Image,
   SafeAreaView,
   ScrollView,
-  useWindowDimensions,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather, Ionicons } from "@expo/vector-icons";
@@ -47,6 +47,23 @@ const SORT_OPTIONS = [
   "Seats: High to Low",
 ];
 const VEHICLE_CACHE_KEY = "fleetx_public_vehicles_cache_v1";
+
+function getVehicleKey(vehicle, index = 0) {
+  return String(
+    vehicle?._id ||
+      vehicle?.id ||
+      vehicle?.plateNo ||
+      `${vehicle?.make || "vehicle"}-${vehicle?.model || ""}-${vehicle?.year || index}`
+  );
+}
+
+function mergeUniqueVehicles(current, incoming) {
+  const vehiclesById = new Map();
+  [...current, ...incoming].forEach((vehicle, index) => {
+    vehiclesById.set(getVehicleKey(vehicle, index), vehicle);
+  });
+  return Array.from(vehiclesById.values());
+}
 
 const createDefaultFilters = (vehicleType = "All Types") => ({
   vehicleType,
@@ -104,7 +121,6 @@ function hasVehicleFeature(vehicle, feature) {
 }
 
 export default function BrowseVehicles({ navigation, route }) {
-  const { width } = useWindowDimensions();
   const tripData = route?.params?.tripData || null;
   const selectedCategoryFromRoute = route?.params?.selectedCategory || "All Types";
   const normalizedRouteCategory = VEHICLE_TYPE_OPTIONS.find(
@@ -113,8 +129,11 @@ export default function BrowseVehicles({ navigation, route }) {
 
   const [vehicles, setVehicles] = useState([]);
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
+  const [loadingNextPage, setLoadingNextPage] = useState(false);
   const [loadMessage, setLoadMessage] = useState("");
+  const [nextPageMessage, setNextPageMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [sortOption, setSortOption] = useState("Recommended");
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [filters, setFilters] = useState(
@@ -123,50 +142,155 @@ export default function BrowseVehicles({ navigation, route }) {
   const [draftFilters, setDraftFilters] = useState(
     createDefaultFilters(normalizedRouteCategory || "All Types")
   );
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [failedImages, setFailedImages] = useState({});
-  const isCompactHero = width < 380;
-  const vehicleCacheKey = `${VEHICLE_CACHE_KEY}:${tripData?.startDate || "none"}:${tripData?.endDate || "none"}`;
+  const requestGenerationRef = useRef(0);
+  const loadingNextPageRef = useRef(false);
+  const serverParams = useMemo(() => {
+    const params = {
+      startDate: tripData?.startDate,
+      endDate: tripData?.endDate,
+      search: debouncedSearchQuery.trim() || undefined,
+      category: filters.vehicleType !== "All Types" ? filters.vehicleType : undefined,
+      transmission:
+        filters.transmission !== "All"
+          ? filters.transmission
+          : tripData?.transmission && tripData.transmission !== "any"
+          ? tripData.transmission
+          : undefined,
+      fuel: filters.fuelType !== "All" ? filters.fuelType : undefined,
+    };
 
-  const loadVehicles = async () => {
-    try {
+    if (filters.priceRange === "Under PHP 2,000") {
+      params.maxPrice = 1999.99;
+    } else if (filters.priceRange === "PHP 2,000 - PHP 4,000") {
+      params.minPrice = 2000;
+      params.maxPrice = 4000;
+    } else if (filters.priceRange === "PHP 4,000+") {
+      params.minPrice = 4000.01;
+    }
+
+    if (hasBudgetPreference(tripData?.budget)) {
+      params.maxPrice = Math.min(
+        Number(params.maxPrice ?? Number.POSITIVE_INFINITY),
+        Number(tripData.budget)
+      );
+    }
+
+    if (sortOption === "Price: Low to High") params.sort = "price-asc";
+    if (sortOption === "Price: High to Low") params.sort = "price-desc";
+    if (sortOption === "Seats: Low to High") params.sort = "capacity-asc";
+    if (sortOption === "Seats: High to Low") params.sort = "capacity-desc";
+
+    return params;
+  }, [
+    debouncedSearchQuery,
+    filters.fuelType,
+    filters.priceRange,
+    filters.transmission,
+    filters.vehicleType,
+    sortOption,
+    tripData?.budget,
+    tripData?.endDate,
+    tripData?.startDate,
+    tripData?.transmission,
+  ]);
+  const serverRequestKey = JSON.stringify(serverParams);
+  const vehicleCacheKey = `${VEHICLE_CACHE_KEY}:${serverRequestKey}`;
+
+  const loadVehiclesPage = async (page, { reset = false, generation } = {}) => {
+    if (!reset && loadingNextPageRef.current) return;
+
+    if (reset) {
+      loadingNextPageRef.current = false;
+      setLoadingNextPage(false);
       setVehiclesLoading(true);
       setLoadMessage("");
-      const cachedVehicles = await AsyncStorage.getItem(vehicleCacheKey);
-      if (cachedVehicles) {
-        const parsed = JSON.parse(cachedVehicles);
-        if (Array.isArray(parsed) && parsed.length) {
-          setVehicles(parsed);
+      setNextPageMessage("");
+    } else {
+      loadingNextPageRef.current = true;
+      setLoadingNextPage(true);
+      setNextPageMessage("");
+    }
+
+    try {
+      if (reset) {
+        const cachedVehicles = await AsyncStorage.getItem(vehicleCacheKey);
+        if (cachedVehicles) {
+          const parsed = JSON.parse(cachedVehicles);
+          if (Array.isArray(parsed) && parsed.length) {
+            setVehicles(parsed);
+          }
         }
       }
 
       const res = await getVehicles({
-        startDate: tripData?.startDate,
-        endDate: tripData?.endDate,
+        ...serverParams,
+        page,
+        limit: PAGE_SIZE,
       });
+      if (generation !== requestGenerationRef.current) return;
+
       const nextVehicles = Array.isArray(res?.vehicles)
         ? res.vehicles
         : Array.isArray(res)
         ? res
         : [];
-      setVehicles(nextVehicles);
-      await AsyncStorage.setItem(vehicleCacheKey, JSON.stringify(nextVehicles));
+      const responsePage = Number(res?.pagination?.page || page);
+      const responseTotalPages = Number(
+        res?.pagination?.totalPages ||
+          (nextVehicles.length < PAGE_SIZE ? responsePage : responsePage + 1)
+      );
+
+      setVehicles((current) =>
+        reset ? mergeUniqueVehicles([], nextVehicles) : mergeUniqueVehicles(current, nextVehicles)
+      );
+      setCurrentPage(responsePage);
+      setTotalPages(Math.max(responsePage, responseTotalPages));
+
+      if (reset) {
+        await AsyncStorage.setItem(vehicleCacheKey, JSON.stringify(nextVehicles));
+      }
     } catch (err) {
       console.log("Load vehicles error:", err?.response?.data || err.message);
-      setLoadMessage(
-        getFriendlyApiErrorMessage(
-          err,
-          "Could not load vehicles right now. Please try again."
-        )
+      if (generation !== requestGenerationRef.current) return;
+
+      const message = getFriendlyApiErrorMessage(
+        err,
+        reset
+          ? "Could not load vehicles right now. Please try again."
+          : "Could not load more vehicles. Tap to try again."
       );
+      if (reset) setLoadMessage(message);
+      else setNextPageMessage(message);
     } finally {
-      setVehiclesLoading(false);
+      if (generation === requestGenerationRef.current) {
+        if (reset) setVehiclesLoading(false);
+        else {
+          loadingNextPageRef.current = false;
+          setLoadingNextPage(false);
+        }
+      }
     }
   };
 
   useEffect(() => {
-    loadVehicles();
-  }, [tripData?.endDate, tripData?.startDate]);
+    const timeout = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const generation = requestGenerationRef.current + 1;
+    requestGenerationRef.current = generation;
+    loadingNextPageRef.current = false;
+    setVehicles([]);
+    setCurrentPage(0);
+    setTotalPages(1);
+    loadVehiclesPage(1, { reset: true, generation });
+  }, [serverRequestKey]);
 
   useEffect(() => {
     if (route?.params?.selectedCategory) {
@@ -177,13 +301,8 @@ export default function BrowseVehicles({ navigation, route }) {
 
       setFilters((prev) => ({ ...prev, vehicleType: nextCategory }));
       setDraftFilters((prev) => ({ ...prev, vehicleType: nextCategory }));
-      setVisibleCount(PAGE_SIZE);
     }
   }, [route?.params?.selectedCategory]);
-
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [filters, searchQuery, sortOption, tripData]);
 
   const filteredVehicles = useMemo(() => {
     let result = [...vehicles];
@@ -291,12 +410,7 @@ export default function BrowseVehicles({ navigation, route }) {
     return result;
   }, [filters, searchQuery, sortOption, tripData, vehicles]);
 
-  const visibleVehicles = useMemo(
-    () => filteredVehicles.slice(0, visibleCount),
-    [filteredVehicles, visibleCount]
-  );
-
-  const hasMoreVehicles = visibleCount < filteredVehicles.length;
+  const hasMoreVehicles = currentPage < totalPages;
   const hasActiveFilters =
     searchQuery.trim().length > 0 ||
     filters.vehicleType !== "All Types" ||
@@ -327,7 +441,6 @@ export default function BrowseVehicles({ navigation, route }) {
     setSortOption("Recommended");
     setFilters(resetFilters);
     setDraftFilters(resetFilters);
-    setVisibleCount(PAGE_SIZE);
   };
 
   const removeFilterChip = (chip) => {
@@ -441,19 +554,42 @@ export default function BrowseVehicles({ navigation, route }) {
     const imageUrl = getVehicleImageUrl(item);
     const failedKey = `vehicle-${vehicleId}`;
     const vehicleName = `${item?.make || ""} ${item?.model || ""}`.trim() || "Vehicle";
-    const vehicleFit = getVehicleLuggageFit(item, tripData || {});
-    const vehicleMeta = `${item?.year || "N/A"} • ${item?.location || "N/A"}`;
+    const vehicleFit = tripData ? getVehicleLuggageFit(item, tripData) : null;
+    const seatCount = getSeatCount(item);
+    const engine = item?.engine || item?.engineType || item?.engineDisplacement;
+    const exteriorColor =
+      item?.exteriorColor || item?.color || item?.colour || item?.vehicleColor;
+    const specs = [
+      seatCount > 0
+        ? { key: "seats", icon: "people-outline", value: `${seatCount} Seats`, label: "Capacity" }
+        : null,
+      item?.transmission
+        ? {
+            key: "transmission",
+            icon: "git-compare-outline",
+            value: item.transmission,
+            label: "Transmission",
+          }
+        : null,
+      item?.fuel
+        ? { key: "fuel", icon: "speedometer-outline", value: item.fuel, label: "Fuel Type" }
+        : null,
+      engine
+        ? { key: "engine", icon: "cog-outline", value: engine, label: "Engine" }
+        : null,
+    ].filter(Boolean);
+    const openVehicleDetails = () =>
+      navigation.navigate("VehicleDetails", {
+        vehicle: item,
+        tripData: tripData || null,
+      });
+    const vehicleMeta = [item?.year, item?.location].filter(Boolean).join(" • ");
 
     return (
       <TouchableOpacity
-        activeOpacity={0.9}
+        activeOpacity={0.94}
         style={styles.card}
-        onPress={() =>
-          navigation.navigate("VehicleDetails", {
-            vehicle: item,
-            tripData: tripData || null,
-          })
-        }
+        onPress={openVehicleDetails}
       >
         <View style={styles.cardAccentBar} />
 
@@ -474,28 +610,73 @@ export default function BrowseVehicles({ navigation, route }) {
         </View>
 
         <View style={styles.cardBody}>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{item.category || "Vehicle"}</Text>
-          </View>
+          {item?.category ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{item.category}</Text>
+            </View>
+          ) : null}
 
           <View style={styles.cardTextBlock}>
             <Text style={styles.title} numberOfLines={2}>
               {vehicleName}
             </Text>
 
-            <Text style={styles.meta} numberOfLines={2}>
-              {vehicleMeta}
-            </Text>
+            {vehicleMeta ? (
+              <Text style={styles.meta} numberOfLines={2}>
+                {vehicleMeta}
+              </Text>
+            ) : null}
           </View>
 
-          <View style={styles.fitCard}>
-            <Text style={styles.fitPrimary}>{vehicleFit.recommendation}</Text>
-            <Text style={styles.fitSecondary}>{vehicleFit.passengerMessage}</Text>
-            <Text style={styles.fitSecondary}>{vehicleFit.luggageMessage}</Text>
-          </View>
+          {specs.length ? (
+            <View style={styles.specsGrid}>
+              {specs.map((spec) => (
+                <View key={spec.key} style={styles.specItem}>
+                  <View style={styles.specIconWrap}>
+                    <Ionicons name={spec.icon} size={18} color="#F97316" />
+                  </View>
+                  <View style={styles.specTextWrap}>
+                    <Text style={styles.specValue} numberOfLines={1}>
+                      {spec.value}
+                    </Text>
+                    <Text style={styles.specLabel}>{spec.label}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : null}
 
-          <View style={styles.priceRow}>
+          {exteriorColor ? (
+            <View style={styles.colorRow}>
+              <View style={styles.colorIndicator}>
+                <Ionicons name="color-palette-outline" size={15} color="#64748B" />
+              </View>
+              <View>
+                <Text style={styles.colorValue}>{exteriorColor}</Text>
+                <Text style={styles.colorLabel}>Exterior Color</Text>
+              </View>
+            </View>
+          ) : null}
+
+          {vehicleFit ? (
+            <View style={styles.fitNote}>
+              <Ionicons name="sparkles-outline" size={15} color="#F97316" />
+              <Text style={styles.fitNoteText} numberOfLines={2}>
+                {vehicleFit.recommendation}
+              </Text>
+            </View>
+          ) : null}
+
+          <View style={styles.cardFooter}>
             <Text style={styles.price}>{formatVehicleDailyRateLabel(item)}</Text>
+            <TouchableOpacity
+              style={styles.viewDetailsButton}
+              activeOpacity={0.9}
+              onPress={openVehicleDetails}
+            >
+              <Text style={styles.viewDetailsButtonText}>View Details</Text>
+              <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
           </View>
         </View>
       </TouchableOpacity>
@@ -505,31 +686,16 @@ export default function BrowseVehicles({ navigation, route }) {
   const renderHeader = () => (
     <View style={styles.listHeader}>
       <View style={styles.heroHeaderCard}>
-        <View style={styles.heroHeaderGlow} />
         <View style={styles.heroHeaderAccent} />
-        <View
-          style={[
-            styles.heroHeaderContentRow,
-            isCompactHero && styles.heroHeaderContentStack,
-          ]}
-        >
+        <View style={styles.heroHeaderContentRow}>
           <View style={styles.heroHeaderTextBlock}>
-            <View style={styles.heroHeaderBadge}>
-              <Ionicons name="car-sport-outline" size={14} color="#F97316" />
-              <Text style={styles.heroHeaderBadgeText}>PREMIUM VEHICLE SELECTION</Text>
-            </View>
-
             <Text style={styles.header}>Browse Cars</Text>
-            <Text style={styles.headerSubtext}>Find the right ride for your next trip.</Text>
+            <Text style={styles.headerSubtext} numberOfLines={2}>
+              Find the right ride for your next trip.
+            </Text>
           </View>
 
-          <View
-            style={[
-              styles.heroVehicleWrap,
-              isCompactHero && styles.heroVehicleWrapCompact,
-            ]}
-          >
-            <View style={styles.heroVehiclePlate} />
+          <View style={styles.heroVehicleWrap}>
             <Image
               source={require("../../assets/Inovva.png")}
               style={styles.heroVehicleImage}
@@ -563,10 +729,7 @@ export default function BrowseVehicles({ navigation, route }) {
             placeholder="Search make, model, or category"
             placeholderTextColor="#9CA3AF"
             value={searchQuery}
-            onChangeText={(value) => {
-              setSearchQuery(value);
-              setVisibleCount(PAGE_SIZE);
-            }}
+            onChangeText={setSearchQuery}
           />
         </View>
 
@@ -669,41 +832,63 @@ export default function BrowseVehicles({ navigation, route }) {
   );
 
   const renderFooter = () => {
-    if (!filteredVehicles.length) return null;
+    if (loadingNextPage) {
+      return (
+        <View style={styles.nextPageLoader}>
+          <ActivityIndicator size="small" color="#F97316" />
+        </View>
+      );
+    }
 
-    if (hasMoreVehicles) {
+    if (nextPageMessage && hasMoreVehicles) {
       return (
         <TouchableOpacity
-          style={styles.loadMoreButton}
-          activeOpacity={0.9}
-          onPress={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
+          style={styles.nextPageRetry}
+          activeOpacity={0.85}
+          onPress={() =>
+            loadVehiclesPage(currentPage + 1, {
+              generation: requestGenerationRef.current,
+            })
+          }
         >
-          <Text style={styles.loadMoreButtonText}>Load More Vehicles</Text>
+          <Text style={styles.nextPageRetryText}>{nextPageMessage}</Text>
         </TouchableOpacity>
       );
     }
 
-    return <Text style={styles.endText}>You've reached the end.</Text>;
+    return null;
+  };
+
+  const loadNextPage = () => {
+    if (
+      vehiclesLoading ||
+      loadingNextPageRef.current ||
+      nextPageMessage ||
+      !hasMoreVehicles
+    ) {
+      return;
+    }
+
+    loadVehiclesPage(currentPage + 1, {
+      generation: requestGenerationRef.current,
+    });
   };
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
         <FlatList
-          data={visibleVehicles}
-          keyExtractor={(item, index) => String(item._id || item.id || index)}
+          data={filteredVehicles}
+          keyExtractor={getVehicleKey}
           renderItem={renderVehicle}
-          numColumns={2}
-          columnWrapperStyle={
-            visibleVehicles.length > 1
-              ? styles.columnWrapper
-              : null
-          }
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
           keyboardShouldPersistTaps="handled"
           initialNumToRender={PAGE_SIZE}
           maxToRenderPerBatch={PAGE_SIZE}
+          windowSize={7}
+          onEndReached={loadNextPage}
+          onEndReachedThreshold={0.45}
           ListHeaderComponent={renderHeader}
           ListFooterComponent={renderFooter}
           ListEmptyComponent={

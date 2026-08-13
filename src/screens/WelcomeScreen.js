@@ -3,13 +3,13 @@ import {
   FlatList,
   Image,
   ImageBackground,
-  SafeAreaView,
   StatusBar,
   Text,
   TouchableOpacity,
   useWindowDimensions,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { styles } from "../styles/landingStyle";
 
 const logoImage = require("../../assets/logo.png");
@@ -17,21 +17,23 @@ const logoImage = require("../../assets/logo.png");
 const slides = [
   {
     id: "slide-1",
-    image: require("../../assets/Background1.jpg"),
+    image: require("../../assets/Ativ.png"),
   },
   {
     id: "slide-2",
-    image: require("../../assets/Background2.jpg"),
+    image: require("../../assets/Fortuner.png"),
   },
   {
     id: "slide-3",
-    image: require("../../assets/Background3.jpg"),
+    image: require("../../assets/Hiace.png"),
   },
 ];
 
 export default function WelcomeScreen({ navigation }) {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [activeIndex, setActiveIndex] = useState(0);
+  const isCompactHeight = height < 720;
 
   const handleMomentumEnd = (event) => {
     const offsetX = event.nativeEvent.contentOffset.x;
@@ -63,10 +65,18 @@ export default function WelcomeScreen({ navigation }) {
       />
 
       <View pointerEvents="none" style={styles.overlay} />
-      <View pointerEvents="none" style={styles.glowTop} />
-      <View pointerEvents="none" style={styles.glowBottom} />
+      <View pointerEvents="none" style={styles.bottomShade} />
 
-      <SafeAreaView style={styles.safeArea} pointerEvents="box-none">
+      <View
+        style={[
+          styles.safeArea,
+          {
+            paddingTop: insets.top + (isCompactHeight ? 8 : 12),
+            paddingBottom: Math.max(insets.bottom, 12),
+          },
+        ]}
+        pointerEvents="box-none"
+      >
         <View style={styles.contentShell} pointerEvents="box-none">
           <View style={styles.brandBlock}>
             <View style={styles.logoRow}>
@@ -79,10 +89,9 @@ export default function WelcomeScreen({ navigation }) {
 
           <View style={styles.heroSection} pointerEvents="box-none">
             <View style={styles.textBlock}>
-              <Text style={styles.headline}>Need a Ride? We've Got You Covered!</Text>
+              <Text style={styles.headline}>Your next ride, ready when you are.</Text>
               <Text style={styles.subtitle}>
-                Whether it's a quick drive around the city or a weekend getaway,
-                we've got the perfect ride for you.
+                From city errands to weekend getaways, find a practical ride for every trip.
               </Text>
             </View>
 
@@ -105,6 +114,7 @@ export default function WelcomeScreen({ navigation }) {
                 activeOpacity={0.9}
                 style={styles.ctaButton}
                 onPress={() => navigation.replace("MainApp")}
+                accessibilityRole="button"
               >
                 <Text style={styles.ctaText}>Get Started</Text>
               </TouchableOpacity>
@@ -114,13 +124,16 @@ export default function WelcomeScreen({ navigation }) {
           <View style={styles.footerBlock}>
             <View style={styles.loginRow}>
               <Text style={styles.loginLabel}>Already have an account? </Text>
-              <TouchableOpacity onPress={() => navigation.navigate("ClientLogin")}>
-                <Text style={styles.loginLink}>Login</Text>
+              <TouchableOpacity
+                onPress={() => navigation.navigate("ClientLogin")}
+                accessibilityRole="button"
+              >
+                <Text style={styles.loginLink}>Log in</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

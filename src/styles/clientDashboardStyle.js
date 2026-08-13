@@ -13,8 +13,8 @@ export const styles = StyleSheet.create({
   },
 
   contentContainer: {
-    paddingTop: 18,
-    paddingBottom: 120,
+    paddingTop: 12,
+    paddingBottom: 104,
     paddingHorizontal: 18,
   },
 
@@ -22,18 +22,18 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 18,
+    marginBottom: 12,
   },
 
   logo: {
-    width: 130,
-    height: 44,
+    width: 136,
+    height: 42,
   },
 
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
 
   avatarButton: {
@@ -70,46 +70,29 @@ export const styles = StyleSheet.create({
   },
 
   heroCard: {
-    height: 220,
-    borderRadius: 24,
+    height: 204,
+    borderRadius: 22,
     overflow: "hidden",
     marginHorizontal: 0,
-    marginBottom: 30,
+    marginBottom: 20,
     backgroundColor: "#111827",
   },
   campaignCard: {
     overflow: "hidden",
-    borderRadius: 22,
-    backgroundColor: "#FFF7ED",
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "#FED7AA",
-    marginBottom: 22,
+    borderColor: "#E8DED4",
+    marginBottom: 24,
     shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 14,
-    elevation: 4,
-  },
-  campaignGlow: {
-    position: "absolute",
-    top: -24,
-    right: -12,
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: "#FFE4C7",
-  },
-  campaignAccent: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 5,
-    backgroundColor: "#F97316",
+    shadowOffset: { width: 0, height: 7 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
+    elevation: 3,
   },
   campaignContent: {
-    paddingHorizontal: 18,
-    paddingVertical: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 16,
   },
   campaignLoadingRow: {
     flexDirection: "row",
@@ -122,169 +105,126 @@ export const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
   },
-  campaignHeaderRow: {
+  campaignColumns: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 12,
+    alignItems: "stretch",
   },
-  campaignTextWrap: {
-    flex: 1,
+  campaignLeftColumn: {
+    flex: 1.08,
     minWidth: 0,
+    paddingRight: 12,
+    justifyContent: "center",
+  },
+  campaignRightColumn: {
+    flex: 0.92,
+    minWidth: 0,
+    paddingLeft: 12,
+    justifyContent: "space-between",
+  },
+  campaignDivider: {
+    width: 1,
+    backgroundColor: "#E7E1DB",
+    marginVertical: 1,
+  },
+  campaignEyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 12,
   },
   campaignLabel: {
     alignSelf: "flex-start",
-    color: "#9A3412",
-    backgroundColor: "#FFEDD5",
-    borderRadius: 999,
+    color: "#EA580C",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
     overflow: "hidden",
-    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: "#FDBA74",
+    paddingHorizontal: 8,
     paddingVertical: 5,
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: "900",
-    marginBottom: 10,
+    letterSpacing: 0.25,
   },
   campaignTitle: {
-    color: "#111827",
-    fontSize: 20,
+    color: "#0B132B",
+    fontSize: 18,
     fontWeight: "900",
-    lineHeight: 25,
+    lineHeight: 21,
     marginBottom: 6,
   },
   campaignSubtitle: {
-    color: "#7C2D12",
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 14,
-  },
-  campaignImage: {
-    width: 92,
-    height: 92,
-    borderRadius: 18,
-    backgroundColor: "#FDE7D2",
-    borderWidth: 1,
-    borderColor: "#FED7AA",
+    color: "#475569",
+    fontSize: 12,
+    lineHeight: 17,
   },
   campaignBadge: {
-    alignSelf: "flex-start",
-    marginBottom: 12,
+    alignSelf: "center",
     backgroundColor: "#0B132B",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   campaignBadgeText: {
     color: "#FFFFFF",
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: "900",
   },
-  campaignCodeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 14,
-  },
-  campaignCodeChip: {
-    flex: 1,
-    minWidth: 0,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#FDBA74",
-    backgroundColor: "#FFF8F1",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+  campaignCodeBlock: {
+    marginBottom: 12,
   },
   campaignCodeLabel: {
-    color: "#9A3412",
-    fontSize: 10,
-    fontWeight: "800",
+    color: "#98A2B3",
+    fontSize: 9,
+    fontWeight: "900",
     textTransform: "uppercase",
-    marginBottom: 4,
+    letterSpacing: 0.35,
+    marginBottom: 5,
   },
   campaignCodeValue: {
     color: "#0B132B",
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "900",
+    letterSpacing: 0.2,
+  },
+  campaignActions: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 7,
   },
   campaignCodeButton: {
+    flex: 1,
     backgroundColor: "#FFFFFF",
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderWidth: 1,
-    borderColor: "#FDBA74",
-  },
-  campaignCodeButtonText: {
-    color: "#C2410C",
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  campaignVehicleCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#FDBA74",
-    backgroundColor: "#FFFFFF",
-    padding: 12,
-    marginBottom: 14,
-  },
-  campaignVehicleImage: {
-    width: 88,
-    height: 76,
-    borderRadius: 14,
-    backgroundColor: "#FDE7D2",
-  },
-  campaignVehicleImageFallback: {
-    width: 88,
-    height: 76,
-    borderRadius: 14,
-    backgroundColor: "#FFF7ED",
-    borderWidth: 1,
-    borderColor: "#FED7AA",
+    borderRadius: 11,
+    paddingHorizontal: 7,
+    paddingVertical: 9,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: "#F97316",
   },
-  campaignVehicleImageFallbackText: {
-    color: "#C2410C",
-    fontSize: 12,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-  campaignVehicleBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  campaignVehicleTitle: {
-    color: "#0B132B",
-    fontSize: 16,
-    fontWeight: "900",
-    marginBottom: 4,
-  },
-  campaignVehicleMeta: {
-    color: "#7C2D12",
-    fontSize: 12,
-    lineHeight: 18,
-    marginBottom: 6,
-  },
-  campaignVehicleRate: {
-    color: "#F97316",
-    fontSize: 14,
+  campaignCodeButtonText: {
+    color: "#EA580C",
+    fontSize: 10,
     fontWeight: "900",
   },
   campaignButton: {
-    alignSelf: "flex-start",
+    flex: 1,
     backgroundColor: "#F97316",
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
+    borderRadius: 11,
+    paddingHorizontal: 7,
+    paddingVertical: 9,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
   campaignButtonText: {
     color: "#FFFFFF",
-    fontSize: 13,
+    fontSize: 10,
     fontWeight: "900",
+    textAlign: "center",
   },
 
   heroBackground: {
@@ -292,7 +232,7 @@ export const styles = StyleSheet.create({
   },
 
   heroBackgroundImage: {
-    borderRadius: 24,
+    borderRadius: 22,
   },
 
   heroOverlay: {
@@ -303,36 +243,34 @@ export const styles = StyleSheet.create({
   heroContent: {
     flex: 1,
     justifyContent: "center",
-    padding: 24,
+    padding: 20,
   },
 
-  heroGreeting: {
+  heroTitle: {
     color: "#ffffff",
-    fontSize: 18,
-    fontWeight: "600",
-  },
-
-  heroName: {
-    color: "#ffffff",
-    fontSize: 32,
+    fontSize: 24,
+    lineHeight: 29,
     fontWeight: "900",
-    marginTop: 2,
+    maxWidth: 280,
   },
 
   heroSubtitle: {
     color: "#f8fafc",
-    fontSize: 15,
-    lineHeight: 22,
-    marginTop: 8,
-    marginBottom: 20,
+    fontSize: 14,
+    lineHeight: 20,
+    maxWidth: 280,
+    marginTop: 7,
+    marginBottom: 15,
   },
 
   planTripButton: {
     alignSelf: "flex-start",
     backgroundColor: "#f97316",
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 999,
+    paddingHorizontal: 17,
+    paddingVertical: 11,
+    borderRadius: 15,
+    minHeight: 44,
+    justifyContent: "center",
   },
 
   planTripButtonText: {
@@ -342,21 +280,21 @@ export const styles = StyleSheet.create({
   },
 
   section: {
-    marginBottom: 30,
+    marginBottom: 24,
   },
 
   sectionHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 16,
+    marginBottom: 12,
   },
 
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "900",
     color: "#0f172a",
-    marginBottom: 16,
+    marginBottom: 12,
   },
 
   sectionTitleInline: {
@@ -377,40 +315,40 @@ export const styles = StyleSheet.create({
   },
 
   typeScrollContent: {
-    gap: 12,
+    gap: 11,
     paddingRight: 16,
   },
 
   typeChip: {
-    width: 104,
-    minHeight: 132,
-    borderRadius: 24,
+    width: 90,
+    minHeight: 114,
+    borderRadius: 18,
     backgroundColor: "#ffffff",
     borderWidth: 1,
     borderColor: "#f3e2d3",
-    paddingHorizontal: 10,
-    paddingVertical: 11,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     alignItems: "center",
     justifyContent: "space-between",
     shadowColor: "#0f172a",
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.07,
-    shadowRadius: 14,
-    elevation: 4,
+    shadowOpacity: 0.055,
+    shadowRadius: 12,
+    elevation: 3,
   },
 
   typeChipImageWrap: {
     width: "100%",
-    height: 74,
-    borderRadius: 20,
+    height: 66,
+    borderRadius: 14,
     backgroundColor: "#fffaf5",
     borderWidth: 1,
     borderColor: "#fed7aa",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    marginBottom: 12,
+    paddingHorizontal: 5,
+    paddingVertical: 4,
+    marginBottom: 7,
   },
 
   typeChipImage: {
@@ -467,16 +405,16 @@ export const styles = StyleSheet.create({
 
   quickAccessRow: {
     flexDirection: "row",
-    gap: 14,
+    gap: 12,
     alignItems: "stretch",
   },
 
   quickAccessCard: {
     flex: 1,
-    borderRadius: 22,
-    minHeight: 126,
-    paddingHorizontal: 18,
-    paddingVertical: 18,
+    borderRadius: 18,
+    minHeight: 96,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
     justifyContent: "center",
     shadowColor: "#0f172a",
     shadowOffset: { width: 0, height: 10 },
@@ -496,17 +434,17 @@ export const styles = StyleSheet.create({
   },
 
   quickAccessCardContent: {
-    flex: 1,
-    justifyContent: "space-between",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
   },
 
   quickIconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
   },
 
   quickIconBoxDark: {
@@ -528,7 +466,8 @@ export const styles = StyleSheet.create({
   },
 
   quickAccessTitle: {
-    fontSize: 16,
+    flex: 1,
+    fontSize: 14,
     fontWeight: "800",
     lineHeight: 21,
   },
@@ -540,16 +479,16 @@ export const styles = StyleSheet.create({
   },
 
   featuredScrollContent: {
-    gap: 16,
+    gap: 12,
     paddingRight: 18,
     paddingBottom: 4,
   },
 
   vehicleCard: {
     backgroundColor: "#ffffff",
-    borderRadius: 22,
+    borderRadius: 18,
     overflow: "hidden",
-    minHeight: 286,
+    minHeight: 274,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.08,
@@ -559,13 +498,13 @@ export const styles = StyleSheet.create({
 
   vehicleImage: {
     width: "100%",
-    height: 138,
+    height: 132,
     backgroundColor: "#e5e7eb",
   },
 
   vehicleImageFallback: {
     width: "100%",
-    height: 138,
+    height: 132,
     backgroundColor: "#0B132B",
     alignItems: "center",
     justifyContent: "center",
@@ -578,16 +517,15 @@ export const styles = StyleSheet.create({
   },
 
   vehicleCardBody: {
-    padding: 14,
+    padding: 13,
   },
 
   vehicleCategoryBadge: {
     alignSelf: "flex-start",
     backgroundColor: "#ffedd5",
-    borderRadius: 999,
+    borderRadius: 10,
     paddingHorizontal: 9,
     paddingVertical: 4,
-    marginBottom: 8,
     maxWidth: 110,
   },
 
@@ -602,7 +540,7 @@ export const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "900",
     lineHeight: 22,
-    marginBottom: 8,
+    marginBottom: 6,
   },
 
   vehicleTopLine: {
@@ -610,13 +548,13 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 7,
   },
 
   vehicleStatus: {
     color: "#15803d",
     backgroundColor: "#dcfce7",
-    borderRadius: 999,
+    borderRadius: 10,
     overflow: "hidden",
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -640,7 +578,7 @@ export const styles = StyleSheet.create({
     color: "#64748b",
     fontSize: 12,
     fontWeight: "700",
-    marginBottom: 12,
+    marginBottom: 10,
   },
 
   vehiclePrice: {
@@ -659,7 +597,7 @@ export const styles = StyleSheet.create({
   vehicleButtonText: {
     color: "#ffffff",
     backgroundColor: "#0B132B",
-    borderRadius: 999,
+    borderRadius: 11,
     overflow: "hidden",
     paddingHorizontal: 12,
     paddingVertical: 7,

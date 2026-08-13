@@ -14,6 +14,7 @@ import {
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons, Feather } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { configureNotifications } from "./src/services/notificationService";
 import { warmUpBackend } from "./src/api/api";
@@ -152,6 +153,7 @@ function CustomPlanTabButton({ children, onPress }) {
 }
 
 function MainTabs() {
+  const insets = useSafeAreaInsets();
   const ProtectedBookings = withAuth(
     MyBookings,
     "Please log in to manage your bookings."
@@ -177,13 +179,13 @@ function MainTabs() {
           position: "absolute",
           left: 12,
           right: 12,
-          bottom: 10,
-          height: 74,
+          bottom: Math.max(8, insets.bottom),
+          height: 66,
           borderTopWidth: 0,
           borderRadius: 22,
           backgroundColor: "#FFFFFF",
-          paddingTop: 10,
-          paddingBottom: 8,
+          paddingTop: 8,
+          paddingBottom: 6,
           shadowColor: "#000",
           shadowOffset: { width: 0, height: 6 },
           shadowOpacity: 0.08,
@@ -396,14 +398,14 @@ export default function App() {
 
 const styles = StyleSheet.create({
   planButtonWrapper: {
-    top: -18,
+    top: -14,
     justifyContent: "center",
     alignItems: "center",
   },
   planButton: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     backgroundColor: "#F47C20",
     justifyContent: "center",
     alignItems: "center",

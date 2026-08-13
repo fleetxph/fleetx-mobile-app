@@ -1,4 +1,4 @@
-import { Platform, StatusBar, StyleSheet } from "react-native";
+import { StyleSheet } from "react-native";
 import { colors } from "../theme/colors";
 
 export const styles = StyleSheet.create({
@@ -17,32 +17,21 @@ export const styles = StyleSheet.create({
   },
 
   backgroundImage: {
-    opacity: 0.98,
+    opacity: 0.96,
   },
 
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(5, 12, 24, 0.52)",
   },
 
-  glowTop: {
+  bottomShade: {
     position: "absolute",
-    top: -90,
-    right: -40,
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    backgroundColor: "rgba(244, 124, 32, 0.16)",
-  },
-
-  glowBottom: {
-    position: "absolute",
-    left: -70,
-    bottom: -40,
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: "rgba(16, 26, 48, 0.4)",
+    right: 0,
+    bottom: 0,
+    left: 0,
+    height: "56%",
+    backgroundColor: "rgba(7, 15, 30, 0.3)",
   },
 
   safeArea: {
@@ -52,8 +41,7 @@ export const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     flex: 1,
-    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0,
-    paddingHorizontal: 24,
+    paddingHorizontal: 22,
   },
 
   contentShell: {
@@ -63,26 +51,25 @@ export const styles = StyleSheet.create({
 
   brandBlock: {
     alignItems: "center",
-    paddingTop: 18,
   },
 
   logoRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
+    gap: 8,
   },
 
   logoChip: {
-    width: 52,
-    height: 52,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: "rgba(230,234,240,0.92)",
     alignItems: "center",
     justifyContent: "center",
-    padding: 10,
+    padding: 8,
     shadowColor: colors.black,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.18,
@@ -91,15 +78,15 @@ export const styles = StyleSheet.create({
   },
 
   brandLogo: {
-    width: 32,
-    height: 32,
+    width: 28,
+    height: 28,
   },
 
   brandInlineText: {
     color: colors.white,
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "700",
-    letterSpacing: 0.2,
+    letterSpacing: 0.15,
     textAlign: "center",
   },
 
@@ -107,31 +94,32 @@ export const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "flex-end",
     alignItems: "center",
-    paddingHorizontal: 10,
-    paddingTop: 20,
-    paddingBottom: 18,
+    paddingTop: 24,
+    paddingBottom: 16,
   },
 
   textBlock: {
     width: "100%",
-    maxWidth: 320,
+    maxWidth: 336,
     alignItems: "center",
+    minHeight: 92,
+    justifyContent: "flex-end",
   },
 
   headline: {
     color: colors.white,
-    fontSize: 24,
-    lineHeight: 32,
-    fontWeight: "900",
+    fontSize: 21,
+    lineHeight: 28,
+    fontWeight: "800",
     textAlign: "center",
   },
 
   subtitle: {
-    marginTop: 14,
-    paddingHorizontal: 10,
-    color: "rgba(248, 250, 252, 0.88)",
-    fontSize: 13,
-    lineHeight: 20,
+    marginTop: 10,
+    paddingHorizontal: 8,
+    color: "rgba(248, 250, 252, 0.86)",
+    fontSize: 14,
+    lineHeight: 21,
     fontWeight: "500",
     textAlign: "center",
   },
@@ -140,8 +128,8 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 24,
-    gap: 8,
+    marginTop: 20,
+    gap: 7,
   },
 
   paginationDot: {
@@ -149,37 +137,37 @@ export const styles = StyleSheet.create({
   },
 
   paginationDotActive: {
-    width: 22,
-    height: 4,
+    width: 24,
+    height: 5,
     backgroundColor: colors.accent,
   },
 
   paginationDotInactive: {
-    width: 22,
-    height: 3,
-    backgroundColor: "rgba(255,255,255,0.45)",
+    width: 6,
+    height: 6,
+    backgroundColor: "rgba(255,255,255,0.38)",
   },
 
   actionBlock: {
     width: "100%",
     alignItems: "center",
-    marginTop: 18,
+    marginTop: 16,
   },
 
   ctaButton: {
     width: "100%",
-    maxWidth: 340,
-    minHeight: 56,
-    borderRadius: 28,
+    maxWidth: 336,
+    minHeight: 54,
+    borderRadius: 18,
     backgroundColor: colors.accent,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 24,
     shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.22,
-    shadowRadius: 18,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 7 },
+    shadowOpacity: 0.2,
+    shadowRadius: 14,
+    elevation: 6,
   },
 
   ctaText: {
@@ -191,7 +179,8 @@ export const styles = StyleSheet.create({
 
   footerBlock: {
     alignItems: "center",
-    paddingBottom: 24,
+    paddingTop: 2,
+    paddingBottom: 4,
   },
 
   loginRow: {
@@ -205,13 +194,13 @@ export const styles = StyleSheet.create({
   loginLabel: {
     color: "rgba(248, 250, 252, 0.82)",
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "500",
     textAlign: "center",
   },
 
   loginLink: {
     color: colors.accent,
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "800",
   },
 });

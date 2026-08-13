@@ -22,28 +22,20 @@ export const styles = StyleSheet.create({
   heroHeaderCard: {
     position: "relative",
     overflow: "hidden",
-    backgroundColor: "#FFFDF9",
-    borderRadius: 24,
-    paddingHorizontal: 18,
-    paddingVertical: 18,
+    backgroundColor: "#FFFCF7",
+    borderRadius: 22,
+    minHeight: 156,
+    paddingLeft: 18,
+    paddingRight: 10,
+    paddingVertical: 20,
     marginBottom: 18,
     borderWidth: 1,
-    borderColor: "#F3E3D2",
+    borderColor: "#EFE5DA",
     shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.05,
-    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.045,
+    shadowRadius: 14,
     elevation: 3,
-  },
-
-  heroHeaderGlow: {
-    position: "absolute",
-    top: -32,
-    right: -20,
-    width: 132,
-    height: 132,
-    borderRadius: 66,
-    backgroundColor: "#FFF0E2",
   },
 
   heroHeaderAccent: {
@@ -51,101 +43,49 @@ export const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 6,
+    height: 5,
     backgroundColor: "#F97316",
   },
 
   heroHeaderContentRow: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 14,
-  },
-
-  heroHeaderContentStack: {
-    flexDirection: "column",
-    alignItems: "flex-start",
   },
 
   heroHeaderTextBlock: {
-    flex: 1,
-    paddingRight: 4,
+    width: "57%",
+    paddingRight: 6,
     zIndex: 1,
   },
 
-  heroHeaderBadge: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#FFF4E8",
-    borderWidth: 1,
-    borderColor: "#FED7AA",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    marginBottom: 14,
-  },
-
-  heroHeaderBadgeText: {
-    color: "#C2410C",
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 0.4,
-  },
-
   header: {
-    fontSize: 28,
+    fontSize: 27,
+    lineHeight: 33,
     fontWeight: "900",
     color: colors.heading || "#0F172A",
-    marginBottom: 6,
+    marginBottom: 8,
   },
 
   headerSubtext: {
     color: "#475467",
-    fontSize: 14,
-    lineHeight: 20,
-    maxWidth: "94%",
+    fontSize: 13,
+    lineHeight: 19,
   },
 
   heroVehicleWrap: {
-    width: 126,
-    height: 106,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 0,
+    position: "absolute",
+    right: -7,
+    top: 12,
+    bottom: 8,
+    width: "48%",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    position: "relative",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 2,
-  },
-
-  heroVehicleWrapCompact: {
-    alignSelf: "stretch",
-    width: "100%",
-    height: 110,
-    marginTop: 6,
-  },
-
-  heroVehiclePlate: {
-    position: "absolute",
-    left: 12,
-    bottom: 14,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#FFE7CF",
   },
 
   heroVehicleImage: {
-    width: "118%",
-    height: "108%",
+    width: "112%",
+    height: "112%",
   },
 
   filterCard: {
@@ -317,24 +257,19 @@ export const styles = StyleSheet.create({
     paddingBottom: 120,
   },
 
-  columnWrapper: {
-    justifyContent: "space-between",
-  },
-
   card: {
-    width: "48.2%",
+    width: "100%",
     backgroundColor: colors.card,
-    borderRadius: 22,
+    borderRadius: 24,
     overflow: "hidden",
-    marginBottom: 16,
+    marginBottom: 18,
     borderWidth: 1,
     borderColor: "#F2E8DE",
     shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
+    shadowOpacity: 0.07,
+    shadowRadius: 18,
     elevation: 4,
-    minHeight: 286,
   },
 
   cardAccentBar: {
@@ -343,17 +278,17 @@ export const styles = StyleSheet.create({
   },
 
   imageWrap: {
-    height: 142,
-    marginHorizontal: 12,
-    marginTop: 12,
-    borderRadius: 18,
-    backgroundColor: "#FFF9F4",
+    height: 205,
+    marginHorizontal: 14,
+    marginTop: 14,
+    borderRadius: 20,
+    backgroundColor: "#FCFCFB",
     borderWidth: 1,
-    borderColor: "#FDE7CF",
+    borderColor: "#F6EEE7",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
 
   image: {
@@ -377,9 +312,9 @@ export const styles = StyleSheet.create({
   },
 
   cardBody: {
-    padding: 14,
-    minHeight: 158,
-    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
   },
 
   badge: {
@@ -388,7 +323,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
-    marginBottom: 10,
+    marginBottom: 11,
   },
 
   badgeText: {
@@ -398,55 +333,149 @@ export const styles = StyleSheet.create({
   },
 
   cardTextBlock: {
-    minHeight: 72,
-    marginBottom: 10,
+    marginBottom: 14,
   },
 
   title: {
     color: colors.heading || colors.text,
-    fontSize: 16,
+    fontSize: 21,
     fontWeight: "900",
-    lineHeight: 21,
+    lineHeight: 27,
     marginBottom: 6,
-    minHeight: 42,
   },
 
   meta: {
     color: colors.subtext,
-    fontSize: 13,
-    lineHeight: 18,
-    minHeight: 36,
+    fontSize: 14,
+    lineHeight: 19,
   },
-  fitCard: {
-    borderRadius: 14,
-    backgroundColor: "#F8FAFC",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    padding: 10,
-    marginBottom: 10,
+
+  specsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "#E8EDF3",
+    paddingVertical: 12,
+    rowGap: 13,
+    marginBottom: 2,
   },
-  fitPrimary: {
-    color: colors.heading,
+
+  specItem: {
+    width: "50%",
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 8,
+  },
+
+  specIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: "#FFF3E9",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 9,
+  },
+
+  specTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  specValue: {
+    color: "#172033",
     fontSize: 12,
-    lineHeight: 17,
+    lineHeight: 16,
     fontWeight: "800",
   },
-  fitSecondary: {
+
+  specLabel: {
     color: colors.subtext,
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: 1,
+  },
+
+  colorRow: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    borderBottomWidth: 1,
+    borderColor: "#E8EDF3",
+  },
+
+  colorIndicator: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#D8DEE8",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  colorValue: {
+    color: "#172033",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  colorLabel: {
+    color: colors.subtext,
+    fontSize: 10,
     marginTop: 2,
   },
 
-  priceRow: {
-    minHeight: 24,
-    justifyContent: "flex-end",
+  fitNote: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 7,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderColor: "#E8EDF3",
+  },
+
+  fitNoteText: {
+    flex: 1,
+    color: "#667085",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+
+  cardFooter: {
+    paddingTop: 15,
+    alignItems: "center",
   },
 
   price: {
     color: colors.accent,
-    fontSize: 17,
+    fontSize: 21,
     fontWeight: "900",
+    marginBottom: 13,
+    textAlign: "center",
+  },
+
+  viewDetailsButton: {
+    width: "100%",
+    minHeight: 48,
+    borderRadius: 13,
+    backgroundColor: colors.accent,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+
+  viewDetailsButtonText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: "800",
+    marginRight: 6,
   },
 
   tripSummaryCard: {
@@ -496,33 +525,26 @@ export const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  loadMoreButton: {
-    marginTop: 10,
-    marginBottom: 18,
-    borderRadius: 16,
-    backgroundColor: colors.accent,
-    minHeight: 54,
+  nextPageLoader: {
+    minHeight: 58,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
   },
 
-  loadMoreButtonText: {
-    color: colors.white,
-    fontSize: 14,
+  nextPageRetry: {
+    minHeight: 58,
+    marginTop: 6,
+    marginBottom: 12,
+    paddingHorizontal: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  nextPageRetryText: {
+    color: colors.accent,
+    fontSize: 12,
     fontWeight: "800",
-  },
-
-  endText: {
-    color: colors.subtext,
-    fontSize: 13,
     textAlign: "center",
-    paddingTop: 14,
-    paddingBottom: 22,
   },
 
   emptyTitle: {
