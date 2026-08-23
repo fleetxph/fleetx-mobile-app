@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import MapView, { Marker } from "react-native-maps";
+import MapView from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import {
@@ -147,6 +147,8 @@ export default function LocationPickerModal({
   const selectedLocationRef = useRef(null);
   const reverseLookupIdRef = useRef(0);
   const reverseLookupTimerRef = useRef(null);
+  const initialReverseLookupTimerRef = useRef(null);
+  const currentRegionRef = useRef(null);
   const title = mode === "pickup" ? "Pin Pickup Location" : "Pin Destination";
   const placeholderLabel = "Selected map location";
   const canReverseGeocode = hasGooglePlacesApiKey();
@@ -166,6 +168,7 @@ export default function LocationPickerModal({
   );
   const [localStatusMessage, setLocalStatusMessage] = useState(statusMessage);
   const [localErrorMessage, setLocalErrorMessage] = useState(errorMessage);
+  const [isMapInteracting, setIsMapInteracting] = useState(false);
 
   useEffect(() => {
     selectedLocationRef.current = selectedLocation;
@@ -181,6 +184,7 @@ export default function LocationPickerModal({
     );
 
     setSelectedLocation(nextLocation);
+    currentRegionRef.current = defaultRegion;
     setLocalStatusMessage(statusMessage);
     setLocalErrorMessage(
       errorMessage ||
@@ -191,15 +195,15 @@ export default function LocationPickerModal({
   useEffect(() => {
     if (!canRenderMap) return;
     if (!visible || !mapRef.current) return;
-    mapRef.current.animateToRegion(getRegionFromLocation(selectedLocation, mode), 250);
-  }, [canRenderMap, mode, selectedLocation, visible]);
+    mapRef.current.animateToRegion(defaultRegion, 250);
+  }, [canRenderMap, defaultRegion, visible]);
 
   useEffect(() => {
     if (!visible) return undefined;
 
-    if (reverseLookupTimerRef.current) {
-      clearTimeout(reverseLookupTimerRef.current);
-      reverseLookupTimerRef.current = null;
+    if (initialReverseLookupTimerRef.current) {
+      clearTimeout(initialReverseLookupTimerRef.current);
+      initialReverseLookupTimerRef.current = null;
     }
 
     const hasCoordinates =
@@ -209,15 +213,15 @@ export default function LocationPickerModal({
       hasCoordinates && (!selectedLocation.address || isGenericLocationLabel(selectedLocation.address));
 
     if (shouldResolveLabel && canReverseGeocode) {
-      reverseLookupTimerRef.current = setTimeout(() => {
+      initialReverseLookupTimerRef.current = setTimeout(() => {
         resolvePinAddress(selectedLocation.latitude, selectedLocation.longitude);
       }, 220);
     }
 
     return () => {
-      if (reverseLookupTimerRef.current) {
-        clearTimeout(reverseLookupTimerRef.current);
-        reverseLookupTimerRef.current = null;
+      if (initialReverseLookupTimerRef.current) {
+        clearTimeout(initialReverseLookupTimerRef.current);
+        initialReverseLookupTimerRef.current = null;
       }
     };
   }, [canReverseGeocode, selectedLocation.address, selectedLocation.latitude, selectedLocation.longitude, visible]);
@@ -280,6 +284,7 @@ export default function LocationPickerModal({
 
   const updatePinPosition = ({ latitude, longitude }) => {
     const coordinateFallback = `Pinned location (${formatCoordinate(latitude, "0.0000")}, ${formatCoordinate(longitude, "0.0000")})`;
+    reverseLookupIdRef.current += 1;
     setSelectedLocation((prev) => ({
       ...prev,
       latitude,
@@ -290,6 +295,10 @@ export default function LocationPickerModal({
     }));
     setLocalStatusMessage("Finding address...");
     setLocalErrorMessage("");
+    if (initialReverseLookupTimerRef.current) {
+      clearTimeout(initialReverseLookupTimerRef.current);
+      initialReverseLookupTimerRef.current = null;
+    }
     if (reverseLookupTimerRef.current) {
       clearTimeout(reverseLookupTimerRef.current);
     }
@@ -298,18 +307,49 @@ export default function LocationPickerModal({
     }, 220);
   };
 
+  const handleRegionChangeComplete = (region = {}) => {
+    const latitude = Number(region.latitude);
+    const longitude = Number(region.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+    currentRegionRef.current = region;
+    setIsMapInteracting(false);
+
+    const currentLocation = selectedLocationRef.current;
+    const latitudeUnchanged =
+      Math.abs(Number(currentLocation?.latitude) - latitude) < 0.0000001;
+    const longitudeUnchanged =
+      Math.abs(Number(currentLocation?.longitude) - longitude) < 0.0000001;
+
+    if (latitudeUnchanged && longitudeUnchanged) return;
+    updatePinPosition({ latitude, longitude });
+  };
+
+  const handleMapPress = ({ latitude, longitude }) => {
+    const currentRegion = currentRegionRef.current || defaultRegion;
+    mapRef.current?.animateToRegion(
+      {
+        ...currentRegion,
+        latitude,
+        longitude,
+      },
+      220
+    );
+  };
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.sheet}>
           <ScrollView
+            scrollEnabled={!isMapInteracting}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.content}
           >
             <View style={styles.handle} />
             <Text style={styles.title}>{title}</Text>
             <Text style={styles.subtitle}>
-              Tap the map or drag the marker to confirm the exact location.
+              Move the map until the pin is over the exact location.
             </Text>
 
             <View style={styles.mapPreviewCard}>
@@ -320,25 +360,27 @@ export default function LocationPickerModal({
                     <Text style={styles.mapStateText}>Preparing map...</Text>
                   </View>
                 ) : canRenderMap ? (
-                  <MapView
-                    ref={mapRef}
-                    style={styles.map}
-                    initialRegion={defaultRegion}
-                    onPress={(event) => updatePinPosition(event.nativeEvent.coordinate)}
-                  >
-                    <Marker
-                      coordinate={{
-                        latitude: Number.isFinite(Number(selectedLocation.latitude))
-                          ? Number(selectedLocation.latitude)
-                          : defaultRegion.latitude,
-                        longitude: Number.isFinite(Number(selectedLocation.longitude))
-                          ? Number(selectedLocation.longitude)
-                          : defaultRegion.longitude,
-                      }}
-                      draggable
-                      onDragEnd={(event) => updatePinPosition(event.nativeEvent.coordinate)}
+                  <>
+                    <MapView
+                      ref={mapRef}
+                      style={styles.map}
+                      initialRegion={defaultRegion}
+                      onPress={(event) => handleMapPress(event.nativeEvent.coordinate)}
+                      onRegionChangeComplete={handleRegionChangeComplete}
+                      onTouchStart={() => setIsMapInteracting(true)}
+                      onTouchEnd={() => setIsMapInteracting(false)}
+                      onTouchCancel={() => setIsMapInteracting(false)}
                     />
-                  </MapView>
+                    <View pointerEvents="none" style={styles.centerPinOverlay}>
+                      <View style={styles.centerPinShadow} />
+                      <Ionicons
+                        name="location"
+                        size={46}
+                        color="#F47C20"
+                        style={styles.centerPinIcon}
+                      />
+                    </View>
+                  </>
                 ) : (
                   <View style={styles.mapState}>
                     <Ionicons name="map-outline" size={24} color="#F47C20" />
@@ -353,11 +395,11 @@ export default function LocationPickerModal({
               </View>
             </View>
 
-            {(localStatusMessage || "Tap the map or drag the pin to update the location.") ? (
+            {(localStatusMessage || "Move the map to position the pin.") ? (
               <View style={styles.helperCard}>
                 <Ionicons name="information-circle-outline" size={18} color="#F47C20" />
                 <Text style={styles.helperText}>
-                  {localStatusMessage || "Tap the map or drag the pin to update the location."}
+                  {localStatusMessage || "Move the map to position the pin."}
                 </Text>
               </View>
             ) : null}

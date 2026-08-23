@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Image,
   SafeAreaView,
   ScrollView,
@@ -12,6 +13,9 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import FaceCaptureModal, {
+  deleteTemporarySelfieFile,
+} from "../components/FaceCaptureModal";
 import { clearClientSession, isUnauthorizedError } from "../api/api";
 import {
   getVerificationStatus,
@@ -137,7 +141,8 @@ function toBase64DataUri(asset) {
 
 function getSlotStatusTone(statusKey) {
   if (statusKey === "under_review") return "warning";
-  if (statusKey === "selected") return "info";
+  if (["draft", "on_file"].includes(statusKey)) return "info";
+  if (statusKey === "submission_incomplete") return "danger";
   return getNormalizedStatusTone(statusKey);
 }
 
@@ -167,27 +172,45 @@ function getDefaultSelectedGroup(validIdMeta, licenseMeta, requestedType) {
 
 function getSlotDisplayStatus(groupMeta, slotMeta, localAsset) {
   if (localAsset) {
-    return { key: "selected", label: "Selected" };
+    const hasServerSubmission = Object.values(groupMeta?.slots || {}).some(
+      (slot) => Boolean(slot?.uri)
+    );
+    return {
+      key: "draft",
+      label: hasServerSubmission ? "Ready to Resubmit" : "Ready to Submit",
+    };
   }
 
-  if (slotMeta.uri) {
-    if (isVerificationApproved(slotMeta.key) || isVerificationApproved(groupMeta.key)) {
-      return { key: "approved", label: "Approved" };
-    }
+  if (isVerificationPending(groupMeta.key)) {
+    return slotMeta.uri
+      ? { key: "under_review", label: "Under Review" }
+      : { key: "submission_incomplete", label: "Submission incomplete" };
+  }
 
-    if (isVerificationPending(slotMeta.key) || isVerificationPending(groupMeta.key)) {
-      return { key: "under_review", label: "Under Review" };
-    }
-
-    if (isVerificationRejected(slotMeta.key) || ["rejected", "missing", "incomplete"].includes(slotMeta.key)) {
-      return { key: "needs_update", label: "Needs Update" };
-    }
-
-    return { key: "under_review", label: "Under Review" };
+  if (isVerificationApproved(groupMeta.key)) {
+    return slotMeta.uri
+      ? { key: "approved", label: "Approved" }
+      : { key: "submission_incomplete", label: "Submission incomplete" };
   }
 
   if (groupMeta.isRejected || groupMeta.needsUpdate || isVerificationRejected(groupMeta.key)) {
     return { key: "needs_update", label: "Needs Update" };
+  }
+
+  if (isVerificationApproved(slotMeta.key)) {
+    return { key: "approved", label: "Approved" };
+  }
+
+  if (isVerificationPending(slotMeta.key)) {
+    return { key: "under_review", label: "Under Review" };
+  }
+
+  if (isVerificationRejected(slotMeta.key)) {
+    return { key: "needs_update", label: "Needs Update" };
+  }
+
+  if (slotMeta.uri) {
+    return { key: "on_file", label: "On file" };
   }
 
   return { key: "not_submitted", label: "Not submitted" };
@@ -203,69 +226,201 @@ export default function VerificationScreen({ navigation, route }) {
   const [error, setError] = useState("");
   const [selectedVerificationGroup, setSelectedVerificationGroup] = useState("validId");
   const [hasInitializedSelection, setHasInitializedSelection] = useState(false);
+  const [screenFocused, setScreenFocused] = useState(false);
+  const [appIsActive, setAppIsActive] = useState(AppState.currentState === "active");
+  const [faceCaptureVisible, setFaceCaptureVisible] = useState(false);
+  const mountedRef = useRef(true);
+  const focusedRef = useRef(false);
+  const appStateRef = useRef(AppState.currentState);
+  const requestGenerationRef = useRef(0);
+  const activeStatusRequestRef = useRef(null);
+  const storageSyncRef = useRef(Promise.resolve());
+  const documentsRef = useRef(INITIAL_DOCUMENTS);
   const requestedType = route?.params?.verificationType || "";
 
-  const loadVerification = async (mode = "load") => {
-    try {
-      if (mode === "refresh") {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+  const invalidateStatusRequest = useCallback(() => {
+    requestGenerationRef.current += 1;
+    activeStatusRequestRef.current?.controller?.abort?.();
+    activeStatusRequestRef.current = null;
+  }, []);
 
-      setError("");
-      const data = await getVerificationStatus();
-      setVerification(data || null);
+  const loadVerification = useCallback(async (mode = "load", options = {}) => {
+    const force = Boolean(options.force);
+    const silent = Boolean(options.silent);
 
-      if (__DEV__) {
-        console.log("[VerificationData][serverFields]", getVerificationServerFieldDebug(data || {}));
-      }
-
-      try {
-        const rawUser = await AsyncStorage.getItem("clientUser");
-        if (rawUser) {
-          const user = JSON.parse(rawUser);
-          const nextUser = {
-            ...user,
-            isVerified: Boolean(data?.isVerified),
-            verificationStatus: data?.overallStatus || user?.verificationStatus,
-            verificationType: data?.verificationType || user?.verificationType,
-            verificationLevel: data?.verificationLevel || user?.verificationLevel,
-            statusLabel: data?.statusLabel || user?.statusLabel,
-          };
-          await AsyncStorage.setItem("clientUser", JSON.stringify(nextUser));
-        }
-      } catch {
-        // Keep screen usable if stored data is malformed.
-      }
-
-      return data || null;
-    } catch (err) {
-      if (isUnauthorizedError(err)) {
-        await clearClientSession();
-        navigation.replace("ClientLogin");
-        return null;
-      }
-
-      setError(err?.response?.data?.message || "Failed to load verification.");
-      return null;
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+    if (activeStatusRequestRef.current && !force) {
+      return activeStatusRequestRef.current.promise;
     }
-  };
+
+    if (force) {
+      invalidateStatusRequest();
+    }
+
+    const generation = requestGenerationRef.current + 1;
+    requestGenerationRef.current = generation;
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+
+    const requestPromise = (async () => {
+      try {
+        if (!silent && mode === "refresh") {
+          setRefreshing(true);
+        } else if (!silent && mode !== "refresh") {
+          setLoading(true);
+        }
+
+        if (!silent) setError("");
+        const data = await getVerificationStatus({ signal: controller?.signal });
+
+        if (!mountedRef.current || generation !== requestGenerationRef.current) {
+          return null;
+        }
+
+        setVerification(data || null);
+
+        if (__DEV__) {
+          console.log("[VerificationData][serverFields]", getVerificationServerFieldDebug(data || {}));
+        }
+
+        storageSyncRef.current = storageSyncRef.current
+          .catch(() => {})
+          .then(async () => {
+            if (!mountedRef.current || generation !== requestGenerationRef.current) return;
+            const rawUser = await AsyncStorage.getItem("clientUser");
+            if (!rawUser || generation !== requestGenerationRef.current) return;
+
+            const user = JSON.parse(rawUser);
+            const nextUser = {
+              ...user,
+              isVerified: Boolean(data?.isVerified),
+              verificationStatus: data?.overallStatus || user?.verificationStatus,
+              verificationType: data?.verificationType || user?.verificationType,
+              verificationLevel: data?.verificationLevel || user?.verificationLevel,
+              statusLabel: data?.statusLabel || user?.statusLabel,
+            };
+            await AsyncStorage.setItem("clientUser", JSON.stringify(nextUser));
+          });
+
+        try {
+          await storageSyncRef.current;
+        } catch {
+          // Keep screen usable if stored data is malformed.
+        }
+
+        return data || null;
+      } catch (err) {
+        if (
+          controller?.signal?.aborted ||
+          err?.code === "ERR_CANCELED" ||
+          err?.name === "CanceledError" ||
+          generation !== requestGenerationRef.current
+        ) {
+          return null;
+        }
+
+        if (isUnauthorizedError(err)) {
+          await clearClientSession();
+          navigation.replace("ClientLogin");
+          return null;
+        }
+
+        if (!silent && mountedRef.current) {
+          setError(err?.response?.data?.message || "Failed to load verification.");
+        }
+        return null;
+      } finally {
+        if (mountedRef.current && generation === requestGenerationRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+          activeStatusRequestRef.current = null;
+        }
+      }
+    })();
+
+    activeStatusRequestRef.current = {
+      controller,
+      generation,
+      promise: requestPromise,
+    };
+
+    return requestPromise;
+  }, [invalidateStatusRequest, navigation]);
 
   useEffect(() => {
-    loadVerification();
-    const unsubscribe = navigation.addListener("focus", () => loadVerification("refresh"));
-    return unsubscribe;
-  }, [navigation]);
+    documentsRef.current = documents;
+  }, [documents]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      invalidateStatusRequest();
+      Object.values(documentsRef.current || {}).forEach((asset) => {
+        if (asset?.temporaryCameraFile) {
+          deleteTemporarySelfieFile(asset.uri);
+        }
+      });
+    };
+  }, [invalidateStatusRequest]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      if (focusedRef.current) return;
+      focusedRef.current = true;
+      setScreenFocused(true);
+      loadVerification("load", { force: true });
+    };
+    const handleBlur = () => {
+      focusedRef.current = false;
+      setScreenFocused(false);
+      invalidateStatusRequest();
+    };
+    const unsubscribeFocus = navigation.addListener("focus", handleFocus);
+    const unsubscribeBlur = navigation.addListener("blur", handleBlur);
+
+    if (navigation.isFocused?.() !== false) {
+      handleFocus();
+    }
+
+    return () => {
+      unsubscribeFocus();
+      unsubscribeBlur();
+      focusedRef.current = false;
+      invalidateStatusRequest();
+    };
+  }, [invalidateStatusRequest, loadVerification, navigation]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      const wasInactive = appStateRef.current !== "active";
+      appStateRef.current = nextState;
+      const isActive = nextState === "active";
+      setAppIsActive(isActive);
+
+      if (isActive && wasInactive && focusedRef.current) {
+        loadVerification("refresh", { force: true });
+      } else if (!isActive) {
+        invalidateStatusRequest();
+      }
+    });
+
+    return () => subscription.remove();
+  }, [invalidateStatusRequest, loadVerification]);
 
   const statusLabel = useMemo(() => getVerificationBadgeLabel(verification), [verification]);
   const statusTone = useMemo(() => getVerificationStatusTone(verification), [verification]);
   const bookingEligibility = useMemo(() => getBookingEligibility(verification), [verification]);
   const validIdMeta = useMemo(() => getVerificationGroupMeta(verification, "validId"), [verification]);
   const licenseMeta = useMemo(() => getVerificationGroupMeta(verification, "license"), [verification]);
+  const hasPendingReview =
+    validIdMeta.isPending ||
+    licenseMeta.isPending ||
+    isVerificationPending(
+      verification?.overallVerificationStatus ||
+        verification?.overallStatus ||
+        verification?.verificationStatus ||
+        verification?.status
+    );
   const groupMetaMap = {
     validId: validIdMeta,
     license: licenseMeta,
@@ -282,6 +437,16 @@ export default function VerificationScreen({ navigation, route }) {
   const visibleGroupMeta = groupMetaMap[selectedVerificationGroup] || validIdMeta;
   const visibleSelfieKeyName =
     visibleGroupConfig?.slots.find((slot) => slot.slotKey === "selfie")?.keyName || "validIdSelfie";
+
+  useEffect(() => {
+    if (!screenFocused || !appIsActive || !hasPendingReview || submittingGroup) return undefined;
+
+    const interval = setInterval(() => {
+      loadVerification("refresh", { silent: true });
+    }, 25000);
+
+    return () => clearInterval(interval);
+  }, [appIsActive, hasPendingReview, loadVerification, screenFocused, submittingGroup]);
 
   const clearSlotError = (keyName) => {
     setSlotErrors((prev) => {
@@ -466,11 +631,7 @@ export default function VerificationScreen({ navigation, route }) {
     }
 
     if (slot.prefersCamera) {
-      Alert.alert(slot.sourcePrompt, "Position your face within the frame. Use the camera for the clearest selfie. You can also choose an existing photo if needed.", [
-        { text: "Take Selfie", onPress: () => openPicker(slot.keyName, "camera") },
-        { text: "Choose Photo", onPress: () => openPicker(slot.keyName, "gallery") },
-        { text: "Cancel", style: "cancel" },
-      ]);
+      setFaceCaptureVisible(true);
       return;
     }
 
@@ -481,7 +642,19 @@ export default function VerificationScreen({ navigation, route }) {
     ]);
   };
 
-  const removeDocument = async (keyName, slotMeta, groupMeta) => {
+  const discardLocalDraft = async (keyName) => {
+    const localAsset = documents[keyName];
+    if (!localAsset) return;
+
+    if (localAsset.temporaryCameraFile) {
+      await deleteTemporarySelfieFile(localAsset.uri);
+    }
+
+    setDocuments((prev) => ({ ...prev, [keyName]: null }));
+    clearSlotError(keyName);
+  };
+
+  const removeSubmittedDocument = (keyName, slotMeta, groupMeta) => {
     const renewalEditable = Boolean(groupMeta.expiry?.renewalAllowed) && Boolean(groupMeta.expiry?.isNearExpiry || groupMeta.expiry?.isExpired);
     const isEditable = renewalEditable || isVerificationGroupEditable(groupMeta.key, slotMeta.key);
 
@@ -494,36 +667,44 @@ export default function VerificationScreen({ navigation, route }) {
       return;
     }
 
-    if (documents[keyName]) {
-      setDocuments((prev) => ({ ...prev, [keyName]: null }));
-      clearSlotError(keyName);
-      return;
-    }
-
     if (!slotMeta.uri) return;
 
-    try {
-      setSubmittingGroup(groupMeta.groupKey);
-      setError("");
-      const data = await removeVerificationDocument(keyName);
-      setVerification(data || null);
-    } catch (err) {
-      if (isUnauthorizedError(err)) {
-        await handleUnauthorized();
-        return;
-      }
+    Alert.alert(
+      "Remove this submitted document?",
+      "This removes the server copy. You will need to select a replacement before submitting again.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setSubmittingGroup(groupMeta.groupKey);
+              setError("");
+              invalidateStatusRequest();
+              await removeVerificationDocument(keyName);
+              await discardLocalDraft(keyName);
+              await loadVerification("refresh", { force: true });
+            } catch (err) {
+              if (isUnauthorizedError(err)) {
+                await handleUnauthorized();
+                return;
+              }
 
-      setError(err?.response?.data?.message || "Failed to remove document.");
-    } finally {
-      setSubmittingGroup("");
-    }
+              setError(err?.response?.data?.message || "Failed to remove document.");
+            } finally {
+              setSubmittingGroup("");
+            }
+          },
+        },
+      ]
+    );
   };
 
   const buildGroupPayload = (groupConfig, groupMeta) => {
     const slotFront = groupConfig.slots.find((slot) => slot.slotKey === "front");
     const slotBack = groupConfig.slots.find((slot) => slot.slotKey === "back");
     const slotSelfie = groupConfig.slots.find((slot) => slot.slotKey === "selfie");
-
     const frontValue = documents[slotFront.keyName]
       ? toBase64DataUri(documents[slotFront.keyName])
       : groupMeta.slots.front.uri;
@@ -561,7 +742,14 @@ export default function VerificationScreen({ navigation, route }) {
     [groupConfig.slots[2].keyName]: documents[groupConfig.slots[2].keyName],
   });
 
-  const clearGroupLocalDocuments = (groupConfig) => {
+  const clearGroupLocalDocuments = async (groupConfig, submittedLocalDocuments = {}) => {
+    await Promise.all(
+      Object.values(submittedLocalDocuments).map((asset) =>
+        asset?.temporaryCameraFile
+          ? deleteTemporarySelfieFile(asset.uri)
+          : Promise.resolve()
+      )
+    );
     setDocuments((prev) => ({
       ...prev,
       [groupConfig.slots[0].keyName]: null,
@@ -570,27 +758,10 @@ export default function VerificationScreen({ navigation, route }) {
     }));
   };
 
-  const syncGroupLocalDocumentsAfterRefresh = (groupConfig, nextVerification, submittedLocalDocuments) => {
-    const refreshedGroupMeta = getVerificationGroupMeta(nextVerification, groupConfig.key);
-    const nextDocuments = {};
-
-    groupConfig.slots.forEach((slot) => {
-      const localAsset = submittedLocalDocuments[slot.keyName];
-      const slotMeta = refreshedGroupMeta.slots[slot.slotKey];
-      nextDocuments[slot.keyName] = localAsset && !slotMeta.uri ? localAsset : null;
-    });
-
-    setDocuments((prev) => ({
-      ...prev,
-      ...nextDocuments,
-    }));
-  };
-
   const validateGroupSubmission = (groupConfig, groupMeta) => {
     const slotFront = groupConfig.slots.find((slot) => slot.slotKey === "front");
     const slotBack = groupConfig.slots.find((slot) => slot.slotKey === "back");
     const slotSelfie = groupConfig.slots.find((slot) => slot.slotKey === "selfie");
-
     const needsFrontUpdate = ["missing", "incomplete", "rejected", "needs_update"].includes(
       groupMeta.slots.front.key
     );
@@ -630,22 +801,20 @@ export default function VerificationScreen({ navigation, route }) {
 
   const handleSubmitGroup = async (groupConfig) => {
     const groupMeta = groupMetaMap[groupConfig.key];
-    const renewalEditable = Boolean(groupMeta.expiry?.renewalAllowed) && Boolean(groupMeta.expiry?.isNearExpiry || groupMeta.expiry?.isExpired);
 
-    if (!groupMeta.canEdit && !renewalEditable) {
-      if (groupMeta.isApproved) {
-        Alert.alert("Verification Locked", "This verification group is already approved and locked.");
-      } else if (groupMeta.isPending) {
-        Alert.alert("Verification Under Review", "This verification group is already under review.");
-      }
-      return;
+    const hasLocalChanges = groupConfig.slots.some(
+      (slot) => Boolean(documents[slot.keyName])
+    );
+    if (!hasLocalChanges) {
+      setError("Select or capture a replacement before submitting verification.");
+      return false;
     }
 
     const validationError = validateGroupSubmission(groupConfig, groupMeta);
     if (validationError) {
       setSlotErrors({ [validationError.field]: validationError.message });
       setError("");
-      return;
+      return false;
     }
 
     try {
@@ -667,46 +836,54 @@ export default function VerificationScreen({ navigation, route }) {
           hasLocalSelfie: Boolean(documents[groupConfig.slots[2].keyName]),
         });
       }
-      const submitResponse = await submitVerification(payload);
-      const nextVerification = await loadVerification("refresh");
-
-      if (nextVerification) {
-        syncGroupLocalDocumentsAfterRefresh(groupConfig, nextVerification, submittedLocalDocuments);
-      } else if (submitResponse) {
-        setVerification((prev) => ({ ...(prev || {}), ...submitResponse }));
-        syncGroupLocalDocumentsAfterRefresh(
-          groupConfig,
-          { ...(verification || {}), ...submitResponse },
-          submittedLocalDocuments
-        );
-      } else {
-        setDocuments((prev) => ({
-          ...prev,
-          [groupConfig.slots[0].keyName]:
-            prev[groupConfig.slots[0].keyName] || submittedLocalDocuments[groupConfig.slots[0].keyName],
-          [groupConfig.slots[1].keyName]:
-            prev[groupConfig.slots[1].keyName] || submittedLocalDocuments[groupConfig.slots[1].keyName],
-          [groupConfig.slots[2].keyName]:
-            prev[groupConfig.slots[2].keyName] || submittedLocalDocuments[groupConfig.slots[2].keyName],
-        }));
+      invalidateStatusRequest();
+      const submitResult = await submitVerification(payload);
+      if (__DEV__) {
+        console.log("[Verification][resubmit-response]", {
+          group: groupConfig.key,
+          requestSucceeded: true,
+          serverStatus:
+            groupConfig.key === "validId"
+              ? submitResult?.validIdStatus || submitResult?.overallVerificationStatus || ""
+              : submitResult?.driverLicenseStatus ||
+                submitResult?.licenseStatus ||
+                submitResult?.overallVerificationStatus ||
+                "",
+          hasReturnedSelfie: Boolean(
+            submitResult?.validIdSelfieUrl || submitResult?.licenseSelfieUrl
+          ),
+        });
       }
-
-      const finalVerificationData =
-        nextVerification || (submitResponse ? { ...(verification || {}), ...submitResponse } : null);
-      const refreshedGroupMeta = finalVerificationData
-        ? getVerificationGroupMeta(finalVerificationData, groupConfig.key)
-        : null;
-
-      if (refreshedGroupMeta?.hasAllDocuments) {
-        clearGroupLocalDocuments(groupConfig);
+      await clearGroupLocalDocuments(groupConfig, submittedLocalDocuments);
+      const refreshedVerification = await loadVerification("refresh", { force: true });
+      if (__DEV__) {
+        const refreshedGroup = getVerificationGroupMeta(
+          refreshedVerification,
+          groupConfig.key
+        );
+        console.log("[Verification][resubmit-refresh]", {
+          group: groupConfig.key,
+          serverStatus: refreshedGroup.key,
+          hasServerSelfie: Boolean(refreshedGroup.slots.selfie.uri),
+        });
       }
 
       setSlotErrors({});
       Alert.alert("Submitted", `${groupConfig.title} was submitted for admin review.`);
+      return true;
     } catch (err) {
+      if (__DEV__) {
+        console.log("[Verification][resubmit-response]", {
+          group: groupConfig.key,
+          requestSucceeded: false,
+          httpStatus: err?.response?.status || null,
+          errorCode: err?.code || "",
+        });
+      }
+
       if (isUnauthorizedError(err)) {
         await handleUnauthorized();
-        return;
+        return false;
       }
 
       const submitMessage = err?.response?.data?.message || "Failed to submit verification.";
@@ -715,13 +892,35 @@ export default function VerificationScreen({ navigation, route }) {
           [groupConfig.slots[2].keyName]: "Please take a current selfie for verification.",
         });
         setError("");
-        return;
+        return false;
       }
 
       setError(submitMessage);
+      return false;
     } finally {
       setSubmittingGroup("");
     }
+  };
+
+  const handleUseCapturedSelfie = async (asset) => {
+    if (!asset || !visibleGroupConfig || !visibleGroupMeta || submittingGroup) {
+      return false;
+    }
+
+    const selfieKeyName = getCanonicalSelfieFieldName(visibleGroupConfig.key);
+    const previousAsset = documents[selfieKeyName];
+    if (
+      previousAsset?.temporaryCameraFile &&
+      previousAsset.uri &&
+      previousAsset.uri !== asset.uri
+    ) {
+      await deleteTemporarySelfieFile(previousAsset.uri);
+    }
+
+    setDocuments((prev) => ({ ...prev, [selfieKeyName]: asset }));
+    clearSlotError(selfieKeyName);
+    setError("");
+    return true;
   };
 
   const renderUploadCard = (groupMeta, slot) => {
@@ -736,17 +935,26 @@ export default function VerificationScreen({ navigation, route }) {
     const renewalEditable = Boolean(groupMeta.expiry?.renewalAllowed) && Boolean(groupMeta.expiry?.isNearExpiry || groupMeta.expiry?.isExpired);
     const isEditable = renewalEditable || isVerificationGroupEditable(groupMeta.key, slotMeta.key);
     const hasLocalAsset = Boolean(localAsset);
-    const canRemoveLocal = hasLocalAsset && isEditable && !isBusy;
     const canRemoveSubmitted = Boolean(slotMeta.uri) && isEditable && !isBusy;
-    const removeDisabled = !canRemoveLocal && !canRemoveSubmitted;
     const canPromptUpload = isEditable && !isBusy;
     const slotError = slotErrors[slot.keyName];
-    const slotHelperText = renewalEditable
+    const groupHasServerSubmission = Object.values(groupMeta.slots).some(
+      (groupSlot) => Boolean(groupSlot.uri)
+    );
+    const slotHelperText = hasLocalAsset
+      ? groupHasServerSubmission
+        ? "New replacement selected. Tap Resubmit Verification to send your changes."
+        : "New file selected. Tap Submit Verification to send your changes."
+      : renewalEditable
       ? "You can update this document because renewal is available."
-      : isVerificationApproved(slotMeta.key) || isVerificationApproved(groupMeta.key)
+      : slotStatus.key === "submission_incomplete"
+      ? "Submission information is incomplete. Refresh or contact support."
+      : slotStatus.key === "approved"
       ? "This document has been approved and is locked."
-      : isVerificationPending(slotMeta.key) || isVerificationPending(groupMeta.key)
+      : slotStatus.key === "under_review"
       ? "Your document is submitted and waiting for admin review."
+      : slotStatus.key === "on_file"
+      ? "A document is on file. Its review status has not been submitted by the server."
       : "";
 
     if (__DEV__) {
@@ -763,7 +971,11 @@ export default function VerificationScreen({ navigation, route }) {
     return (
       <View style={styles.uploadCard} key={slot.keyName}>
         {imageUri ? (
-          <Image source={{ uri: imageUri }} style={styles.uploadPreview} />
+          <Image
+            key={`${slot.keyName}:${hasLocalAsset ? "draft" : "server"}:${imageUri}`}
+            source={{ uri: imageUri }}
+            style={styles.uploadPreview}
+          />
         ) : (
           <View style={styles.uploadPlaceholder}>
             <MaterialCommunityIcons
@@ -790,55 +1002,59 @@ export default function VerificationScreen({ navigation, route }) {
             <Text style={styles.slotRemark}>Admin note: {slotMeta.remarks}</Text>
           ) : null}
 
-          {slot.slotKey === "selfie" ? (
-            <View style={styles.selfieButtonWrap}>
-              <TouchableOpacity
-                style={[
-                  styles.uploadActionButton,
-                  styles.selfieActionButton,
-                  styles.uploadPrimary,
-                  (!canPromptUpload || isBusy) && styles.submitButtonDisabled,
-                ]}
-                onPress={() => promptImageSource(slot, groupMeta)}
-                disabled={!canPromptUpload || isBusy}
-              >
-                <Text style={styles.uploadPrimaryText}>
-                  {imageUri ? "Retake Current Selfie" : "Take Current Selfie"}
-                </Text>
-              </TouchableOpacity>
+          {hasLocalAsset ? (
+            <View style={styles.draftNotice}>
+              <Ionicons name="phone-portrait-outline" size={16} color="#1d4ed8" />
+              <Text style={styles.draftNoticeText}>Local draft — not submitted yet</Text>
             </View>
           ) : null}
 
           <View style={styles.uploadActions}>
-            {slot.slotKey !== "selfie" ? (
-              <TouchableOpacity
-                style={[
-                  styles.uploadActionButton,
-                  styles.uploadPrimary,
-                  (!canPromptUpload || isBusy) && styles.submitButtonDisabled,
-                ]}
-                onPress={() => promptImageSource(slot, groupMeta)}
-                disabled={!canPromptUpload || isBusy}
-              >
-                <Text style={styles.uploadPrimaryText}>
-                  {imageUri ? "Replace" : "Upload"}
-                </Text>
-              </TouchableOpacity>
-            ) : null}
-
             <TouchableOpacity
               style={[
                 styles.uploadActionButton,
-                styles.uploadDanger,
-                removeDisabled && styles.submitButtonDisabled,
+                styles.uploadPrimary,
+                (!canPromptUpload || isBusy) && styles.submitButtonDisabled,
               ]}
-              onPress={() => removeDocument(slot.keyName, slotMeta, groupMeta)}
-              disabled={removeDisabled}
+              onPress={() => promptImageSource(slot, groupMeta)}
+              disabled={!canPromptUpload || isBusy}
             >
-              <Text style={styles.uploadDangerText}>
-                {canRemoveSubmitted && !hasLocalAsset ? "Remove Submitted" : "Remove"}
+              <Text style={styles.uploadPrimaryText}>
+                {hasLocalAsset
+                  ? "Change Replacement"
+                  : imageUri
+                  ? "Replace"
+                  : slot.slotKey === "selfie"
+                  ? "Take Selfie"
+                  : "Upload"}
               </Text>
             </TouchableOpacity>
+
+            {hasLocalAsset ? (
+              <TouchableOpacity
+                style={[
+                  styles.uploadActionButton,
+                  styles.uploadSecondary,
+                  isBusy && styles.submitButtonDisabled,
+                ]}
+                onPress={() => discardLocalDraft(slot.keyName)}
+                disabled={isBusy}
+              >
+                <Text style={styles.uploadSecondaryText}>Discard Change</Text>
+              </TouchableOpacity>
+            ) : canRemoveSubmitted ? (
+              <TouchableOpacity
+                style={[
+                  styles.uploadActionButton,
+                  styles.uploadDanger,
+                  isBusy && styles.submitButtonDisabled,
+                ]}
+                onPress={() => removeSubmittedDocument(slot.keyName, slotMeta, groupMeta)}
+                disabled={isBusy}
+              >
+                <Text style={styles.uploadDangerText}>Remove Submitted</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           {slotHelperText ? <Text style={styles.slotHelperText}>{slotHelperText}</Text> : null}
@@ -854,17 +1070,44 @@ export default function VerificationScreen({ navigation, route }) {
     const expiryMeta = groupMeta.expiry || {};
     const validIdEquivalentActive = groupConfig.key === "validId" && validIdEquivalentDisplay.isEquivalentApproved;
     const validIdLicensePending = groupConfig.key === "validId" && validIdEquivalentDisplay.isEquivalentPending;
-    const displayLabel =
+    const serverDisplayLabel =
       groupConfig.key === "validId" && (validIdEquivalentActive || validIdLicensePending)
         ? validIdEquivalentDisplay.label
         : groupMeta.label;
-    const displayTone =
+    const serverDisplayTone =
       groupConfig.key === "validId" && (validIdEquivalentActive || validIdLicensePending)
         ? validIdEquivalentDisplay.tone
         : groupMeta.tone;
-    const [badgeStyle, badgeToneStyle, badgeTextStyle, badgeTextToneStyle] = getBadgeStyles(displayTone);
+    const localDraftCount = groupConfig.slots.filter((slot) => Boolean(documents[slot.keyName])).length;
+    const hasLocalDrafts = localDraftCount > 0;
+    const serverFrontUri = Boolean(groupMeta.slots.front.uri);
+    const serverBackUri = Boolean(groupMeta.slots.back.uri);
+    const serverSelfieUri = Boolean(groupMeta.slots.selfie.uri);
+    const localFrontDraft = Boolean(documents[groupConfig.slots[0].keyName]);
+    const localBackDraft = Boolean(documents[groupConfig.slots[1].keyName]);
+    const localSelfieDraft = Boolean(documents[groupConfig.slots[2].keyName]);
+    const hasFront = localFrontDraft || serverFrontUri;
+    const hasBack = localBackDraft || serverBackUri;
+    const hasSelfie = localSelfieDraft || serverSelfieUri;
+    const hasServerSubmission = serverFrontUri || serverBackUri || serverSelfieUri;
+    const serverGroupComplete = serverFrontUri && serverBackUri && serverSelfieUri;
+    const effectiveGroupComplete = hasFront && hasBack && hasSelfie;
+    const serverIsPending = groupMeta.isPending || isVerificationPending(groupMeta.key);
+    const hasInconsistentServerState = serverIsPending && !serverGroupComplete;
+    const isGroupLocked = serverIsPending && serverGroupComplete;
     const isBusy = submittingGroup === groupConfig.key;
-    const hideUploads = groupConfig.key === "validId" && validIdEquivalentDisplay.hideUploadSlots;
+    const renewalEditable =
+      Boolean(expiryMeta.renewalAllowed) &&
+      Boolean(expiryMeta.isNearExpiry || expiryMeta.isExpired);
+    const canEdit = groupMeta.canEdit || renewalEditable;
+    const canResubmit = hasLocalDrafts && effectiveGroupComplete && !isBusy;
+    const displayLabel = hasLocalDrafts ? "Changes Pending" : serverDisplayLabel;
+    const displayTone = hasLocalDrafts ? "info" : serverDisplayTone;
+    const [badgeStyle, badgeToneStyle, badgeTextStyle, badgeTextToneStyle] = getBadgeStyles(displayTone);
+    const hideUploads =
+      !hasLocalDrafts &&
+      groupConfig.key === "validId" &&
+      validIdEquivalentDisplay.hideUploadSlots;
     const levelValue =
       groupConfig.key === "validId" && (validIdEquivalentActive || validIdLicensePending)
         ? validIdEquivalentDisplay.levelValue
@@ -872,19 +1115,21 @@ export default function VerificationScreen({ navigation, route }) {
         ? groupConfig.levelLabel
         : "Not yet approved";
     const summaryValue =
-      groupConfig.key === "validId" && (validIdEquivalentActive || validIdLicensePending)
+      hasLocalDrafts
+        ? effectiveGroupComplete
+          ? "Draft package complete"
+          : "Draft package incomplete"
+        : groupConfig.key === "validId" && (validIdEquivalentActive || validIdLicensePending)
         ? validIdEquivalentDisplay.summaryValue
         : groupMeta.slots.front.hasDocument && groupMeta.slots.back.hasDocument
         ? "Front and back uploaded"
         : "Incomplete";
     const summarySubvalue =
-      groupConfig.key === "validId" && (validIdEquivalentActive || validIdLicensePending)
+      hasLocalDrafts
+        ? `${localDraftCount} local change${localDraftCount === 1 ? "" : "s"} not submitted`
+        : groupConfig.key === "validId" && (validIdEquivalentActive || validIdLicensePending)
         ? validIdEquivalentDisplay.summarySubvalue
-        : `Selfie: ${
-            documents[getCanonicalSelfieFieldName(groupConfig.key)] || groupMeta.slots.selfie.hasDocument
-              ? "Captured"
-              : "Missing"
-          }`;
+        : `Selfie: ${groupMeta.slots.selfie.hasDocument ? "Submitted" : "Missing"}`;
     const helperText =
       groupConfig.key === "validId" && (validIdEquivalentActive || validIdLicensePending)
         ? validIdEquivalentDisplay.helperText
@@ -898,19 +1143,16 @@ export default function VerificationScreen({ navigation, route }) {
         ? "Required slots: Valid ID front, Valid ID back, and current selfie."
         : "Required slots: Driver's License front, Driver's License back, and current selfie.";
     const showReadOnlyActionMessage =
-      hideUploads ||
+      !hasLocalDrafts &&
+      (hideUploads ||
       ((!expiryMeta.renewalAllowed || !expiryMeta.isNearExpiry) &&
-        (groupMeta.isApproved || groupMeta.isPending || isVerificationApproved(groupMeta.key) || isVerificationPending(groupMeta.key)));
+        (groupMeta.isApproved || groupMeta.isPending || isVerificationApproved(groupMeta.key) || isVerificationPending(groupMeta.key))));
     const readOnlyActionMessage = hideUploads
       ? "Driver's License satisfies this requirement."
       : groupMeta.isApproved || isVerificationApproved(groupMeta.key)
       ? "Verification approved."
       : "Submitted for review.";
-    const submitEnabled =
-      !hideUploads &&
-      !isBusy &&
-      (groupMeta.canEdit || (expiryMeta.renewalAllowed && (expiryMeta.isNearExpiry || expiryMeta.isExpired))) &&
-      !(groupMeta.isPending || isVerificationPending(groupMeta.key));
+    const submitEnabled = !hideUploads && !isBusy && canResubmit;
     const expiryHelperText = expiryMeta.isExpired
       ? "This document appears to be expired. Please submit an updated document."
       : expiryMeta.isNearExpiry
@@ -921,6 +1163,31 @@ export default function VerificationScreen({ navigation, route }) {
     const expiryTone = expiryMeta.isExpired ? "danger" : expiryMeta.isNearExpiry ? "warning" : "success";
 
     if (__DEV__) {
+      console.log("[Verification][resubmit-state]", {
+        verificationType: groupConfig.verificationType,
+        hasAnyDraft: Object.values(documents).some(Boolean),
+        hasLocalDrafts,
+        effectiveGroupComplete,
+        hasFront,
+        hasBack,
+        hasSelfie,
+        serverFrontUri,
+        serverBackUri,
+        serverSelfieUri,
+        localFrontDraft,
+        localBackDraft,
+        localSelfieDraft,
+        serverStatus: groupMeta.key,
+        previousServerStatus: serverDisplayLabel,
+        isPending: serverIsPending,
+        isUnderReview: serverIsPending,
+        isGroupLocked,
+        isEditable: canEdit,
+        canSubmit: canResubmit,
+        canResubmit,
+        isSubmitting: isBusy,
+      });
+
       console.log("[VerificationExpiry][computed]", {
         group: groupConfig.key,
         hasExpiryDate: Boolean(expiryMeta.expiryDate),
@@ -1030,26 +1297,59 @@ export default function VerificationScreen({ navigation, route }) {
         )}
 
         {!showReadOnlyActionMessage ? (
-          <TouchableOpacity
-            style={[
-              styles.submitButton,
-              !submitEnabled && styles.submitButtonDisabled,
-            ]}
-            onPress={() => handleSubmitGroup(groupConfig)}
-            disabled={!submitEnabled}
-          >
-            {isBusy ? (
-              <ActivityIndicator size="small" color="#ffffff" />
+          <View style={[styles.groupActionPanel, hasLocalDrafts && styles.groupActionPanelPending]}>
+            {hasLocalDrafts ? (
+              <View style={styles.groupActionMessage}>
+                <Ionicons name="cloud-upload-outline" size={22} color="#1d4ed8" />
+                <View style={styles.groupActionMessageBody}>
+                  <Text style={styles.groupActionTitle}>Changes Pending</Text>
+                  <Text style={styles.groupActionText}>
+                    Your replacement has not been submitted yet.
+                  </Text>
+                  <Text style={styles.groupActionServerStatus}>
+                    Previous server status: {serverDisplayLabel}
+                  </Text>
+                </View>
+              </View>
             ) : (
-              <Text style={styles.submitButtonText}>
-                {expiryMeta.isNearExpiry && !expiryMeta.backendRequiresUpdate && !groupMeta.needsUpdate
-                  ? "Update Document"
-                  : groupMeta.isRejected || groupMeta.needsUpdate
-                  ? `Resubmit ${groupConfig.title}`
-                  : groupConfig.submitLabel}
+              <Text style={styles.groupActionText}>
+                {effectiveGroupComplete
+                  ? "Select a replacement to create a new submission."
+                  : "Add all required images to enable verification submission."}
               </Text>
             )}
-          </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.submitButton,
+                !submitEnabled && styles.submitButtonDisabled,
+              ]}
+              onPress={() => handleSubmitGroup(groupConfig)}
+              disabled={!submitEnabled}
+            >
+              {isBusy ? (
+                <View style={styles.submitButtonBusyContent}>
+                  <ActivityIndicator size="small" color="#ffffff" />
+                  <Text style={styles.submitButtonText}>Submitting verification...</Text>
+                </View>
+              ) : (
+                <Text style={styles.submitButtonText}>
+                  {hasServerSubmission ? "Resubmit Verification" : "Submit Verification"}
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            {hasLocalDrafts && !effectiveGroupComplete ? (
+              <Text style={styles.groupActionRequirement}>
+                Add the missing required image before resubmitting.
+              </Text>
+            ) : null}
+            {hasLocalDrafts && hasInconsistentServerState ? (
+              <Text style={styles.groupActionError}>
+                Server status is Pending Review, but a required server image is missing. Refresh the screen before trying again.
+              </Text>
+            ) : null}
+          </View>
         ) : (
           <View style={styles.levelRow}>
             <Text style={styles.summaryLabel}>Verification Status</Text>
@@ -1071,7 +1371,10 @@ export default function VerificationScreen({ navigation, route }) {
     );
   }
 
-  const [badgeStyle, badgeToneStyle, badgeTextStyle, badgeTextToneStyle] = getBadgeStyles(statusTone);
+  const hasAnyLocalChanges = Object.values(documents).some(Boolean);
+  const summaryStatusLabel = hasAnyLocalChanges ? "Changes Pending" : statusLabel;
+  const summaryStatusTone = hasAnyLocalChanges ? "info" : statusTone;
+  const [badgeStyle, badgeToneStyle, badgeTextStyle, badgeTextToneStyle] = getBadgeStyles(summaryStatusTone);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -1098,7 +1401,7 @@ export default function VerificationScreen({ navigation, route }) {
 
           <TouchableOpacity
             style={styles.headerButton}
-            onPress={() => loadVerification("refresh")}
+            onPress={() => loadVerification("refresh", { force: true })}
             disabled={refreshing}
           >
             {refreshing ? (
@@ -1118,9 +1421,18 @@ export default function VerificationScreen({ navigation, route }) {
               </Text>
             </View>
             <View style={[badgeStyle, badgeToneStyle]}>
-              <Text style={[badgeTextStyle, badgeTextToneStyle]}>{statusLabel}</Text>
+              <Text style={[badgeTextStyle, badgeTextToneStyle]}>{summaryStatusLabel}</Text>
             </View>
           </View>
+
+          {hasAnyLocalChanges ? (
+            <View style={styles.draftSummaryNotice}>
+              <Ionicons name="information-circle-outline" size={20} color="#1d4ed8" />
+              <Text style={styles.draftSummaryNoticeText}>
+                You have local changes that have not been submitted. Server statuses below describe the previous submission.
+              </Text>
+            </View>
+          ) : null}
 
           <View style={styles.summaryGrid}>
             <View style={styles.summaryRow}>
@@ -1193,6 +1505,11 @@ export default function VerificationScreen({ navigation, route }) {
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </ScrollView>
+      <FaceCaptureModal
+        visible={faceCaptureVisible}
+        onCancel={() => setFaceCaptureVisible(false)}
+        onUsePhoto={handleUseCapturedSelfie}
+      />
     </SafeAreaView>
   );
 }

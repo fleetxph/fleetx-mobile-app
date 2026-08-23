@@ -57,6 +57,25 @@ export const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  centerPinOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  centerPinIcon: {
+    transform: [{ translateY: -20 }],
+    textShadowColor: "rgba(15,23,42,0.28)",
+    textShadowOffset: { width: 0, height: 3 },
+    textShadowRadius: 4,
+  },
+  centerPinShadow: {
+    position: "absolute",
+    width: 18,
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: "rgba(15,23,42,0.22)",
+    transform: [{ translateY: 3 }],
+  },
   mapState: {
     flex: 1,
     alignItems: "center",

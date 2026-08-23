@@ -267,10 +267,11 @@ export async function getClientBookingById(bookingId, options = {}) {
   return options?.rawResponse ? response : response.data;
 }
 
-export async function getVerificationStatus() {
+export async function getVerificationStatus(options = {}) {
   const response = await api.get("/client/verification/status", {
     params: { t: Date.now() },
     headers: { "Cache-Control": "no-cache" },
+    signal: options?.signal,
   });
   return response.data;
 }

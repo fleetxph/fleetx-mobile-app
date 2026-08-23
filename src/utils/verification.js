@@ -40,6 +40,24 @@ function valueAtPath(source, path) {
   }, source);
 }
 
+function hasPath(source, path) {
+  if (!path || !source) return false;
+
+  let current = source;
+  for (const key of path.split(".")) {
+    if (
+      current === undefined ||
+      current === null ||
+      !Object.prototype.hasOwnProperty.call(Object(current), key)
+    ) {
+      return false;
+    }
+    current = current[key];
+  }
+
+  return true;
+}
+
 function pickFirstValue(source, paths = []) {
   for (const path of paths) {
     const value = valueAtPath(source, path);
@@ -49,6 +67,15 @@ function pickFirstValue(source, paths = []) {
   }
 
   return "";
+}
+
+function pickAuthoritativeValue(source, paths = []) {
+  const canonicalPath = paths[0];
+  if (canonicalPath && hasPath(source, canonicalPath)) {
+    return valueAtPath(source, canonicalPath);
+  }
+
+  return pickFirstValue(source, paths);
 }
 
 export function normalizeReviewStatus(value) {
@@ -365,15 +392,12 @@ function getSlotMeta(data, groupKey, slotKey) {
     };
   }
 
-  const uri = normalizeText(pickFirstValue(data, slot.valuePaths));
+  const uri = normalizeText(pickAuthoritativeValue(data, slot.valuePaths));
   const explicitStatus = normalizeReviewStatus(pickFirstValue(data, slot.statusPaths));
   const remarks = normalizeText(pickFirstValue(data, slot.remarkPaths));
   const hasDocument = Boolean(uri);
 
-  let key = explicitStatus;
-  if (key === "not_submitted" && hasDocument) {
-    key = "pending";
-  }
+  const key = explicitStatus;
 
   if (key === "approved") {
     return { key, label: getVerificationStatusLabel(key), tone: getNormalizedVerificationStatusTone(key), uri, remarks, hasDocument };
@@ -412,7 +436,7 @@ function getSlotMeta(data, groupKey, slotKey) {
 function getVerificationUrl(data, groupKey, slotKey) {
   const config = VERIFICATION_GROUP_CONFIG[groupKey];
   const slot = config?.slots?.[slotKey];
-  return normalizeText(pickFirstValue(data, slot?.valuePaths || []));
+  return normalizeText(pickAuthoritativeValue(data, slot?.valuePaths || []));
 }
 
 export function getValidIdFrontUrl(data) {
@@ -481,8 +505,6 @@ export function getVerificationGroupMeta(data, groupKey) {
   } else if (key === "not_submitted" && anyNeedsUpdate) {
     key = "needs_update";
   } else if (key === "not_submitted" && anyPending) {
-    key = "pending";
-  } else if (key === "not_submitted" && anySubmitted) {
     key = "pending";
   }
 
@@ -636,6 +658,10 @@ function getEligibilityPresentation(status) {
     return { label: "Needs Update", tone: "danger", isAvailable: false };
   }
 
+  if (status === "unavailable") {
+    return { label: "Unavailable", tone: "neutral", isAvailable: false };
+  }
+
   return { label: "Not submitted", tone: "neutral", isAvailable: false };
 }
 
@@ -648,6 +674,10 @@ function getEligibilityStatusFromMeta(groupMeta) {
 }
 
 export function isLicenseApprovedOrAvailable(data) {
+  if (typeof data?.canBookSelfDrive === "boolean") {
+    return data.canBookSelfDrive;
+  }
+
   const license = getVerificationGroupMeta(data, "license");
   return normalizeEligibilityStatus(getEligibilityStatusFromMeta(license)) === "available";
 }
@@ -739,7 +769,24 @@ export function getBookingEligibilityFromVerification(data) {
     withDriverSource = "license";
   }
 
-  const selfDriveStatus = licenseStatus;
+  if (typeof data?.canBookWithDriver === "boolean") {
+    if (data.canBookWithDriver) {
+      withDriverStatus = "available";
+      withDriverSource = licenseStatus === "available" ? "license" : "valid_id";
+    } else if (withDriverStatus === "available") {
+      withDriverStatus = "unavailable";
+      withDriverSource = "backend";
+    }
+  }
+
+  const selfDriveStatus =
+    typeof data?.canBookSelfDrive === "boolean"
+      ? data.canBookSelfDrive
+        ? "available"
+        : licenseStatus === "available"
+        ? "unavailable"
+        : licenseStatus
+      : licenseStatus;
   const selfDriveSource = licenseStatus === "not_submitted" ? "none" : "license";
   const withDriverPresentation = getEligibilityPresentation(withDriverStatus);
   const selfDrivePresentation = getEligibilityPresentation(selfDriveStatus);
