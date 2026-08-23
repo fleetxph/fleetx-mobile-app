@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
-  Image,
   SafeAreaView,
   ScrollView,
   Text,
@@ -11,11 +10,14 @@ import {
   View,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import DocumentCaptureModal from "../components/DocumentCaptureModal";
+import DocumentExampleModal from "../components/DocumentExampleModal";
 import FaceCaptureModal, {
   deleteTemporarySelfieFile,
 } from "../components/FaceCaptureModal";
+import VerificationCaptureRow from "../components/VerificationCaptureRow";
 import { clearClientSession, isUnauthorizedError } from "../api/api";
 import {
   getVerificationStatus,
@@ -55,7 +57,7 @@ const INITIAL_DOCUMENTS = {
 const VERIFICATION_GROUPS = [
   {
     key: "validId",
-    title: "Valid ID Verification",
+    title: "Government ID",
     levelLabel: "Basic Verified",
     submitLabel: "Submit Valid ID Verification",
     verificationType: "with_driver",
@@ -63,22 +65,22 @@ const VERIFICATION_GROUPS = [
       {
         keyName: "validIdFront",
         slotKey: "front",
-        title: "Valid ID Front",
-        hint: "Upload the front side of your government-issued ID.",
+        title: "Required Front",
+        hint: "Front of your government-issued ID.",
         sourcePrompt: "Upload Valid ID front",
       },
       {
         keyName: "validIdBack",
         slotKey: "back",
-        title: "Valid ID Back",
-        hint: "Upload the back side of the same ID.",
+        title: "Required Back",
+        hint: "Back of the same government-issued ID.",
         sourcePrompt: "Upload Valid ID back",
       },
       {
         keyName: "validIdSelfie",
         slotKey: "selfie",
-        title: "Current Selfie",
-        hint: "Take a clear selfie so we can match you with the submitted document.",
+        title: "Face Verification",
+        hint: "Take a clear current selfie for identity review.",
         sourcePrompt: "Take Current Selfie",
         prefersCamera: true,
       },
@@ -86,7 +88,7 @@ const VERIFICATION_GROUPS = [
   },
   {
     key: "license",
-    title: "Driver's License Verification",
+    title: "Driver's License",
     levelLabel: "Fully Verified",
     submitLabel: "Submit Driver's License Verification",
     verificationType: "self_drive",
@@ -94,22 +96,22 @@ const VERIFICATION_GROUPS = [
       {
         keyName: "licenseFront",
         slotKey: "front",
-        title: "Driver's License Front",
-        hint: "Upload the front side of your Driver's License.",
+        title: "Required Front",
+        hint: "Front of your Driver's License.",
         sourcePrompt: "Upload license front",
       },
       {
         keyName: "licenseBack",
         slotKey: "back",
-        title: "Driver's License Back",
-        hint: "Upload the back side of your Driver's License.",
+        title: "Required Back",
+        hint: "Back of the same Driver's License.",
         sourcePrompt: "Upload license back",
       },
       {
         keyName: "licenseSelfie",
         slotKey: "selfie",
-        title: "Current Selfie",
-        hint: "Take a clear selfie so we can match you with the submitted document.",
+        title: "Face Verification",
+        hint: "Take a clear current selfie for identity review.",
         sourcePrompt: "Take Current Selfie",
         prefersCamera: true,
       },
@@ -229,6 +231,8 @@ export default function VerificationScreen({ navigation, route }) {
   const [screenFocused, setScreenFocused] = useState(false);
   const [appIsActive, setAppIsActive] = useState(AppState.currentState === "active");
   const [faceCaptureVisible, setFaceCaptureVisible] = useState(false);
+  const [documentCaptureSlot, setDocumentCaptureSlot] = useState(null);
+  const [exampleSide, setExampleSide] = useState("");
   const mountedRef = useRef(true);
   const focusedRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
@@ -636,7 +640,16 @@ export default function VerificationScreen({ navigation, route }) {
     }
 
     Alert.alert(slot.sourcePrompt, "Choose how you want to add the image.", [
-      { text: "Camera", onPress: () => openPicker(slot.keyName, "camera") },
+      {
+        text: "Camera",
+        onPress: () =>
+          setDocumentCaptureSlot({
+            keyName: slot.keyName,
+            side: slot.slotKey,
+            documentLabel:
+              group.groupKey === "license" ? "Driver's License" : "Government ID",
+          }),
+      },
       { text: "Gallery", onPress: () => openPicker(slot.keyName, "gallery") },
       { text: "Cancel", style: "cancel" },
     ]);
@@ -923,6 +936,25 @@ export default function VerificationScreen({ navigation, route }) {
     return true;
   };
 
+  const handleUseCapturedDocument = async (asset) => {
+    const keyName = documentCaptureSlot?.keyName;
+    if (!asset || !keyName || submittingGroup) return false;
+
+    const previousAsset = documents[keyName];
+    if (
+      previousAsset?.temporaryCameraFile &&
+      previousAsset.uri &&
+      previousAsset.uri !== asset.uri
+    ) {
+      await deleteTemporarySelfieFile(previousAsset.uri);
+    }
+
+    setDocuments((prev) => ({ ...prev, [keyName]: asset }));
+    clearSlotError(keyName);
+    setError("");
+    return true;
+  };
+
   const renderUploadCard = (groupMeta, slot) => {
     const slotMeta = groupMeta.slots[slot.slotKey];
     const localAsset = documents[slot.keyName];
@@ -969,99 +1001,26 @@ export default function VerificationScreen({ navigation, route }) {
     }
 
     return (
-      <View style={styles.uploadCard} key={slot.keyName}>
-        {imageUri ? (
-          <Image
-            key={`${slot.keyName}:${hasLocalAsset ? "draft" : "server"}:${imageUri}`}
-            source={{ uri: imageUri }}
-            style={styles.uploadPreview}
-          />
-        ) : (
-          <View style={styles.uploadPlaceholder}>
-            <MaterialCommunityIcons
-              name={slot.slotKey === "selfie" ? "face-recognition" : "image-outline"}
-              size={34}
-              color="#94a3b8"
-            />
-            <Text style={styles.uploadPlaceholderText}>No image selected yet</Text>
-          </View>
-        )}
-
-        <View style={styles.uploadBody}>
-          <View style={styles.uploadTop}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.uploadTitle}>{slot.title}</Text>
-              <Text style={styles.uploadHint}>{slot.hint}</Text>
-            </View>
-            <View style={[badgeStyle, badgeToneStyle]}>
-              <Text style={[badgeTextStyle, badgeTextToneStyle]}>{slotLabel}</Text>
-            </View>
-          </View>
-
-          {slotMeta.remarks ? (
-            <Text style={styles.slotRemark}>Admin note: {slotMeta.remarks}</Text>
-          ) : null}
-
-          {hasLocalAsset ? (
-            <View style={styles.draftNotice}>
-              <Ionicons name="phone-portrait-outline" size={16} color="#1d4ed8" />
-              <Text style={styles.draftNoticeText}>Local draft — not submitted yet</Text>
-            </View>
-          ) : null}
-
-          <View style={styles.uploadActions}>
-            <TouchableOpacity
-              style={[
-                styles.uploadActionButton,
-                styles.uploadPrimary,
-                (!canPromptUpload || isBusy) && styles.submitButtonDisabled,
-              ]}
-              onPress={() => promptImageSource(slot, groupMeta)}
-              disabled={!canPromptUpload || isBusy}
-            >
-              <Text style={styles.uploadPrimaryText}>
-                {hasLocalAsset
-                  ? "Change Replacement"
-                  : imageUri
-                  ? "Replace"
-                  : slot.slotKey === "selfie"
-                  ? "Take Selfie"
-                  : "Upload"}
-              </Text>
-            </TouchableOpacity>
-
-            {hasLocalAsset ? (
-              <TouchableOpacity
-                style={[
-                  styles.uploadActionButton,
-                  styles.uploadSecondary,
-                  isBusy && styles.submitButtonDisabled,
-                ]}
-                onPress={() => discardLocalDraft(slot.keyName)}
-                disabled={isBusy}
-              >
-                <Text style={styles.uploadSecondaryText}>Discard Change</Text>
-              </TouchableOpacity>
-            ) : canRemoveSubmitted ? (
-              <TouchableOpacity
-                style={[
-                  styles.uploadActionButton,
-                  styles.uploadDanger,
-                  isBusy && styles.submitButtonDisabled,
-                ]}
-                onPress={() => removeSubmittedDocument(slot.keyName, slotMeta, groupMeta)}
-                disabled={isBusy}
-              >
-                <Text style={styles.uploadDangerText}>Remove Submitted</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-
-          {slotHelperText ? <Text style={styles.slotHelperText}>{slotHelperText}</Text> : null}
-
-          {slotError ? <Text style={styles.slotErrorText}>{slotError}</Text> : null}
-        </View>
-      </View>
+      <VerificationCaptureRow
+        key={slot.keyName}
+        title={slot.title}
+        hint={slot.hint}
+        imageUri={imageUri}
+        isSelfie={slot.slotKey === "selfie"}
+        statusLabel={slotLabel}
+        statusStyles={[badgeStyle, badgeToneStyle, badgeTextStyle, badgeTextToneStyle]}
+        hasLocalAsset={hasLocalAsset}
+        isBusy={isBusy}
+        canChange={canPromptUpload}
+        canRemoveSubmitted={canRemoveSubmitted}
+        helperText={slotHelperText}
+        remark={slotMeta.remarks}
+        error={slotError}
+        onChange={() => promptImageSource(slot, groupMeta)}
+        onDiscard={() => discardLocalDraft(slot.keyName)}
+        onRemoveSubmitted={() => removeSubmittedDocument(slot.keyName, slotMeta, groupMeta)}
+        onViewExample={() => setExampleSide(slot.slotKey)}
+      />
     );
   };
 
@@ -1212,30 +1171,39 @@ export default function VerificationScreen({ navigation, route }) {
           </View>
         </View>
 
-        <View style={styles.levelRow}>
-          <Text style={styles.summaryLabel}>Verification Level</Text>
-          <Text style={styles.levelValue}>{levelValue}</Text>
-        </View>
-
-        <View style={styles.levelRow}>
-          <Text style={styles.summaryLabel}>Verification Summary</Text>
-          <Text style={styles.levelValue}>{summaryValue}</Text>
-          {summarySubvalue ? <Text style={styles.summarySubvalue}>{summarySubvalue}</Text> : null}
-        </View>
-
-        <View style={styles.levelRow}>
-          <Text style={styles.summaryLabel}>Expiry Date</Text>
-          <Text style={styles.summaryValue}>
-            {validIdEquivalentActive && !groupMeta.slots.front.hasDocument && !groupMeta.slots.back.hasDocument
-              ? "No expiry shown"
-              : formatExpiryDate(expiryMeta.expiryDate)}
-          </Text>
-          <Text style={styles.summarySubvalue}>
-            Days Remaining: {expiryMeta.daysRemaining === null || expiryMeta.daysRemaining === undefined ? "Not available" : expiryMeta.daysRemaining}
-          </Text>
-          <Text style={styles.summarySubvalue}>
-            Expiry Status: {validIdEquivalentActive && !groupMeta.slots.front.hasDocument && !groupMeta.slots.back.hasDocument ? "Not available" : expiryMeta.expiryLabel || "No expiry shown"}
-          </Text>
+        <View style={styles.compactGroupSummary}>
+          <View style={styles.compactSummaryRow}>
+            <Text style={styles.compactSummaryLabel}>Level</Text>
+            <Text style={styles.compactSummaryValue}>{levelValue}</Text>
+          </View>
+          <View style={styles.compactSummaryRow}>
+            <Text style={styles.compactSummaryLabel}>Package</Text>
+            <View style={styles.compactSummaryValueWrap}>
+              <Text style={styles.compactSummaryValue}>{summaryValue}</Text>
+              {summarySubvalue ? (
+                <Text style={styles.compactSummaryDetail}>{summarySubvalue}</Text>
+              ) : null}
+            </View>
+          </View>
+          <View style={[styles.compactSummaryRow, styles.compactSummaryRowLast]}>
+            <Text style={styles.compactSummaryLabel}>Expiry</Text>
+            <View style={styles.compactSummaryValueWrap}>
+              <Text style={styles.compactSummaryValue}>
+                {validIdEquivalentActive &&
+                !groupMeta.slots.front.hasDocument &&
+                !groupMeta.slots.back.hasDocument
+                  ? "No expiry shown"
+                  : formatExpiryDate(expiryMeta.expiryDate)}
+              </Text>
+              <Text style={styles.compactSummaryDetail}>
+                {validIdEquivalentActive &&
+                !groupMeta.slots.front.hasDocument &&
+                !groupMeta.slots.back.hasDocument
+                  ? "Not available"
+                  : expiryMeta.expiryLabel || "No expiry shown"}
+              </Text>
+            </View>
+          </View>
         </View>
 
         {helperText ? (
@@ -1509,6 +1477,18 @@ export default function VerificationScreen({ navigation, route }) {
         visible={faceCaptureVisible}
         onCancel={() => setFaceCaptureVisible(false)}
         onUsePhoto={handleUseCapturedSelfie}
+      />
+      <DocumentCaptureModal
+        visible={Boolean(documentCaptureSlot)}
+        documentLabel={documentCaptureSlot?.documentLabel}
+        side={documentCaptureSlot?.side}
+        onCancel={() => setDocumentCaptureSlot(null)}
+        onUsePhoto={handleUseCapturedDocument}
+      />
+      <DocumentExampleModal
+        visible={Boolean(exampleSide)}
+        side={exampleSide || "front"}
+        onClose={() => setExampleSide("")}
       />
     </SafeAreaView>
   );

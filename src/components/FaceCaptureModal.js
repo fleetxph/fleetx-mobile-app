@@ -8,11 +8,14 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as LegacyFileSystem from "expo-file-system/legacy";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Path } from "react-native-svg";
 
 export async function deleteTemporarySelfieFile(uri) {
   if (!uri || !String(uri).startsWith("file:")) return;
@@ -25,6 +28,8 @@ export async function deleteTemporarySelfieFile(uri) {
 }
 
 export default function FaceCaptureModal({ visible, onCancel, onUsePhoto }) {
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const safeAreaInsets = useSafeAreaInsets();
   const cameraRef = useRef(null);
   const photoRef = useRef(null);
   const transferredUriRef = useRef("");
@@ -35,6 +40,16 @@ export default function FaceCaptureModal({ visible, onCancel, onUsePhoto }) {
   const [usingPhoto, setUsingPhoto] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState("");
+  const shutterSize = 82;
+  const captureBottom = Math.max(safeAreaInsets.bottom + 12, 28);
+  const shutterTop = screenHeight - captureBottom - shutterSize;
+  const silhouetteTop = Math.max(safeAreaInsets.top + 20, screenHeight * 0.05);
+  const silhouetteHeight = screenWidth * 1.6;
+  const holdInstructionTop = silhouetteTop + silhouetteHeight * 0.31;
+  const cardGuideWidth = Math.min(screenWidth * 0.64, 300);
+  const cardGuideHeight = Math.min(Math.max(screenHeight * 0.14, 88), 126);
+  const cardGuideTop = shutterTop - cardGuideHeight - 22;
+  const bracketSize = Math.min(cardGuideWidth * 0.16, 38);
 
   useEffect(() => {
     photoRef.current = photo;
@@ -220,27 +235,83 @@ export default function FaceCaptureModal({ visible, onCancel, onUsePhoto }) {
           }
         />
 
-        <View style={styles.guideOverlay} pointerEvents="none">
-          <View style={styles.topShade} />
-          <View style={styles.guideRow}>
-            <View style={styles.sideShade} />
-            <View style={styles.faceOval} />
-            <View style={styles.sideShade} />
-          </View>
-          <View style={styles.bottomShade} />
+        <View style={styles.cameraShade} pointerEvents="none" />
+
+        <Svg
+          width={screenWidth}
+          height={silhouetteHeight}
+          viewBox="0 0 1000 1600"
+          preserveAspectRatio="xMidYMid meet"
+          style={[styles.silhouetteSvg, { top: silhouetteTop }]}
+          pointerEvents="none"
+        >
+          <Path
+            d="M500 130 C292 130 138 242 130 420 C127 474 130 525 126 572 C82 598 57 650 67 710 C77 765 108 802 158 820 C177 894 225 984 304 1060 C340 1095 360 1127 355 1162 C352 1195 337 1222 306 1248 C232 1310 118 1348 0 1368 L0 1600 L1000 1600 L1000 1368 C882 1348 768 1310 694 1248 C663 1222 648 1195 645 1162 C640 1127 660 1095 696 1060 C775 984 823 894 842 820 C892 802 923 765 933 710 C943 650 918 598 874 572 C870 525 873 474 870 420 C862 242 708 130 500 130 Z"
+            fill="#f1f1ed"
+            fillOpacity={0.28}
+          />
+        </Svg>
+
+        <View
+          style={[
+            styles.holdIdInstruction,
+            { top: holdInstructionTop },
+          ]}
+          pointerEvents="none"
+        >
+          <Text style={styles.holdIdInstructionText}>Please hold your ID card</Text>
         </View>
 
-        <View style={styles.captureInstructions} pointerEvents="none">
-          <Text style={styles.captureTitle}>Position your face inside the oval</Text>
-          <Text style={styles.captureSubtitle}>
-            Keep your face centered and look directly at the camera.
+        <View
+          style={[
+            styles.cardGuide,
+            {
+              top: cardGuideTop,
+              left: (screenWidth - cardGuideWidth) / 2,
+              width: cardGuideWidth,
+              height: cardGuideHeight,
+            },
+          ]}
+          pointerEvents="none"
+        >
+          <View
+            style={[
+              styles.cardCorner,
+              styles.cardCornerTopLeft,
+              { width: bracketSize, height: bracketSize },
+            ]}
+          />
+          <View
+            style={[
+              styles.cardCorner,
+              styles.cardCornerTopRight,
+              { width: bracketSize, height: bracketSize },
+            ]}
+          />
+          <Text style={styles.cardGuideText}>Your ID card</Text>
+          <View
+            style={[
+              styles.cardCorner,
+              styles.cardCornerBottomLeft,
+              { width: bracketSize, height: bracketSize },
+            ]}
+          />
+          <View
+            style={[
+              styles.cardCorner,
+              styles.cardCornerBottomRight,
+              { width: bracketSize, height: bracketSize },
+            ]}
+          />
+        </View>
+
+        {cameraError ? (
+          <Text style={[styles.captureError, { bottom: captureBottom + shutterSize + 14 }]}>
+            {cameraError}
           </Text>
-          <Text style={styles.guidanceDisclaimer}>Guided photo capture</Text>
-        </View>
+        ) : null}
 
-        {cameraError ? <Text style={styles.captureError}>{cameraError}</Text> : null}
-
-        <View style={styles.captureControls}>
+        <View style={[styles.captureControls, { bottom: captureBottom }]}>
           <TouchableOpacity
             accessibilityLabel="Capture selfie"
             style={[
@@ -268,144 +339,147 @@ export default function FaceCaptureModal({ visible, onCancel, onUsePhoto }) {
       presentationStyle="fullScreen"
       onRequestClose={closeCapture}
     >
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.headerButton}
-            onPress={closeCapture}
-            disabled={capturing || usingPhoto}
-          >
-            <Ionicons name="chevron-back" size={26} color="#ffffff" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Face Capture</Text>
-          <View style={styles.headerSpacer} />
-        </View>
-        <View style={styles.body}>{renderPermissionState()}</View>
-      </SafeAreaView>
+      <View style={styles.root}>
+        {renderPermissionState()}
+        <SafeAreaView style={styles.headerSafeArea} pointerEvents="box-none">
+          <View style={styles.header} pointerEvents="box-none">
+            <TouchableOpacity
+              style={styles.headerButton}
+              onPress={closeCapture}
+              disabled={capturing || usingPhoto}
+              accessibilityLabel="Close face verification camera"
+            >
+              <Ionicons name="close" size={27} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  root: {
     flex: 1,
     backgroundColor: "#05080d",
   },
+  headerSafeArea: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
   header: {
-    height: 58,
-    paddingHorizontal: 14,
+    height: 60,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#05080d",
+    backgroundColor: "transparent",
   },
   headerButton: {
     width: 44,
     height: 44,
     alignItems: "center",
     justifyContent: "center",
-  },
-  headerSpacer: {
-    width: 44,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: "center",
-    color: "#ffffff",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  body: {
-    flex: 1,
-    backgroundColor: "#05080d",
+    marginLeft: -6,
   },
   cameraContainer: {
     flex: 1,
     overflow: "hidden",
   },
-  guideOverlay: {
+  cameraShade: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(3, 7, 18, 0.18)",
   },
-  topShade: {
-    flex: 1,
-    backgroundColor: "rgba(3, 7, 18, 0.58)",
+  silhouetteSvg: {
+    position: "absolute",
+    left: 0,
   },
-  guideRow: {
-    height: 360,
-    flexDirection: "row",
-  },
-  sideShade: {
-    flex: 1,
-    backgroundColor: "rgba(3, 7, 18, 0.58)",
-  },
-  faceOval: {
-    width: 274,
-    height: 360,
-    borderRadius: 137,
-    borderWidth: 4,
-    borderColor: "#ffffff",
-    backgroundColor: "transparent",
-    shadowColor: "#000000",
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  bottomShade: {
-    flex: 1,
-    backgroundColor: "rgba(3, 7, 18, 0.58)",
-  },
-  captureInstructions: {
+  holdIdInstruction: {
     position: "absolute",
     left: 24,
     right: 24,
-    bottom: 126,
     alignItems: "center",
   },
-  captureTitle: {
+  holdIdInstructionText: {
     color: "#ffffff",
     fontSize: 18,
-    fontWeight: "700",
+    lineHeight: 24,
+    fontWeight: "500",
     textAlign: "center",
+    textShadowColor: "rgba(0, 0, 0, 0.55)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
-  captureSubtitle: {
-    color: "#dbe4f0",
-    fontSize: 14,
-    lineHeight: 20,
+  cardGuide: {
+    position: "absolute",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardGuideText: {
+    color: "#ffffff",
+    fontSize: 19,
+    fontWeight: "500",
     textAlign: "center",
-    marginTop: 6,
+    textShadowColor: "rgba(0, 0, 0, 0.55)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
-  guidanceDisclaimer: {
-    color: "#94a3b8",
-    fontSize: 12,
-    marginTop: 8,
+  cardCorner: {
+    position: "absolute",
+    borderColor: "#ffffff",
+  },
+  cardCornerTopLeft: {
+    top: 0,
+    left: 0,
+    borderTopWidth: 4,
+    borderLeftWidth: 4,
+  },
+  cardCornerTopRight: {
+    top: 0,
+    right: 0,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+  },
+  cardCornerBottomLeft: {
+    bottom: 0,
+    left: 0,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+  },
+  cardCornerBottomRight: {
+    right: 0,
+    bottom: 0,
+    borderRightWidth: 4,
+    borderBottomWidth: 4,
   },
   captureControls: {
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: 30,
     alignItems: "center",
   },
   shutterOuter: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 82,
+    height: 82,
+    borderRadius: 41,
     borderWidth: 4,
     borderColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(15, 23, 42, 0.35)",
+    backgroundColor: "rgba(255, 255, 255, 0.28)",
   },
   shutterInner: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
     backgroundColor: "#ffffff",
   },
   captureError: {
     position: "absolute",
     left: 24,
     right: 24,
-    bottom: 218,
     borderRadius: 10,
     padding: 10,
     overflow: "hidden",
@@ -460,22 +534,25 @@ const styles = StyleSheet.create({
   },
   previewShade: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(3, 7, 18, 0.28)",
+    backgroundColor: "rgba(3, 7, 18, 0.22)",
   },
   previewContent: {
     position: "absolute",
-    left: 22,
-    right: 22,
-    bottom: 34,
-    borderRadius: 18,
-    padding: 18,
-    backgroundColor: "rgba(5, 8, 13, 0.9)",
+    left: 24,
+    right: 24,
+    bottom: 30,
+    paddingTop: 18,
+    paddingHorizontal: 4,
+    paddingBottom: 4,
   },
   previewTitle: {
     color: "#ffffff",
     fontSize: 20,
     fontWeight: "700",
     textAlign: "center",
+    textShadowColor: "rgba(0, 0, 0, 0.6)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   previewInstruction: {
     color: "#cbd5e1",
@@ -483,6 +560,9 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: "center",
     marginTop: 7,
+    textShadowColor: "rgba(0, 0, 0, 0.6)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   previewActions: {
     flexDirection: "row",
@@ -494,9 +574,10 @@ const styles = StyleSheet.create({
     minHeight: 48,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "#94a3b8",
+    borderColor: "rgba(255, 255, 255, 0.78)",
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "rgba(5, 8, 13, 0.42)",
   },
   secondaryButtonText: {
     color: "#ffffff",
