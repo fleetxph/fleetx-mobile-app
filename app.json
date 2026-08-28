@@ -8,8 +8,18 @@
     "scheme": "fleetx",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/a363c64d-73b7-4944-830a-9f1a4ac360ff"
+    },
     "ios": {
-      "supportsTablet": true
+      "bundleIdentifier": "com.fleetx.app",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -46,9 +56,20 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow FleetX to use your camera for identity verification photos."
+          "cameraPermission": "Allow FleetX to use your camera to capture verification documents, profile photos, and payment proof.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow FleetX to access selected photos for your profile, verification documents, and payment proof.",
+          "cameraPermission": "Allow FleetX to use your camera to capture verification documents, profile photos, and payment proof.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-font",
       "@react-native-community/datetimepicker"
     ],
     "experiments": {

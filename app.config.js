@@ -1,7 +1,5 @@
 require("dotenv/config");
 
-const appJson = require("./app.json");
-
 const googleMapsAndroidApiKey = String(
   process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ||
     process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ||
@@ -16,12 +14,10 @@ const apiBaseUrl = String(
   .trim()
   .replace(/\/+$/, "");
 
-const baseConfig = appJson.expo || {};
-
-module.exports = () => ({
-  ...baseConfig,
+module.exports = ({ config }) => ({
+  ...config,
   android: {
-    ...(baseConfig.android || {}),
+    ...(config.android || {}),
     googleServicesFile: "./google-services.json",
     permissions: [
       "ACCESS_COARSE_LOCATION",
@@ -30,7 +26,7 @@ module.exports = () => ({
     ...(googleMapsAndroidApiKey
       ? {
           config: {
-            ...((baseConfig.android && baseConfig.android.config) || {}),
+            ...((config.android && config.android.config) || {}),
             googleMaps: {
               apiKey: googleMapsAndroidApiKey,
             },
@@ -39,7 +35,7 @@ module.exports = () => ({
       : {}),
   },
   extra: {
-    ...(baseConfig.extra || {}),
+    ...(config.extra || {}),
     hasNativeGoogleMapsKey: Boolean(googleMapsAndroidApiKey),
     googleMapsPublicApiKey: googleMapsAndroidApiKey || "",
     apiBaseUrl,
