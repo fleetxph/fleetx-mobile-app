@@ -889,7 +889,7 @@ export default function BrowseVehicles({ navigation, route }) {
           windowSize={7}
           onEndReached={loadNextPage}
           onEndReachedThreshold={0.45}
-          ListHeaderComponent={renderHeader}
+          ListHeaderComponent={renderHeader()}
           ListFooterComponent={renderFooter}
           ListEmptyComponent={
             <View style={styles.emptyStateCard}>
