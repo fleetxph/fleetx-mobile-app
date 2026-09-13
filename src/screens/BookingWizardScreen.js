@@ -1191,6 +1191,7 @@ export default function BookingWizardScreen({ route, navigation }) {
   const [selectedVehicleActionId, setSelectedVehicleActionId] = useState("");
 
   const [picker, setPicker] = useState(null);
+  const [iosTimePicker, setIosTimePicker] = useState(null);
   const [optionPicker, setOptionPicker] = useState("");
   const [schedule, setSchedule] = useState(initialSchedule);
   const [activeCalendarField, setActiveCalendarField] = useState(
@@ -2967,6 +2968,19 @@ export default function BookingWizardScreen({ route, navigation }) {
       return;
     }
 
+    if (Platform.OS === "ios") {
+      Keyboard.dismiss();
+      const dateKey = key === "startTime" ? "startDate" : "endDate";
+      const minimumDate = getTimePickerMinimumDate(key, schedule);
+      const value = combineDateAndTime(
+        schedule[dateKey] || new Date(),
+        schedule[key] || ceilDateToThirtyMinutes(new Date())
+      );
+      setIosTimePicker({
+        value: minimumDate && value < minimumDate ? minimumDate : value,
+        minimumDate,
+      });
+    }
     setPicker(key);
   };
 
@@ -5856,7 +5870,56 @@ export default function BookingWizardScreen({ route, navigation }) {
           {!success && <View style={styles.bottomSpacer} />}
           </ScrollView>
 
-        {!!picker && (
+        {Platform.OS === "ios" && (
+          <Modal
+            visible={!!picker && !!iosTimePicker}
+            transparent
+            animationType="none"
+            onRequestClose={() => setPicker(null)}
+          >
+            <View style={styles.modalOverlay}>
+              <View
+                style={[
+                  styles.optionPickerSheet,
+                  { paddingBottom: Math.max(28, insets.bottom) },
+                ]}
+              >
+                <View style={styles.optionPickerHandle} />
+                <Text style={styles.optionPickerTitle}>
+                  {picker === "startTime" ? "Start Time" : "End Time"}
+                </Text>
+                {!!picker && !!iosTimePicker && (
+                  <DateTimePicker
+                    value={iosTimePicker.value}
+                    minimumDate={iosTimePicker.minimumDate}
+                    mode="time"
+                    display="spinner"
+                    themeVariant="light"
+                    minuteInterval={30}
+                    style={{ height: 216, width: "100%" }}
+                    onChange={(event, value) => {
+                      if (event.type === "set" && value) {
+                        setIosTimePicker((prev) => ({ ...prev, value }));
+                      }
+                    }}
+                  />
+                )}
+                <TouchableOpacity
+                  style={styles.secondaryButton}
+                  onPress={() => {
+                    handlePickerChange({ type: "set" }, iosTimePicker.value);
+                    setPicker(null);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.secondaryButtonText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        )}
+
+        {Platform.OS !== "ios" && !!picker && (
           <DateTimePicker
             value={
               picker.includes("Date") && schedule[picker]
