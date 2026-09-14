@@ -12,32 +12,25 @@ export const styles = StyleSheet.create({
   },
   contentContainer: {
     flexGrow: 1,
-    paddingHorizontal: 18,
-    paddingTop: 18,
+    paddingHorizontal: 16,
+    paddingTop: 16,
     paddingBottom: 40,
   },
   headerRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    marginBottom: 18,
+    marginBottom: 14,
     gap: 12,
   },
   headerContent: {
     flex: 1,
   },
-  headerEyebrow: {
-    color: colors.accent,
-    fontSize: 12,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
   header: {
     color: colors.heading,
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: "700",
-    lineHeight: 34,
+    lineHeight: 32,
   },
   exitText: {
     color: colors.accent,
@@ -47,37 +40,30 @@ export const styles = StyleSheet.create({
   },
   stepperCard: {
     backgroundColor: colors.card,
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 16,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: "#E8EDF3",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.02,
-    shadowRadius: 8,
-    elevation: 1,
   },
   stepperTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
-    gap: 12,
+    alignItems: "flex-start",
+    marginBottom: 12,
+    gap: 3,
   },
   stepCount: {
-    color: colors.heading,
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  stepHint: {
-    flex: 1,
     color: colors.subtext,
     fontSize: 12,
-    textAlign: "right",
+    fontWeight: "500",
+  },
+  stepHint: {
+    color: colors.heading,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "600",
   },
   progressTrack: {
-    height: 8,
+    height: 4,
     borderRadius: 999,
     backgroundColor: "#FFE3CC",
     overflow: "hidden",
@@ -94,11 +80,6 @@ export const styles = StyleSheet.create({
     marginBottom: 16,
     borderWidth: 1,
     borderColor: "#E8EDF3",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.025,
-    shadowRadius: 8,
-    elevation: 1,
   },
   cardTitle: {
     color: colors.heading,
@@ -111,7 +92,7 @@ export const styles = StyleSheet.create({
     color: colors.subtext,
     fontSize: 14,
     lineHeight: 21,
-    marginBottom: 18,
+    marginBottom: 16,
   },
   choiceCard: {
     flexDirection: "row",
@@ -119,10 +100,10 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    minHeight: 92,
-    marginBottom: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    minHeight: 84,
+    marginBottom: 12,
     backgroundColor: "#FFFFFF",
   },
   choiceCardActive: {
@@ -130,9 +111,9 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.accentSoft,
   },
   choiceIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.accentSoft,
@@ -148,7 +129,7 @@ export const styles = StyleSheet.create({
   choiceTitle: {
     color: colors.heading,
     fontSize: 17,
-    fontWeight: "700",
+    fontWeight: "600",
     marginBottom: 4,
   },
   choiceDesc: {
@@ -185,7 +166,7 @@ export const styles = StyleSheet.create({
   infoTitle: {
     color: colors.heading,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
     marginBottom: 4,
   },
   infoText: {
@@ -262,7 +243,7 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginTop: 8,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   locationGuidanceText: {
     color: "#9A3412",
@@ -315,7 +296,7 @@ export const styles = StyleSheet.create({
     color: colors.subtext,
     fontSize: 11,
     lineHeight: 16,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   suggestionStateCard: {
     borderRadius: 14,
@@ -330,12 +311,12 @@ export const styles = StyleSheet.create({
     color: colors.subtext,
     fontSize: 12,
     lineHeight: 18,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   errorText: {
     color: colors.danger,
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "600",
     marginTop: 7,
   },
   chipsWrap: {
@@ -399,7 +380,13 @@ export const styles = StyleSheet.create({
     flex: 1,
     color: colors.text,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
+  },
+  inputText: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "500",
   },
   placeholderText: {
     flex: 1,
@@ -474,7 +461,7 @@ export const styles = StyleSheet.create({
     textAlign: "center",
     color: colors.subtext,
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   calendarGrid: {
     flexDirection: "row",
@@ -512,7 +499,7 @@ export const styles = StyleSheet.create({
   calendarDayText: {
     color: colors.text,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   calendarDayTextMuted: {
     color: colors.subtext,
@@ -565,7 +552,7 @@ export const styles = StyleSheet.create({
   legendText: {
     color: colors.subtext,
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   durationBox: {
     marginTop: 18,
@@ -609,7 +596,7 @@ export const styles = StyleSheet.create({
     color: "#1D4ED8",
     fontSize: 12,
     lineHeight: 18,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   inlineNoticeWarning: {
     flexDirection: "row",
@@ -627,7 +614,7 @@ export const styles = StyleSheet.create({
     color: "#9A3412",
     fontSize: 12,
     lineHeight: 18,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   inlineNoticeError: {
     flexDirection: "row",
@@ -645,7 +632,7 @@ export const styles = StyleSheet.create({
     color: "#B91C1C",
     fontSize: 12,
     lineHeight: 18,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   inlineNoticeSuccess: {
     flexDirection: "row",
@@ -663,7 +650,7 @@ export const styles = StyleSheet.create({
     color: "#166534",
     fontSize: 12,
     lineHeight: 18,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   controlBlock: {
     borderWidth: 1,
@@ -682,12 +669,12 @@ export const styles = StyleSheet.create({
   controlTitle: {
     color: colors.heading,
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   controlValue: {
     color: colors.accent,
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   counterRow: {
     flexDirection: "row",
@@ -705,7 +692,7 @@ export const styles = StyleSheet.create({
   circleButtonText: {
     color: "#FFFFFF",
     fontSize: 20,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   counterTrack: {
     flex: 1,
@@ -741,7 +728,7 @@ export const styles = StyleSheet.create({
   compactOptionText: {
     color: colors.subtext,
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   compactOptionTextActive: {
     color: colors.accent,
@@ -791,7 +778,7 @@ export const styles = StyleSheet.create({
   pickupModeTitle: {
     color: colors.heading,
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "600",
     lineHeight: 20,
     marginBottom: 4,
   },
@@ -823,7 +810,7 @@ export const styles = StyleSheet.create({
   segmentText: {
     color: colors.subtext,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   segmentTextActive: {
     color: "#FFFFFF",
@@ -866,10 +853,10 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 18,
+    borderRadius: 16,
     overflow: "hidden",
     backgroundColor: "#FFFFFF",
-    marginBottom: 14,
+    marginBottom: 0,
   },
   directVehicleHeader: {
     flexDirection: "row",
@@ -895,13 +882,13 @@ export const styles = StyleSheet.create({
     fontWeight: "600",
   },
   selectedVehicleImage: {
-    width: 118,
-    minHeight: 118,
+    width: 92,
+    minHeight: 104,
     backgroundColor: "#E5E7EB",
   },
   selectedVehicleImageFallback: {
-    width: 118,
-    minHeight: 118,
+    width: 92,
+    minHeight: 104,
     backgroundColor: "#0B132B",
     alignItems: "center",
     justifyContent: "center",
@@ -910,12 +897,12 @@ export const styles = StyleSheet.create({
   selectedVehicleImageFallbackText: {
     color: "#FFFFFF",
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "600",
     textAlign: "center",
   },
   selectedVehicleBody: {
     flex: 1,
-    padding: 14,
+    padding: 12,
     justifyContent: "center",
   },
   vehicleImage: {
@@ -933,7 +920,7 @@ export const styles = StyleSheet.create({
   vehicleImageFallbackText: {
     color: "#FFFFFF",
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   vehicleBody: {
     padding: 16,
@@ -948,7 +935,7 @@ export const styles = StyleSheet.create({
     flex: 1,
     color: colors.heading,
     fontSize: 17,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   statusPill: {
     color: "#166534",
@@ -958,7 +945,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 5,
     fontSize: 11,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   vehicleMeta: {
     color: colors.subtext,
@@ -969,9 +956,9 @@ export const styles = StyleSheet.create({
   vehicleRate: {
     color: colors.accent,
     fontSize: 16,
-    fontWeight: "700",
-    marginTop: 10,
-    marginBottom: 12,
+    fontWeight: "600",
+    marginTop: 8,
+    marginBottom: 0,
   },
   vehicleFitCard: {
     borderRadius: 14,
@@ -1003,7 +990,7 @@ export const styles = StyleSheet.create({
   bookButtonText: {
     color: "#FFFFFF",
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   emptyCard: {
     backgroundColor: "#F8FAFC",
@@ -1030,57 +1017,111 @@ export const styles = StyleSheet.create({
   summaryLabel: {
     color: colors.subtext,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   summaryValue: {
     color: colors.heading,
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "600",
+  },
+  reviewPage: {
+    marginBottom: 4,
+  },
+  reviewIntro: {
+    marginBottom: 2,
+  },
+  reviewSection: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E8EDF3",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+  },
+  reviewSectionTitle: {
+    color: colors.heading,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "600",
+    marginBottom: 10,
+  },
+  reviewSectionHelper: {
+    color: colors.subtext,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: -4,
+    marginBottom: 14,
+  },
+  reviewSubsection: {
+    marginTop: 16,
+  },
+  reviewGroupTitle: {
+    color: colors.heading,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  reviewGuidance: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  reviewGuidanceText: {
+    flex: 1,
+    color: colors.subtext,
+    fontSize: 12,
+    lineHeight: 18,
   },
   reviewList: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 16,
-    overflow: "hidden",
-    marginBottom: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
   reviewRow: {
-    padding: 14,
-    backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 16,
+    paddingVertical: 11,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  reviewRowLast: {
+    borderBottomWidth: 0,
+  },
   reviewLabel: {
+    width: 104,
+    flexShrink: 0,
     color: colors.subtext,
     fontSize: 12,
-    fontWeight: "600",
-    marginBottom: 4,
+    lineHeight: 18,
+    fontWeight: "500",
   },
   reviewValue: {
+    flex: 1,
+    flexShrink: 1,
     color: colors.heading,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20,
-  },
-  paymentSection: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 16,
+    fontSize: 13,
+    fontWeight: "500",
+    lineHeight: 19,
+    textAlign: "right",
   },
   paymentOptionGrid: {
-    gap: 10,
-    marginBottom: 12,
+    gap: 8,
+    marginBottom: 14,
   },
   paymentOptionCard: {
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    minHeight: 56,
+    justifyContent: "center",
   },
   paymentOptionCardSelected: {
     borderColor: colors.accent,
@@ -1089,39 +1130,73 @@ export const styles = StyleSheet.create({
   paymentOptionText: {
     color: colors.heading,
     fontSize: 14,
-    fontWeight: "700",
-    marginBottom: 4,
+    fontWeight: "600",
   },
   paymentOptionTextSelected: {
     color: colors.accent,
   },
-  paymentHelperText: {
+  reviewOptionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  reviewOptionTitle: {
+    flex: 1,
+  },
+  reviewOptionDescription: {
     color: colors.subtext,
     fontSize: 12,
     lineHeight: 18,
+    marginTop: 5,
+    paddingLeft: 29,
   },
-  returnArrangementSection: {
-    marginTop: 14,
-    paddingTop: 14,
+  disclosureGroup: {
     borderTopWidth: 1,
     borderTopColor: colors.border,
+    paddingTop: 14,
+    marginTop: 2,
+  },
+  presetRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 10,
+  },
+  presetButton: {
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: "#F8FAFC",
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  presetButtonText: {
+    color: colors.heading,
+    fontSize: 12,
+    fontWeight: "600",
   },
   promoSection: {
-    marginTop: 14,
-    paddingTop: 14,
+    marginTop: 4,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
   promoLabel: {
     color: colors.heading,
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "500",
     marginBottom: 8,
   },
   promoRow: {
     flexDirection: "row",
     gap: 10,
     alignItems: "center",
+  },
+  promoRowStacked: {
+    flexDirection: "column",
+    alignItems: "stretch",
   },
   promoInputWrap: {
     flex: 1,
@@ -1134,6 +1209,10 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  promoInputWrapFull: {
+    width: "100%",
+    flex: 0,
   },
   promoInput: {
     flex: 1,
@@ -1149,10 +1228,13 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  promoApplyButtonFull: {
+    width: "100%",
+  },
   promoApplyButtonText: {
     color: "#FFFFFF",
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   promoHelperText: {
     color: colors.subtext,
@@ -1165,6 +1247,43 @@ export const styles = StyleSheet.create({
   },
   promoHelperTextSuccess: {
     color: "#166534",
+  },
+  priceSummary: {
+    borderRadius: 14,
+    backgroundColor: "#F8FAFC",
+    paddingHorizontal: 12,
+  },
+  priceRow: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  priceRowTotal: {
+    minHeight: 54,
+    borderTopWidth: 0,
+  },
+  priceLabel: {
+    flex: 1,
+    color: colors.subtext,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "500",
+  },
+  priceValue: {
+    flexShrink: 0,
+    color: colors.heading,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  priceValueTotal: {
+    flexShrink: 0,
+    color: colors.accent,
+    fontSize: 18,
+    fontWeight: "700",
   },
   termsBox: {
     flexDirection: "row",
@@ -1182,13 +1301,20 @@ export const styles = StyleSheet.create({
     color: "#9A3412",
     fontSize: 12,
     lineHeight: 18,
-    fontWeight: "700",
+    fontWeight: "500",
   },
   footer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
+    flexDirection: "column",
+    gap: 10,
     marginTop: 8,
+  },
+  reviewEditButton: {
+    width: "100%",
+    flex: 0,
+  },
+  reviewSubmitButton: {
+    width: "100%",
+    flex: 0,
   },
   inlineActionRow: {
     flexDirection: "row",
@@ -1216,7 +1342,7 @@ export const styles = StyleSheet.create({
   primaryButtonText: {
     color: "#FFFFFF",
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   secondaryButton: {
     flex: 1,
@@ -1231,7 +1357,7 @@ export const styles = StyleSheet.create({
   secondaryButtonText: {
     color: colors.heading,
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   buttonDisabled: {
     opacity: 0.65,
@@ -1240,14 +1366,6 @@ export const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "rgba(15,23,42,0.55)",
     justifyContent: "flex-end",
-  },
-  reviewModal: {
-    maxHeight: "92%",
-    backgroundColor: colors.background,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    paddingHorizontal: 18,
-    paddingTop: 18,
   },
   optionPickerSheet: {
     backgroundColor: colors.background,
@@ -1303,18 +1421,6 @@ export const styles = StyleSheet.create({
   },
   optionPickerItemTextSelected: {
     color: colors.accent,
-  },
-  reviewScrollContent: {
-    paddingBottom: 44,
-  },
-  modalClose: {
-    alignItems: "center",
-    paddingVertical: 16,
-  },
-  modalCloseText: {
-    color: colors.accent,
-    fontSize: 14,
-    fontWeight: "700",
   },
   successIcon: {
     width: 58,

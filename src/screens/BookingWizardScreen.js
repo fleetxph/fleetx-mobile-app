@@ -448,14 +448,6 @@ function isSelfDriveTrip(value) {
   return normalizeTripType(value) === "self-drive";
 }
 
-function getPaymentOptionLabel(value) {
-  return value === "full_payment"
-    ? "Full Payment"
-    : value === "down_payment_50"
-    ? "50% Down Payment"
-    : "Not selected";
-}
-
 function normalizePickupOptionValue(value) {
   const normalized = String(value || "").trim().toLowerCase();
 
@@ -1063,7 +1055,6 @@ export default function BookingWizardScreen({ route, navigation }) {
   const [vehiclesLoading, setVehiclesLoading] = useState(false);
   const [vehiclesLoadMessage, setVehiclesLoadMessage] = useState("");
   const [selectedVehicle, setSelectedVehicle] = useState(incomingVehicle);
-  const [reviewVisible, setReviewVisible] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [activeGate, setActiveGate] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -2394,25 +2385,6 @@ export default function BookingWizardScreen({ route, navigation }) {
 
     return list.sort((a, b) => Number(getVehicleDailyRate(a) || 0) - Number(getVehicleDailyRate(b) || 0));
   }, [isSelfDrive, normalizedPreferredCategories, preferences, vehicles]);
-  const selectedVehicleFit = useMemo(
-    () =>
-      selectedVehicle
-        ? getVehicleLuggageFit(selectedVehicle, {
-            passengers: preferences.passengers,
-            luggageBags: preferences.luggageBags,
-            luggageSize: preferences.luggageSize,
-            luggageWeightKg: preferences.luggageWeightKg,
-          })
-        : null,
-    [
-      preferences.luggageBags,
-      preferences.luggageSize,
-      preferences.luggageWeightKg,
-      preferences.passengers,
-      selectedVehicle,
-    ]
-  );
-
   useEffect(() => {
     const currentField =
       activeLocationField === "destination" || activeLocationField === "pickupLocation"
@@ -2986,7 +2958,6 @@ export default function BookingWizardScreen({ route, navigation }) {
   };
 
   const closeTransientBookingUi = () => {
-    setReviewVisible(false);
     setPicker(null);
     setOptionPicker("");
   };
@@ -3190,14 +3161,13 @@ export default function BookingWizardScreen({ route, navigation }) {
 
   const resetBookingWizardState = async (reason) => {
     const clearedSelectedVehicle = Boolean(selectedVehicle || incomingVehicle || incomingVehicleId);
-    const clearedDraft = Boolean(incomingDraft || currentStep > 1 || reviewVisible);
+    const clearedDraft = Boolean(incomingDraft || currentStep > 1);
 
     setCurrentStep(1);
     setTripType("");
     setErrors({});
     setVehicles([]);
     setSelectedVehicle(null);
-    setReviewVisible(false);
     setSubmitLoading(false);
     setActiveGate(null);
     setSuccess(null);
@@ -3310,7 +3280,6 @@ export default function BookingWizardScreen({ route, navigation }) {
 
   const hasUnsavedWizardInputs = Boolean(
     currentStep > 1 ||
-      reviewVisible ||
       hasEditedSchedule ||
       schedule.destination.trim() ||
       schedule.pickupLocation.trim() ||
@@ -3374,7 +3343,6 @@ export default function BookingWizardScreen({ route, navigation }) {
   const promptGuestSignIn = async (currentStepOverride = "") => {
     if (activeGate || submitLoading) return;
 
-    const shouldRestoreReview = reviewVisible;
     closeTransientBookingUi();
     setActiveGate("auth");
 
@@ -3419,9 +3387,6 @@ export default function BookingWizardScreen({ route, navigation }) {
             onPress: () => {
               handled = true;
               setActiveGate(null);
-              if (shouldRestoreReview) {
-                setTimeout(() => setReviewVisible(true), 250);
-              }
             },
           },
         ],
@@ -3430,9 +3395,6 @@ export default function BookingWizardScreen({ route, navigation }) {
           onDismiss: () => {
             if (!handled) {
               setActiveGate(null);
-              if (shouldRestoreReview) {
-                setTimeout(() => setReviewVisible(true), 250);
-              }
             }
           },
         }
@@ -3449,7 +3411,6 @@ export default function BookingWizardScreen({ route, navigation }) {
       console.log("Save verification gate booking error:", err?.response?.data || err.message);
     }
 
-    const shouldRestoreReview = reviewVisible;
     const canOpenBookings = Boolean(incomingDraft?._id);
     closeTransientBookingUi();
     setActiveGate("verification");
@@ -3478,9 +3439,6 @@ export default function BookingWizardScreen({ route, navigation }) {
             }
 
             setActiveGate(null);
-            if (shouldRestoreReview) {
-              setTimeout(() => setReviewVisible(true), 250);
-            }
           },
         },
         {
@@ -3489,9 +3447,6 @@ export default function BookingWizardScreen({ route, navigation }) {
           onPress: () => {
             handled = true;
             setActiveGate(null);
-            if (shouldRestoreReview) {
-              setTimeout(() => setReviewVisible(true), 250);
-            }
           },
         },
       ], {
@@ -3499,9 +3454,6 @@ export default function BookingWizardScreen({ route, navigation }) {
         onDismiss: () => {
           if (!handled) {
             setActiveGate(null);
-            if (shouldRestoreReview) {
-              setTimeout(() => setReviewVisible(true), 250);
-            }
           }
         },
       });
@@ -3905,7 +3857,6 @@ export default function BookingWizardScreen({ route, navigation }) {
         return;
       }
       setCurrentStep(4);
-      setReviewVisible(true);
       releaseStepAdvanceLock();
       return;
     }
@@ -3917,6 +3868,11 @@ export default function BookingWizardScreen({ route, navigation }) {
   const handleBack = () => {
     if (isPlannerHandoff && currentStep === 4) {
       returnToPlannerResults();
+      return;
+    }
+
+    if (isDirectBooking && currentStep === 4) {
+      setCurrentStep(3);
       return;
     }
 
@@ -4230,12 +4186,10 @@ export default function BookingWizardScreen({ route, navigation }) {
       const submittedBooking = res?.booking || res;
       await syncStoredBookingStatusSnapshot(submittedBooking ? [submittedBooking] : []);
       await clearStoredBookingIntent({ reason: "booking-submitted" });
-      setReviewVisible(false);
       setSuccess(submittedBooking);
       setSuccessModalVisible(true);
     } catch (err) {
       if (err?.code === "MISSING_CONTACT") {
-        const shouldRestoreReview = reviewVisible;
         closeTransientBookingUi();
         setActiveGate("contact");
 
@@ -4264,9 +4218,6 @@ export default function BookingWizardScreen({ route, navigation }) {
               onPress: () => {
                 handled = true;
                 setActiveGate(null);
-                if (shouldRestoreReview) {
-                  setTimeout(() => setReviewVisible(true), 250);
-                }
               },
             },
           ], {
@@ -4274,9 +4225,6 @@ export default function BookingWizardScreen({ route, navigation }) {
             onDismiss: () => {
               if (!handled) {
                 setActiveGate(null);
-                if (shouldRestoreReview) {
-                  setTimeout(() => setReviewVisible(true), 250);
-                }
               }
             },
           });
@@ -4306,7 +4254,6 @@ export default function BookingWizardScreen({ route, navigation }) {
       }
 
       if (isUnauthorizedError(err)) {
-        const shouldRestoreReview = reviewVisible;
         closeTransientBookingUi();
         setActiveGate("session");
 
@@ -4336,9 +4283,6 @@ export default function BookingWizardScreen({ route, navigation }) {
               onPress: () => {
                 handled = true;
                 setActiveGate(null);
-                if (shouldRestoreReview) {
-                  setTimeout(() => setReviewVisible(true), 250);
-                }
               },
             },
           ], {
@@ -4346,9 +4290,6 @@ export default function BookingWizardScreen({ route, navigation }) {
             onDismiss: () => {
               if (!handled) {
                 setActiveGate(null);
-                if (shouldRestoreReview) {
-                  setTimeout(() => setReviewVisible(true), 250);
-                }
               }
             },
           });
@@ -4414,38 +4355,40 @@ export default function BookingWizardScreen({ route, navigation }) {
     }
   };
 
-  const renderStepper = () => (
-    <View style={styles.stepperCard}>
-      <View style={styles.stepperTop}>
-        <Text style={styles.stepCount}>
-          {isPlannerResultsStep ? "Recommended Vehicles" : `Step ${currentStep} of ${totalSteps}`}
-        </Text>
-        <Text style={styles.stepHint}>
-          {isPlannerResultsStep
-            ? "Choose a vehicle to continue to booking confirmation"
-            : currentStep === 4
-            ? isDirectBooking
-              ? "Review and submit your selected vehicle"
-              : "Recommended Vehicles"
-            : "Complete this section to continue"}
-        </Text>
+  const renderStepper = () => {
+    const stepLabels = isDirectBooking
+      ? ["Trip Type", "Route & Schedule", "Trip Preferences", "Review Booking"]
+      : ["Trip Type", "Route & Schedule", "Trip Preferences"];
+
+    return (
+      <View style={styles.stepperCard}>
+        <View style={styles.stepperTop}>
+          <Text style={styles.stepCount}>
+            {isPlannerResultsStep ? "Trip plan complete" : `Step ${currentStep} of ${totalSteps}`}
+          </Text>
+          <Text style={styles.stepHint}>
+            {isPlannerResultsStep
+              ? "Recommended Vehicles"
+              : stepLabels[Math.min(currentStep, totalSteps) - 1]}
+          </Text>
+        </View>
+        <View style={styles.progressTrack}>
+          <View
+            style={[
+              styles.progressFill,
+              { width: `${(Math.min(currentStep, totalSteps) / totalSteps) * 100}%` },
+            ]}
+          />
+        </View>
       </View>
-      <View style={styles.progressTrack}>
-        <View
-          style={[
-            styles.progressFill,
-            { width: `${(Math.min(currentStep, totalSteps) / totalSteps) * 100}%` },
-          ]}
-        />
-      </View>
-    </View>
-  );
+    );
+  };
 
   const renderTripType = () => (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Choose how you want to travel</Text>
+      <Text style={styles.cardTitle}>Choose your trip type</Text>
       <Text style={styles.cardSubtitle}>
-        FleetX uses this to guide verification and match the right service.
+        Select the service that fits your trip.
       </Text>
 
       {TRIP_TYPES.map((option) => {
@@ -4567,11 +4510,11 @@ export default function BookingWizardScreen({ route, navigation }) {
 
   const renderSchedule = () => (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Set the route and schedule</Text>
+      <Text style={styles.cardTitle}>Route and schedule</Text>
       <Text style={styles.cardSubtitle}>
         {isDirectBooking
-          ? "Add the route and schedule for this vehicle so we can prepare your booking correctly."
-          : "Add the route and schedule so recommendations can reflect your trip window."}
+          ? "Add your destination, pickup, and return time."
+          : "Add your trip details to find available vehicles."}
       </Text>
 
       {!isDirectBooking ? (
@@ -5230,6 +5173,7 @@ export default function BookingWizardScreen({ route, navigation }) {
           </Text>
         </View>
       ) : null}
+      {isDirectBooking && currentStep === 4 ? null : (
       <View style={[styles.inlineActionRow, isCompactScreen && styles.inlineActionRowStacked]}>
         <TouchableOpacity
           style={[
@@ -5265,25 +5209,26 @@ export default function BookingWizardScreen({ route, navigation }) {
         ) : (
           <TouchableOpacity
             style={[styles.primaryButton, isCompactScreen && styles.inlineActionButtonFull]}
-            onPress={() => (isDirectBooking ? setReviewVisible(true) : setCurrentStep(3))}
+            onPress={() => setCurrentStep(3)}
             activeOpacity={0.9}
           >
             <Text style={styles.primaryButtonText}>
-              {isDirectBooking ? "Review Booking" : "Edit Trip Details"}
+              Edit Trip Details
             </Text>
           </TouchableOpacity>
         )}
       </View>
+      )}
     </View>
   );
 
   const renderPreferences = () => (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Tune the trip to your needs</Text>
+      <Text style={styles.cardTitle}>Trip preferences</Text>
       <Text style={styles.cardSubtitle}>
         {isDirectBooking
-          ? "These details help FleetX finalize your selected vehicle booking."
-          : "These details help FleetX recommend a practical vehicle shortlist."}
+          ? "Add the details FleetX needs for this booking."
+          : "Help us find the most suitable vehicle."}
       </Text>
 
       <View style={styles.controlBlock}>
@@ -5630,13 +5575,6 @@ export default function BookingWizardScreen({ route, navigation }) {
           {selectedVehicle?.seater || selectedVehicle?.seats || "N/A"} seater -{" "}
           {selectedVehicle?.transmission || "N/A"}
         </Text>
-        {selectedVehicleFit ? (
-          <View style={styles.vehicleFitCard}>
-            <Text style={styles.vehicleFitPrimary}>{selectedVehicleFit.recommendation}</Text>
-            <Text style={styles.vehicleFitSecondary}>{selectedVehicleFit.passengerMessage}</Text>
-            <Text style={styles.vehicleFitSecondary}>{selectedVehicleFit.luggageMessage}</Text>
-          </View>
-        ) : null}
         <Text style={styles.vehicleRate}>
           {formatVehicleDailyRateLabel(selectedVehicle)}
         </Text>
@@ -5671,57 +5609,449 @@ export default function BookingWizardScreen({ route, navigation }) {
     </View>
   );
 
-  const renderDirectReview = () => (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>Review & Submit</Text>
-      <Text style={styles.cardSubtitle}>
-        Your selected vehicle is locked in. Review the booking details and continue to confirmation.
-      </Text>
-
-      {isPlannerHandoff && !hasPlannerReviewData ? (
-        <View style={styles.inlineNoticeError}>
-          <Ionicons name="alert-circle-outline" size={18} color="#DC2626" />
-          <Text style={styles.inlineNoticeErrorText}>
-            Some trip details are missing. Please go back to Plan My Trip and complete the route,
-            schedule, and trip type before booking this vehicle.
-          </Text>
+  const renderReviewRows = (rows) => (
+    <View style={styles.reviewList}>
+      {rows.map(([label, value], index) => (
+        <View
+          key={label}
+          style={[styles.reviewRow, index === rows.length - 1 && styles.reviewRowLast]}
+        >
+          <Text style={styles.reviewLabel}>{label}</Text>
+          <Text style={styles.reviewValue}>{value}</Text>
         </View>
-      ) : null}
-
-      {selectedVehicle && renderSelectedVehicle()}
-
-      <View style={styles.summaryCard}>
-        <Text style={styles.summaryLabel}>Duration</Text>
-        <Text style={styles.summaryValue}>
-          {rentalPricing.totalHours > 0 ? formatRentalHours(rentalPricing.totalHours) : "Not set"}
-        </Text>
-      </View>
-
-      <View style={styles.summaryCard}>
-        <Text style={styles.summaryLabel}>Billing</Text>
-        <Text style={styles.summaryValue}>
-          {rentalPricing.totalHours > 0 ? rentalPricing.billingLabel : "Not set"}
-        </Text>
-      </View>
-
-      <View style={styles.summaryCard}>
-        <Text style={styles.summaryLabel}>Estimated Total</Text>
-        <Text style={styles.summaryValue}>{formatPeso(totalPrice)}</Text>
-        <Text style={styles.summaryLabel}>Amount Due</Text>
-        <Text style={styles.summaryValue}>{formatPeso(invoiceAmountDue)}</Text>
-        <Text style={styles.summaryLabel}>Remaining Balance</Text>
-        <Text style={styles.summaryValue}>{formatPeso(remainingBalance)}</Text>
-      </View>
-
-      <TouchableOpacity
-        style={[styles.primaryButton, isPlannerHandoff && !hasPlannerReviewData && styles.buttonDisabled]}
-        onPress={() => setReviewVisible(true)}
-        disabled={isPlannerHandoff && !hasPlannerReviewData}
-      >
-        <Text style={styles.primaryButtonText}>Open Booking Review</Text>
-      </TouchableOpacity>
+      ))}
     </View>
   );
+
+  const renderReviewOption = ({ key, selected, title, description, onPress }) => (
+    <TouchableOpacity
+      key={key}
+      style={[styles.paymentOptionCard, selected && styles.paymentOptionCardSelected]}
+      onPress={onPress}
+      activeOpacity={0.85}
+    >
+      <View style={styles.reviewOptionHeader}>
+        <Ionicons
+          name={selected ? "radio-button-on" : "ellipse-outline"}
+          size={20}
+          color={selected ? "#F47C20" : "#98A2B3"}
+        />
+        <Text
+          style={[
+            styles.paymentOptionText,
+            styles.reviewOptionTitle,
+            selected && styles.paymentOptionTextSelected,
+          ]}
+        >
+          {title}
+        </Text>
+      </View>
+      {description ? <Text style={styles.reviewOptionDescription}>{description}</Text> : null}
+    </TouchableOpacity>
+  );
+
+  const renderDirectReview = () => {
+    const tripRows = [
+      ["Trip Type", getTripTypeLabel(normalizedTripType || tripType)],
+      ["Pickup", `${formatDate(schedule.startDate)} • ${formatTime(schedule.startTime)}`],
+      ["Return", `${formatDate(schedule.endDate)} • ${formatTime(schedule.endTime)}`],
+      [
+        "Duration",
+        rentalPricing.totalHours > 0 ? formatRentalHours(rentalPricing.totalHours) : "Not set",
+      ],
+      [
+        "Pickup Location",
+        `${schedule.pickupLocation || "Not set"}${locationPins.pickup ? " (Pinned)" : " (Manual)"}`,
+      ],
+      [
+        "Destination",
+        `${schedule.destination || "Not set"}${locationPins.destination ? " (Pinned)" : " (Manual)"}`,
+      ],
+    ];
+    const preferenceRows = [
+      ["Passengers", `${preferences.passengers}`],
+      ...(preferences.budget === "" ? [] : [["Budget", formatPeso(preferences.budget)]]),
+      [
+        "Luggage",
+        formatLuggageSummaryText({
+          luggageBags: preferences.luggageBags,
+          luggageSize: normalizeLuggageSize(preferences.luggageSize),
+          luggageWeightKg: preferences.luggageWeightKg,
+        }),
+      ],
+      ...(isSelfDrive
+        ? [[
+            "Preferred Categories",
+            normalizedPreferredCategories.map(getPreferredCategoryLabel).join(", "),
+          ]]
+        : []),
+      ["Transmission", preferences.transmission === "any" ? "Any" : preferences.transmission],
+      ["Trip Purpose", purposeOfTravel || "Not set"],
+      ["Billing", rentalPricing.totalHours > 0 ? rentalPricing.billingLabel : "Not set"],
+      ["Destination Type", getDestinationCategoryLabel(destinationGuidance.distanceCategory)],
+      [
+        "Minimum Rental",
+        `${destinationGuidance.minimumRentalDays} ${
+          destinationGuidance.minimumRentalDays === 1 ? "day" : "days"
+        }`,
+      ],
+      [
+        "Selected Rental",
+        selectedRentalDuration.isComplete && selectedRentalDuration.rentalDays > 0
+          ? `${selectedRentalDuration.rentalDays} ${
+              selectedRentalDuration.rentalDays === 1 ? "day" : "days"
+            }`
+          : "Complete your schedule",
+      ],
+      ...(!isSelfDrive
+        ? [[
+            "Vehicle Pickup",
+            PICKUP_OPTION_OPTIONS.find(
+              (option) => option.value === normalizePickupOptionValue(vehicleHandoffOption)
+            )?.label || "Not selected",
+          ]]
+        : []),
+    ];
+    const tripGuidance =
+      routeValidation.route?.routeNote ||
+      routeValidation.message ||
+      destinationGuidance.restrictionReason ||
+      destinationGuidance.warningMessage ||
+      destinationGuidance.estimatedTravelNote ||
+      "Destination accepted. Your trip duration looks reasonable.";
+
+    return (
+      <View style={styles.reviewPage}>
+        <View style={styles.reviewIntro}>
+          <Text style={styles.cardSubtitle}>Check your details before submitting.</Text>
+        </View>
+
+        {isPlannerHandoff && !hasPlannerReviewData ? (
+          <View style={styles.inlineNoticeError}>
+            <Ionicons name="alert-circle-outline" size={18} color="#DC2626" />
+            <Text style={styles.inlineNoticeErrorText}>
+              Some trip details are missing. Return to Plan My Trip to complete them.
+            </Text>
+          </View>
+        ) : null}
+
+        <View style={styles.reviewSection}>
+          <Text style={styles.reviewSectionTitle}>Vehicle</Text>
+          {selectedVehicle && renderSelectedVehicle()}
+        </View>
+
+        <View style={styles.reviewSection}>
+          <Text style={styles.reviewSectionTitle}>Trip</Text>
+          {renderReviewRows(tripRows)}
+          <View style={styles.reviewSubsection}>
+            <Text style={styles.reviewGroupTitle}>Preferences and guidance</Text>
+            {renderReviewRows(preferenceRows)}
+            <View style={styles.reviewGuidance}>
+              <Feather name="info" size={16} color="#667085" />
+              <Text style={styles.reviewGuidanceText}>{tripGuidance}</Text>
+            </View>
+          </View>
+        </View>
+
+        {isSelfDrive ? (
+          <View style={styles.reviewSection}>
+            <Text style={styles.reviewSectionTitle}>Vehicle handoff</Text>
+            <Text style={styles.reviewSectionHelper}>
+              Choose how you will receive and return the vehicle.
+            </Text>
+
+            <Text style={styles.reviewGroupTitle}>Pickup or delivery</Text>
+            <View style={styles.paymentOptionGrid}>
+              {PICKUP_OPTION_OPTIONS.map((option) =>
+                renderReviewOption({
+                  key: option.value,
+                  selected: vehicleHandoffOption === option.value,
+                  title: option.label,
+                  description: option.description,
+                  onPress: () => {
+                    setVehicleHandoffOption(option.value);
+                    setErrors((prev) => ({ ...prev, vehicleHandoffOption: "" }));
+                  },
+                })
+              )}
+            </View>
+            {errors.vehicleHandoffOption ? (
+              <Text style={styles.errorText}>{errors.vehicleHandoffOption}</Text>
+            ) : null}
+
+            <Text style={styles.reviewGroupTitle}>Return arrangement</Text>
+            <View style={styles.paymentOptionGrid}>
+              {RETURN_ARRANGEMENT_OPTIONS.map((option) => {
+                const optionValue =
+                  option.value === "request_vehicle_pickup"
+                    ? vehicleHandoffOption === "delivery"
+                      ? "pickup_same_location"
+                      : "pickup_different_location"
+                    : option.value;
+                const isSelected =
+                  option.value === "request_vehicle_pickup"
+                    ? isReturnPickupRequested
+                    : returnArrangementType === optionValue;
+
+                return renderReviewOption({
+                  key: option.value,
+                  selected: isSelected,
+                  title: option.label,
+                  description: option.description,
+                  onPress: () => {
+                    setReturnArrangementType(optionValue);
+                    setErrors((prev) => ({
+                      ...prev,
+                      returnArrangementType: "",
+                      returnPickupAddress: "",
+                    }));
+                  },
+                });
+              })}
+            </View>
+
+            {isReturnPickupRequested && vehicleHandoffOption === "delivery" ? (
+              <View style={styles.disclosureGroup}>
+                <Text style={styles.reviewGroupTitle}>Return pickup location</Text>
+                <View style={styles.paymentOptionGrid}>
+                  {renderReviewOption({
+                    key: "pickup_same_location",
+                    selected: returnArrangementType === "pickup_same_location",
+                    title: "Same delivery location",
+                    description: "FleetX will use the delivery address on file.",
+                    onPress: () => {
+                      setReturnArrangementType("pickup_same_location");
+                      setErrors((prev) => ({
+                        ...prev,
+                        returnArrangementType: "",
+                        returnPickupAddress: "",
+                      }));
+                    },
+                  })}
+                  {renderReviewOption({
+                    key: "pickup_different_location",
+                    selected: returnArrangementType === "pickup_different_location",
+                    title: "Different location",
+                    description: "Enter another address for FleetX pickup.",
+                    onPress: () => {
+                      setReturnArrangementType("pickup_different_location");
+                      setErrors((prev) => ({ ...prev, returnArrangementType: "" }));
+                    },
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            {returnArrangementType === "pickup_different_location" ? (
+              <View style={styles.disclosureGroup}>
+                <Text style={styles.reviewGroupTitle}>Return pickup address</Text>
+                <View style={styles.presetRow}>
+                  <TouchableOpacity
+                    style={styles.presetButton}
+                    onPress={() => applyReturnPickupPreset("pickup")}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.presetButtonText}>Use pickup location</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.presetButton}
+                    onPress={() => applyReturnPickupPreset("destination")}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.presetButtonText}>Use destination</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.promoInputWrap}>
+                  <Feather name="map-pin" size={16} color="#98A2B3" />
+                  <TextInput
+                    value={returnPickupAddress}
+                    onChangeText={handleReturnPickupAddressChange}
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                    placeholder="Enter return pickup address"
+                    placeholderTextColor="#98A2B3"
+                    style={styles.promoInput}
+                  />
+                </View>
+                {errors.returnPickupAddress ? (
+                  <Text style={styles.errorText}>{errors.returnPickupAddress}</Text>
+                ) : null}
+              </View>
+            ) : null}
+
+            {errors.returnArrangementType ? (
+              <Text style={styles.errorText}>{errors.returnArrangementType}</Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        <View style={styles.reviewSection}>
+          <Text style={styles.reviewSectionTitle}>Payment method</Text>
+          <Text style={styles.reviewSectionHelper}>
+            Select how you want to pay after approval.
+          </Text>
+
+          <View style={styles.paymentOptionGrid}>
+            {paymentMethodsLoading ? (
+              <View style={styles.paymentOptionCard}>
+                <Text style={styles.paymentOptionText}>Loading payment methods...</Text>
+              </View>
+            ) : null}
+            {!paymentMethodsLoading && paymentMethodsError ? (
+              <View style={styles.paymentOptionCard}>
+                <Text style={styles.paymentOptionText}>{paymentMethodsError}</Text>
+              </View>
+            ) : null}
+            {!paymentMethodsLoading && !paymentMethodsError
+              ? paymentMethods.map((method) => {
+                  const methodSelectionKey =
+                    String(method?._id || "") || getPaymentMethodSelectionKey(method);
+                  return renderReviewOption({
+                    key: methodSelectionKey,
+                    selected: selectedPaymentMethodId === methodSelectionKey,
+                    title: method?.name || "Payment Method",
+                    description: method?.category || "",
+                    onPress: () => {
+                      setSelectedPaymentMethodId(methodSelectionKey);
+                      setPaymentMethod(formatPaymentMethodName(method?.name || ""));
+                    },
+                  });
+                })
+              : null}
+          </View>
+
+          <Text style={styles.reviewSectionTitle}>Payment amount</Text>
+          <View style={styles.paymentOptionGrid}>
+            {PAYMENT_OPTIONS.map((option) =>
+              renderReviewOption({
+                key: option.value,
+                selected: paymentOption === option.value,
+                title: option.label,
+                description: option.description,
+                onPress: () => setPaymentOption(option.value),
+              })
+            )}
+          </View>
+
+          <View style={styles.promoSection}>
+            <Text style={styles.promoLabel}>Have a promo code?</Text>
+            <View style={[styles.promoRow, isCompactScreen && styles.promoRowStacked]}>
+              <View
+                style={[
+                  styles.promoInputWrap,
+                  isCompactScreen && styles.promoInputWrapFull,
+                ]}
+              >
+                <Feather name="tag" size={16} color="#98A2B3" />
+                <TextInput
+                  value={promoCode}
+                  onChangeText={(value) => {
+                    setPromoCode(value);
+                    setPromoFeedback((prev) => ({
+                      ...prev,
+                      status: "idle",
+                      message:
+                        prev.message || "Promo code will be validated before invoice issuance.",
+                    }));
+                  }}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  placeholder="Enter promo code"
+                  placeholderTextColor="#98A2B3"
+                  style={styles.promoInput}
+                />
+              </View>
+              <TouchableOpacity
+                style={[styles.promoApplyButton, isCompactScreen && styles.promoApplyButtonFull]}
+                activeOpacity={0.9}
+                onPress={handleApplyPromoCode}
+              >
+                <Text style={styles.promoApplyButtonText}>Apply</Text>
+              </TouchableOpacity>
+            </View>
+            {promoFeedback.status !== "idle" ? (
+              <Text
+                style={[
+                  styles.promoHelperText,
+                  promoFeedback.status === "error" && styles.promoHelperTextError,
+                  promoFeedback.status === "success" && styles.promoHelperTextSuccess,
+                ]}
+              >
+                {promoFeedback.message}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+
+        <View style={styles.reviewSection}>
+          <Text style={styles.reviewSectionTitle}>Price summary</Text>
+          <View style={styles.priceSummary}>
+            <View style={[styles.priceRow, styles.priceRowTotal]}>
+              <Text style={styles.priceLabel}>Estimated Total</Text>
+              <Text style={styles.priceValueTotal}>{formatPeso(totalPrice)}</Text>
+            </View>
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>
+                {paymentOption === "full_payment" ? "Full Payment" : "Down Payment"}
+              </Text>
+              <Text style={styles.priceValue}>{formatPeso(invoiceAmountDue)}</Text>
+            </View>
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>Remaining Balance</Text>
+              <Text style={styles.priceValue}>{formatPeso(remainingBalance)}</Text>
+            </View>
+          </View>
+          <View style={styles.reviewGuidance}>
+            <Feather name="shield" size={16} color="#667085" />
+            <Text style={styles.reviewGuidanceText}>
+              Verification: {verificationLabel}. Verification is reviewed before approval.
+            </Text>
+          </View>
+        </View>
+
+        <TouchableOpacity
+          style={styles.termsBox}
+          activeOpacity={0.9}
+          onPress={() => setAcceptedTerms((value) => !value)}
+        >
+          <Ionicons
+            name={acceptedTerms ? "checkbox" : "square-outline"}
+            size={22}
+            color="#F47C20"
+          />
+          <Text style={styles.termsText}>
+            I agree to FleetX booking terms, verification review, payment deadlines, and cancellation rules.
+          </Text>
+        </TouchableOpacity>
+
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={[styles.secondaryButton, styles.reviewEditButton]}
+            onPress={() => {
+              setCurrentStep(2);
+            }}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.secondaryButtonText}>Edit Trip</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.primaryButton,
+              styles.reviewSubmitButton,
+              (submitLoading || !acceptedTerms || Boolean(activeGate)) && styles.buttonDisabled,
+            ]}
+            onPress={submitBooking}
+            disabled={submitLoading || !acceptedTerms || Boolean(activeGate)}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.primaryButtonText}>
+              {submitLoading ? "Submitting..." : "Submit Booking"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
 
   const renderSuccess = () => (
     <View style={styles.card}>
@@ -5744,96 +6074,6 @@ export default function BookingWizardScreen({ route, navigation }) {
       </TouchableOpacity>
     </View>
   );
-
-  const summaryRows = [
-    ["Selected Vehicle", getVehicleName(selectedVehicle || incomingVehicle)],
-    ["Trip Type", getTripTypeLabel(normalizedTripType || tripType)],
-    [
-      "Pickup Location",
-      `${schedule.pickupLocation || "Not set"}${locationPins.pickup ? " (Pinned)" : " (Manual)"}`,
-    ],
-    [
-      "Destination",
-      `${schedule.destination || "Not set"}${locationPins.destination ? " (Pinned)" : " (Manual)"}`,
-    ],
-    ["Start", `${formatDate(schedule.startDate)} ${formatTime(schedule.startTime)}`],
-    ["End", `${formatDate(schedule.endDate)} ${formatTime(schedule.endTime)}`],
-    ["Duration", rentalPricing.totalHours > 0 ? formatRentalHours(rentalPricing.totalHours) : "Not set"],
-    ["Billing", rentalPricing.totalHours > 0 ? rentalPricing.billingLabel : "Not set"],
-    ["Destination Type", getDestinationCategoryLabel(destinationGuidance.distanceCategory)],
-    ["Minimum Rental", `${destinationGuidance.minimumRentalDays} ${destinationGuidance.minimumRentalDays === 1 ? "day" : "days"}`],
-    [
-      "Selected Rental",
-      selectedRentalDuration.isComplete && selectedRentalDuration.rentalDays > 0
-        ? `${selectedRentalDuration.rentalDays} ${selectedRentalDuration.rentalDays === 1 ? "day" : "days"}`
-        : "Complete your schedule",
-    ],
-    ["Passengers", `${preferences.passengers}`],
-    ...(preferences.budget === ""
-      ? []
-      : [["Budget", formatPeso(preferences.budget)]]),
-    [
-      "Luggage",
-      formatLuggageSummaryText({
-        luggageBags: preferences.luggageBags,
-        luggageSize: normalizeLuggageSize(preferences.luggageSize),
-        luggageWeightKg: preferences.luggageWeightKg,
-      }),
-    ],
-    ...(isSelfDrive
-      ? [[
-          "Preferred Categories",
-          normalizedPreferredCategories.map(getPreferredCategoryLabel).join(", "),
-        ]]
-      : []),
-    ["Transmission", preferences.transmission === "any" ? "Any" : preferences.transmission],
-    ["Trip Purpose", purposeOfTravel || "Not set"],
-    [
-      "Trip Guidance",
-      (routeValidation.route?.routeNote ||
-        routeValidation.message) ||
-        destinationGuidance.restrictionReason ||
-        destinationGuidance.warningMessage ||
-        destinationGuidance.estimatedTravelNote ||
-        "Destination accepted. Your trip duration looks reasonable.",
-    ],
-    [
-      "Pickup / Delivery Option",
-      PICKUP_OPTION_OPTIONS.find(
-        (option) => option.value === normalizePickupOptionValue(vehicleHandoffOption)
-      )?.label || "Not selected",
-    ],
-    ...(isSelfDrive
-      ? [[
-          "Return Arrangement",
-          RETURN_ARRANGEMENT_OPTIONS.find(
-            (option) =>
-              option.value ===
-              (normalizeReturnArrangementValue(returnArrangementType, {
-                vehicleHandoffOption,
-                allowPickupSameLocation: false,
-              }) === "pickup_different_location"
-                ? "request_vehicle_pickup"
-                : "return_to_office")
-          )?.label || "Not selected",
-        ]]
-      : []),
-    ...(isSelfDrive && returnArrangementType === "pickup_same_location"
-      ? [["Return Pickup Location", "Same as delivery location"]]
-      : []),
-    ...(isSelfDrive && returnArrangementType === "pickup_different_location"
-      ? [["Return Pickup Address", String(returnPickupAddress || "").trim() || "Not set"]]
-      : []),
-    ...(String(promoCode || "").trim()
-      ? [["Promo Code", String(promoCode || "").trim().toUpperCase()]]
-      : []),
-    ["Payment Method", paymentMethod || "Not selected"],
-    ["Payment Option", paymentOption === "full_payment" ? "Full Payment" : paymentOption === "down_payment_50" ? "50% Down Payment" : "Not selected"],
-    ["Estimated Total", formatPeso(totalPrice)],
-    ["Required Down Payment / Deposit", formatPeso(invoiceAmountDue)],
-    ["Remaining Balance", formatPeso(remainingBalance)],
-    ["Verification", `${verificationLabel}. Verification is reviewed before approval.`],
-  ];
 
   return (
       <SafeAreaView style={styles.safeArea}>
@@ -5901,9 +6141,12 @@ export default function BookingWizardScreen({ route, navigation }) {
           >
           <View style={styles.headerRow}>
             <View style={styles.headerContent}>
-              <Text style={styles.headerEyebrow}>Premium booking flow</Text>
               <Text style={styles.header}>
-                {isDirectBooking ? "Book Selected Vehicle" : "Plan My Trip"}
+                {isDirectBooking && currentStep === 4
+                  ? "Review Booking"
+                  : isDirectBooking
+                  ? "Book Selected Vehicle"
+                  : "Plan My Trip"}
               </Text>
             </View>
           <TouchableOpacity
@@ -5918,7 +6161,7 @@ export default function BookingWizardScreen({ route, navigation }) {
           </View>
 
           {!success && renderStepper()}
-          {!success && renderDirectVehicleCard()}
+          {!success && currentStep !== 4 && renderDirectVehicleCard()}
           {success
             ? renderSuccess()
             : currentStep === 1
@@ -6064,435 +6307,6 @@ export default function BookingWizardScreen({ route, navigation }) {
             </View>
           </View>
         </Modal>
-
-          <Modal visible={reviewVisible} animationType="slide" transparent onRequestClose={() => setReviewVisible(false)}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.reviewModal}>
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                nestedScrollEnabled
-                contentContainerStyle={styles.reviewScrollContent}
-              >
-                <Text style={styles.cardTitle}>Review Booking</Text>
-                <Text style={styles.cardSubtitle}>
-                  Confirm the selected vehicle and complete trip details before submitting.
-                </Text>
-
-                {selectedVehicle && renderSelectedVehicle()}
-
-                <View style={styles.reviewList}>
-                  {summaryRows.map(([label, value]) => (
-                    <View key={label} style={styles.reviewRow}>
-                      <Text style={styles.reviewLabel}>{label}</Text>
-                      <Text style={styles.reviewValue}>{value}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                {isSelfDrive ? (
-                  <View style={styles.paymentSection}>
-                    <Text style={styles.cardTitle}>Vehicle handoff</Text>
-                    <Text style={styles.cardSubtitle}>
-                      Choose how the vehicle will be received and returned.
-                    </Text>
-
-                    <View style={styles.returnArrangementSection}>
-                      <Text style={styles.promoLabel}>Pickup / delivery option</Text>
-                      <Text style={styles.paymentHelperText}>
-                        Choose how you want to receive the vehicle.
-                      </Text>
-
-                      <View style={styles.paymentOptionGrid}>
-                        {PICKUP_OPTION_OPTIONS.map((option) => {
-                          const isSelected = vehicleHandoffOption === option.value;
-
-                          return (
-                            <TouchableOpacity
-                              key={option.value}
-                              style={[
-                                styles.paymentOptionCard,
-                                isSelected && styles.paymentOptionCardSelected,
-                              ]}
-                              onPress={() => {
-                                setVehicleHandoffOption(option.value);
-                                setErrors((prev) => ({ ...prev, vehicleHandoffOption: "" }));
-                              }}
-                              activeOpacity={0.85}
-                            >
-                              <Text
-                                style={[
-                                  styles.paymentOptionText,
-                                  isSelected && styles.paymentOptionTextSelected,
-                                ]}
-                              >
-                                {option.label}
-                              </Text>
-                              <Text style={styles.paymentHelperText}>{option.description}</Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-
-                      {errors.vehicleHandoffOption ? (
-                        <Text style={styles.errorText}>{errors.vehicleHandoffOption}</Text>
-                      ) : null}
-                    </View>
-
-                    <View style={styles.returnArrangementSection}>
-                      <Text style={styles.promoLabel}>Return arrangement</Text>
-                      <Text style={styles.paymentHelperText}>
-                        Choose how the vehicle will be returned after your trip.
-                      </Text>
-
-                      <View style={styles.paymentOptionGrid}>
-                        {RETURN_ARRANGEMENT_OPTIONS.map((option) => {
-                          const optionValue =
-                            option.value === "request_vehicle_pickup"
-                              ? vehicleHandoffOption === "delivery"
-                                ? "pickup_same_location"
-                                : "pickup_different_location"
-                              : option.value;
-                          const isSelected =
-                            option.value === "request_vehicle_pickup"
-                              ? isReturnPickupRequested
-                              : returnArrangementType === optionValue;
-
-                          return (
-                            <TouchableOpacity
-                              key={option.value}
-                              style={[
-                                styles.paymentOptionCard,
-                                isSelected && styles.paymentOptionCardSelected,
-                              ]}
-                              onPress={() => {
-                                setReturnArrangementType(optionValue);
-                                setErrors((prev) => ({
-                                  ...prev,
-                                  returnArrangementType: "",
-                                  returnPickupAddress: "",
-                                }));
-                              }}
-                              activeOpacity={0.85}
-                            >
-                              <Text
-                                style={[
-                                  styles.paymentOptionText,
-                                  isSelected && styles.paymentOptionTextSelected,
-                                ]}
-                              >
-                                {option.label}
-                              </Text>
-                              <Text style={styles.paymentHelperText}>{option.description}</Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-
-                      {isReturnPickupRequested && vehicleHandoffOption === "delivery" ? (
-                        <View style={styles.paymentOptionGrid}>
-                          <TouchableOpacity
-                            style={[
-                              styles.paymentOptionCard,
-                              returnArrangementType === "pickup_same_location" &&
-                                styles.paymentOptionCardSelected,
-                            ]}
-                            onPress={() => {
-                              setReturnArrangementType("pickup_same_location");
-                              setErrors((prev) => ({
-                                ...prev,
-                                returnArrangementType: "",
-                                returnPickupAddress: "",
-                              }));
-                            }}
-                            activeOpacity={0.85}
-                          >
-                            <Text
-                              style={[
-                                styles.paymentOptionText,
-                                returnArrangementType === "pickup_same_location" &&
-                                  styles.paymentOptionTextSelected,
-                              ]}
-                            >
-                              Pick up from the same delivery location
-                            </Text>
-                            <Text style={styles.paymentHelperText}>
-                              FleetX will pick up the vehicle from the delivery address on file.
-                            </Text>
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            style={[
-                              styles.paymentOptionCard,
-                              returnArrangementType === "pickup_different_location" &&
-                                styles.paymentOptionCardSelected,
-                            ]}
-                            onPress={() => {
-                              setReturnArrangementType("pickup_different_location");
-                              setErrors((prev) => ({
-                                ...prev,
-                                returnArrangementType: "",
-                              }));
-                            }}
-                            activeOpacity={0.85}
-                          >
-                            <Text
-                              style={[
-                                styles.paymentOptionText,
-                                returnArrangementType === "pickup_different_location" &&
-                                  styles.paymentOptionTextSelected,
-                              ]}
-                            >
-                              Pick up from a different location
-                            </Text>
-                            <Text style={styles.paymentHelperText}>
-                              Use a different return pickup address for FleetX.
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      ) : null}
-
-                      {returnArrangementType === "pickup_different_location" ? (
-                        <View style={styles.promoSection}>
-                          <Text style={styles.promoLabel}>Return pickup address</Text>
-                          <Text style={styles.paymentHelperText}>
-                            Required when requesting vehicle pickup.
-                          </Text>
-                          <View style={styles.paymentOptionGrid}>
-                            <TouchableOpacity
-                              style={styles.paymentOptionCard}
-                              onPress={() => applyReturnPickupPreset("pickup")}
-                              activeOpacity={0.85}
-                            >
-                              <Text style={styles.paymentOptionText}>Use pickup location</Text>
-                              <Text style={styles.paymentHelperText}>
-                                {schedule.pickupLocation || "Pickup location not set"}
-                              </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={styles.paymentOptionCard}
-                              onPress={() => applyReturnPickupPreset("destination")}
-                              activeOpacity={0.85}
-                            >
-                              <Text style={styles.paymentOptionText}>Use destination</Text>
-                              <Text style={styles.paymentHelperText}>
-                                {schedule.destination || "Destination not set"}
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
-                          <View style={styles.promoInputWrap}>
-                            <Feather name="map-pin" size={16} color="#98A2B3" />
-                            <TextInput
-                              value={returnPickupAddress}
-                              onChangeText={handleReturnPickupAddressChange}
-                              autoCapitalize="words"
-                              autoCorrect={false}
-                              placeholder="Enter return pickup address"
-                              placeholderTextColor="#98A2B3"
-                              style={styles.promoInput}
-                            />
-                          </View>
-                          {errors.returnPickupAddress ? (
-                            <Text style={styles.errorText}>{errors.returnPickupAddress}</Text>
-                          ) : null}
-                        </View>
-                      ) : null}
-
-                      {errors.returnArrangementType ? (
-                        <Text style={styles.errorText}>{errors.returnArrangementType}</Text>
-                      ) : null}
-                    </View>
-                  </View>
-                ) : null}
-
-                <View style={styles.paymentSection}>
-                  <Text style={styles.cardTitle}>Payment Option</Text>
-                  <Text style={styles.cardSubtitle}>
-                    Choose how you want to pay after your booking is approved.
-                  </Text>
-
-                  <View style={styles.paymentOptionGrid}>
-                    {paymentMethodsLoading ? (
-                      <View style={styles.paymentOptionCard}>
-                        <Text style={styles.paymentOptionText}>Loading payment methods...</Text>
-                      </View>
-                    ) : null}
-
-                    {!paymentMethodsLoading && paymentMethodsError ? (
-                      <View style={styles.paymentOptionCard}>
-                        <Text style={styles.paymentOptionText}>{paymentMethodsError}</Text>
-                      </View>
-                    ) : null}
-
-                    {!paymentMethodsLoading && !paymentMethodsError
-                      ? paymentMethods.map((method) => {
-                          const methodSelectionKey =
-                            String(method?._id || "") || getPaymentMethodSelectionKey(method);
-                          const isSelected = selectedPaymentMethodId === methodSelectionKey;
-
-                          return (
-                            <TouchableOpacity
-                              key={methodSelectionKey}
-                              style={[
-                                styles.paymentOptionCard,
-                                isSelected && styles.paymentOptionCardSelected,
-                              ]}
-                              onPress={() => {
-                                setSelectedPaymentMethodId(methodSelectionKey);
-                                setPaymentMethod(formatPaymentMethodName(method?.name || ""));
-                              }}
-                              activeOpacity={0.85}
-                            >
-                              <Text
-                                style={[
-                                  styles.paymentOptionText,
-                                  isSelected && styles.paymentOptionTextSelected,
-                                ]}
-                              >
-                                {method?.name || "Payment Method"}
-                              </Text>
-                              {method?.category ? (
-                                <Text style={styles.paymentHelperText}>{method.category}</Text>
-                              ) : null}
-                            </TouchableOpacity>
-                          );
-                        })
-                      : null}
-                  </View>
-
-                  <Text style={styles.paymentHelperText}>
-                    Selected payment method: {paymentMethod || "Not selected"}
-                  </Text>
-
-                  <View style={styles.paymentOptionGrid}>
-                    {PAYMENT_OPTIONS.map((option) => {
-                      const isSelected = paymentOption === option.value;
-
-                      return (
-                        <TouchableOpacity
-                          key={option.value}
-                          style={[
-                            styles.paymentOptionCard,
-                            isSelected && styles.paymentOptionCardSelected,
-                          ]}
-                          onPress={() => setPaymentOption(option.value)}
-                          activeOpacity={0.85}
-                        >
-                          <Text
-                            style={[
-                              styles.paymentOptionText,
-                              isSelected && styles.paymentOptionTextSelected,
-                            ]}
-                          >
-                            {option.label}
-                          </Text>
-                          <Text style={styles.paymentHelperText}>{option.description}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-
-                  <Text style={styles.paymentHelperText}>
-                    Selected payment option: {getPaymentOptionLabel(paymentOption)}
-                  </Text>
-
-                  <View style={styles.promoSection}>
-                    <Text style={styles.promoLabel}>Promo code</Text>
-                    <View style={styles.promoRow}>
-                      <View style={styles.promoInputWrap}>
-                        <Feather name="tag" size={16} color="#98A2B3" />
-                        <TextInput
-                          value={promoCode}
-                          onChangeText={(value) => {
-                            setPromoCode(value);
-                            setPromoFeedback((prev) => ({
-                              ...prev,
-                              status: "idle",
-                              message:
-                                prev.message || "Promo code will be validated before invoice issuance.",
-                            }));
-                          }}
-                          autoCapitalize="characters"
-                          autoCorrect={false}
-                          placeholder="Enter promo code"
-                          placeholderTextColor="#98A2B3"
-                          style={styles.promoInput}
-                        />
-                      </View>
-                      <TouchableOpacity
-                        style={styles.promoApplyButton}
-                        activeOpacity={0.9}
-                        onPress={handleApplyPromoCode}
-                      >
-                        <Text style={styles.promoApplyButtonText}>Apply</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <Text
-                      style={[
-                        styles.promoHelperText,
-                        promoFeedback.status === "error" && styles.promoHelperTextError,
-                        promoFeedback.status === "success" && styles.promoHelperTextSuccess,
-                      ]}
-                    >
-                      {promoFeedback.message || "Promo code will be validated before invoice issuance."}
-                    </Text>
-                  </View>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.termsBox}
-                  activeOpacity={0.9}
-                  onPress={() => setAcceptedTerms((value) => !value)}
-                >
-                  <Ionicons
-                    name={acceptedTerms ? "checkbox" : "square-outline"}
-                    size={22}
-                    color="#F47C20"
-                  />
-                  <Text style={styles.termsText}>
-                    I agree to FleetX booking terms, verification review, payment deadlines, and cancellation rules.
-                  </Text>
-                </TouchableOpacity>
-
-                <View style={styles.footer}>
-                  <TouchableOpacity
-                    style={styles.secondaryButton}
-                    onPress={() => {
-                      setReviewVisible(false);
-                      setCurrentStep(isDirectBooking ? 2 : 3);
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.secondaryButtonText}>Edit Trip</Text>
-                  </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.primaryButton,
-                    (submitLoading || !acceptedTerms || Boolean(activeGate)) && styles.buttonDisabled,
-                  ]}
-                    onPress={submitBooking}
-                    disabled={submitLoading || !acceptedTerms || Boolean(activeGate)}
-                    activeOpacity={0.9}
-                  >
-                    <Text style={styles.primaryButtonText}>
-                      {submitLoading ? "Submitting..." : "Submit Booking"}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.modalClose}
-                  onPress={() => setReviewVisible(false)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.modalCloseText}>
-                    {isDirectBooking ? "Back to Booking" : "Back to Vehicles"}
-                  </Text>
-                </TouchableOpacity>
-              </ScrollView>
-            </View>
-          </View>
-          </Modal>
         </KeyboardAvoidingView>
       </SafeAreaView>
   );
