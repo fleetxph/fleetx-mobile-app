@@ -13,7 +13,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
-import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons, Feather } from "@expo/vector-icons";
 import { styles } from "../styles/profileStyle";
 import { clearClientSession, isUnauthorizedError } from "../api/api";
 import {
@@ -454,43 +454,6 @@ export default function ProfileScreen({ navigation }) {
             </View>
           </ScrollView>
 
-          <View style={styles.bottomNav}>
-            <TouchableOpacity
-              style={styles.navItem}
-              onPress={() => navigation.navigate("Home")}
-            >
-              <Ionicons name="home-outline" size={20} color="#94a3b8" />
-              <Text style={styles.navText}>Home</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.navItem}
-              onPress={() => navigation.navigate("Browse")}
-            >
-              <Ionicons name="car-outline" size={20} color="#94a3b8" />
-              <Text style={styles.navText}>Browse</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.planButton}
-              onPress={() => navigation.navigate("Plan")}
-            >
-              <MaterialCommunityIcons name="map-outline" size={26} color="#fff" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.navItem}
-              onPress={() => navigation.navigate("Bookings")}
-            >
-              <Ionicons name="calendar-outline" size={20} color="#94a3b8" />
-              <Text style={styles.navText}>Bookings</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.navItem}>
-              <Ionicons name="person" size={20} color="#f97316" />
-              <Text style={[styles.navText, styles.navTextActive]}>Profile</Text>
-            </TouchableOpacity>
-          </View>
         </>
       ) : (
         <>
@@ -851,43 +814,6 @@ export default function ProfileScreen({ navigation }) {
             </TouchableOpacity>
           </ScrollView>
 
-          <View style={styles.bottomNav}>
-            <TouchableOpacity
-              style={styles.navItem}
-              onPress={() => navigation.navigate("Home")}
-            >
-              <Ionicons name="home-outline" size={20} color="#94a3b8" />
-              <Text style={styles.navText}>Home</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.navItem}
-              onPress={() => navigation.navigate("Browse")}
-            >
-              <Ionicons name="car-outline" size={20} color="#94a3b8" />
-              <Text style={styles.navText}>Browse</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.planButton}
-              onPress={() => navigation.navigate("Plan")}
-            >
-              <MaterialCommunityIcons name="map-outline" size={26} color="#fff" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.navItem}
-              onPress={() => navigation.navigate("Bookings")}
-            >
-              <Ionicons name="calendar-outline" size={20} color="#94a3b8" />
-              <Text style={styles.navText}>Bookings</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.navItem}>
-              <Ionicons name="person" size={20} color="#f97316" />
-              <Text style={[styles.navText, styles.navTextActive]}>Profile</Text>
-            </TouchableOpacity>
-          </View>
         </>
       )}
     </SafeAreaView>
