@@ -42,10 +42,10 @@ export const styles = StyleSheet.create({
     borderRadius: 23,
     overflow: "hidden",
     shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
 
   avatar: {
@@ -66,7 +66,7 @@ export const styles = StyleSheet.create({
   avatarFallbackText: {
     color: "#ffffff",
     fontSize: 16,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   heroCard: {
@@ -83,12 +83,12 @@ export const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#E8DED4",
-    marginBottom: 24,
+    marginBottom: 20,
     shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 7 },
-    shadowOpacity: 0.07,
-    shadowRadius: 16,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.025,
+    shadowRadius: 8,
+    elevation: 1,
   },
   campaignContent: {
     paddingHorizontal: 14,
@@ -144,13 +144,13 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
     fontSize: 9,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: 0.25,
   },
   campaignTitle: {
     color: "#0B132B",
     fontSize: 18,
-    fontWeight: "900",
+    fontWeight: "700",
     lineHeight: 21,
     marginBottom: 6,
   },
@@ -169,7 +169,7 @@ export const styles = StyleSheet.create({
   campaignBadgeText: {
     color: "#FFFFFF",
     fontSize: 9,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   campaignCodeBlock: {
     marginBottom: 12,
@@ -177,7 +177,7 @@ export const styles = StyleSheet.create({
   campaignCodeLabel: {
     color: "#98A2B3",
     fontSize: 9,
-    fontWeight: "900",
+    fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.35,
     marginBottom: 5,
@@ -185,7 +185,7 @@ export const styles = StyleSheet.create({
   campaignCodeValue: {
     color: "#0B132B",
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: 0.2,
   },
   campaignActions: {
@@ -208,7 +208,7 @@ export const styles = StyleSheet.create({
   campaignCodeButtonText: {
     color: "#EA580C",
     fontSize: 10,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   campaignButton: {
     flex: 1,
@@ -223,7 +223,7 @@ export const styles = StyleSheet.create({
   campaignButtonText: {
     color: "#FFFFFF",
     fontSize: 10,
-    fontWeight: "900",
+    fontWeight: "700",
     textAlign: "center",
   },
 
@@ -250,7 +250,7 @@ export const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 24,
     lineHeight: 29,
-    fontWeight: "900",
+    fontWeight: "700",
     maxWidth: 280,
   },
 
@@ -276,11 +276,11 @@ export const styles = StyleSheet.create({
   planTripButtonText: {
     color: "#ffffff",
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   section: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
 
   sectionHeaderRow: {
@@ -292,7 +292,7 @@ export const styles = StyleSheet.create({
 
   sectionTitle: {
     fontSize: 18,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#0f172a",
     marginBottom: 12,
   },
@@ -304,7 +304,7 @@ export const styles = StyleSheet.create({
   seeAllText: {
     color: "#f97316",
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   typeGrid: {
@@ -322,7 +322,7 @@ export const styles = StyleSheet.create({
   typeChip: {
     width: 90,
     minHeight: 114,
-    borderRadius: 18,
+    borderRadius: 16,
     backgroundColor: "#ffffff",
     borderWidth: 1,
     borderColor: "#f3e2d3",
@@ -331,10 +331,10 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.055,
-    shadowRadius: 12,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
   },
 
   typeChipImageWrap: {
@@ -368,7 +368,7 @@ export const styles = StyleSheet.create({
   typeChipFallbackText: {
     color: "#f97316",
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   typeItem: {
@@ -397,7 +397,7 @@ export const styles = StyleSheet.create({
 
   typeLabel: {
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#1e293b",
     textAlign: "center",
     lineHeight: 16,
@@ -417,10 +417,10 @@ export const styles = StyleSheet.create({
     paddingVertical: 14,
     justifyContent: "center",
     shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 1,
   },
 
   quickAccessCardDark: {
@@ -468,7 +468,7 @@ export const styles = StyleSheet.create({
   quickAccessTitle: {
     flex: 1,
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "600",
     lineHeight: 21,
   },
 
@@ -487,13 +487,15 @@ export const styles = StyleSheet.create({
   vehicleCard: {
     backgroundColor: "#ffffff",
     borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E8EDF3",
     overflow: "hidden",
     minHeight: 274,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 1,
   },
 
   vehicleImage: {
@@ -513,7 +515,7 @@ export const styles = StyleSheet.create({
   vehicleImageFallbackText: {
     color: "#ffffff",
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   vehicleCardBody: {
@@ -532,13 +534,13 @@ export const styles = StyleSheet.create({
   vehicleCategoryText: {
     color: "#f97316",
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   vehicleName: {
     color: "#0f172a",
     fontSize: 17,
-    fontWeight: "900",
+    fontWeight: "700",
     lineHeight: 22,
     marginBottom: 6,
   },
@@ -559,7 +561,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     fontSize: 10,
-    fontWeight: "900",
+    fontWeight: "700",
     maxWidth: 96,
   },
 
@@ -584,7 +586,7 @@ export const styles = StyleSheet.create({
   vehiclePrice: {
     color: "#f97316",
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   vehicleFooter: {
@@ -602,7 +604,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     fontSize: 11,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   featuredLoading: {
@@ -619,7 +621,7 @@ export const styles = StyleSheet.create({
     marginTop: 8,
     color: "#64748b",
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   featuredEmpty: {
@@ -633,7 +635,7 @@ export const styles = StyleSheet.create({
   featuredEmptyTitle: {
     color: "#0f172a",
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   featuredEmptyText: {

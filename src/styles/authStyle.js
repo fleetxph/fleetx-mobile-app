@@ -21,18 +21,18 @@ export const authColors = {
 const shadow = Platform.select({
   ios: {
     shadowColor: "#0B132B",
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.12,
-    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.05,
+    shadowRadius: 18,
   },
   android: {
-    elevation: 8,
+    elevation: 3,
   },
   default: {
     shadowColor: "#0B132B",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
   },
 });
 
@@ -107,10 +107,10 @@ export const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 14,
     shadowColor: "#0B132B",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
   },
 
   logoBox: {
@@ -128,7 +128,7 @@ export const styles = StyleSheet.create({
   brandName: {
     color: authColors.white,
     fontSize: 30,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: 0.2,
   },
 
@@ -148,7 +148,7 @@ export const styles = StyleSheet.create({
   heroEyebrow: {
     color: authColors.accentGold,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     letterSpacing: 1.8,
     textTransform: "uppercase",
     marginBottom: 10,
@@ -158,7 +158,7 @@ export const styles = StyleSheet.create({
     color: authColors.white,
     fontSize: 30,
     lineHeight: 36,
-    fontWeight: "900",
+    fontWeight: "700",
     textAlign: "center",
     marginBottom: 10,
   },
@@ -195,9 +195,9 @@ export const styles = StyleSheet.create({
   },
 
   backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: authColors.accentSoft,
     alignItems: "center",
     justifyContent: "center",
@@ -223,15 +223,15 @@ export const styles = StyleSheet.create({
   authTabActive: {
     backgroundColor: authColors.white,
     shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
   },
 
   authTabText: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "600",
     color: authColors.muted,
   },
 
@@ -252,7 +252,7 @@ export const styles = StyleSheet.create({
 
   title: {
     fontSize: 28,
-    fontWeight: "900",
+    fontWeight: "700",
     color: authColors.text,
     marginBottom: 8,
     letterSpacing: 0,
@@ -261,7 +261,7 @@ export const styles = StyleSheet.create({
 
   titleCenter: {
     fontSize: 26,
-    fontWeight: "900",
+    fontWeight: "700",
     color: authColors.text,
     marginBottom: 10,
     textAlign: "center",
@@ -286,7 +286,7 @@ export const styles = StyleSheet.create({
 
   label: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
     color: authColors.text,
     marginBottom: 9,
     marginTop: 4,
@@ -369,7 +369,7 @@ export const styles = StyleSheet.create({
 
   forgotPassword: {
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     color: authColors.accent,
   },
 
@@ -381,15 +381,15 @@ export const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 4,
     shadowColor: authColors.accent,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
   },
 
   buttonText: {
     color: authColors.white,
-    fontWeight: "900",
+    fontWeight: "700",
     fontSize: 16,
   },
 
@@ -413,7 +413,7 @@ export const styles = StyleSheet.create({
 
   secondaryButtonText: {
     color: authColors.primary,
-    fontWeight: "800",
+    fontWeight: "600",
     fontSize: 14,
   },
 
@@ -429,7 +429,7 @@ export const styles = StyleSheet.create({
 
   linkAction: {
     color: authColors.accent,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   bottomRow: {
@@ -448,7 +448,7 @@ export const styles = StyleSheet.create({
 
   registerText: {
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     color: authColors.accent,
   },
 
@@ -505,7 +505,7 @@ export const styles = StyleSheet.create({
   strengthText: {
     marginTop: 7,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   otpIconWrap: {
@@ -521,7 +521,7 @@ export const styles = StyleSheet.create({
 
   otpTitle: {
     fontSize: 24,
-    fontWeight: "900",
+    fontWeight: "700",
     color: authColors.text,
     textAlign: "center",
     marginBottom: 8,
@@ -536,7 +536,7 @@ export const styles = StyleSheet.create({
 
   otpEmail: {
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "700",
     color: authColors.primary,
     textAlign: "center",
     marginTop: 6,
@@ -559,7 +559,7 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: authColors.border,
     fontSize: 20,
-    fontWeight: "900",
+    fontWeight: "700",
     color: authColors.primary,
   },
 
@@ -572,7 +572,7 @@ export const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: authColors.accent,
     fontSize: 20,
-    fontWeight: "900",
+    fontWeight: "700",
     color: authColors.accent,
   },
 
@@ -606,14 +606,14 @@ export const styles = StyleSheet.create({
   resendButton: {
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 36,
+    minHeight: 44,
     marginBottom: 18,
   },
 
   resendText: {
     color: authColors.accent,
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   resendTimerText: {
@@ -652,7 +652,7 @@ export const styles = StyleSheet.create({
 
   statusTitle: {
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: "700",
     color: authColors.text,
     marginBottom: 2,
   },
@@ -660,7 +660,7 @@ export const styles = StyleSheet.create({
   statusSubtitle: {
     fontSize: 12,
     color: authColors.accent,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   successIconWrapGreen: {
@@ -696,7 +696,7 @@ export const styles = StyleSheet.create({
 
   infoCardTitleBlue: {
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#2563EB",
     marginBottom: 2,
   },
@@ -736,19 +736,19 @@ export const styles = StyleSheet.create({
   },
 
   boldText: {
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   textOnlyButton: {
     marginTop: 20,
     alignItems: "center",
-    minHeight: 40,
+    minHeight: 44,
     justifyContent: "center",
   },
 
   textOnlyButtonText: {
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     color: authColors.accent,
   },
 
@@ -775,7 +775,7 @@ export const styles = StyleSheet.create({
 
   noticeTitle: {
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     color: authColors.text,
     marginBottom: 4,
   },
@@ -798,7 +798,7 @@ export const styles = StyleSheet.create({
 
   passwordRulesTitle: {
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#C2410C",
     marginBottom: 8,
   },
@@ -833,13 +833,13 @@ export const styles = StyleSheet.create({
 
   passwordStrengthLabel: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     color: authColors.muted,
   },
 
   passwordStrengthValue: {
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   passwordStrengthTrack: {
@@ -865,7 +865,7 @@ export const styles = StyleSheet.create({
 
   passwordGuideTitle: {
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#C2410C",
     marginBottom: 8,
   },

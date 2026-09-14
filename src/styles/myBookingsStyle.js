@@ -32,7 +32,7 @@ export const styles = StyleSheet.create({
 
   title: {
     fontSize: 20,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#111827",
   },
 
@@ -59,8 +59,8 @@ export const styles = StyleSheet.create({
 
   viewTab: {
     minWidth: 110,
-    height: 40,
-    borderRadius: 20,
+    height: 44,
+    borderRadius: 22,
     paddingHorizontal: 16,
     alignItems: "center",
     justifyContent: "center",
@@ -76,7 +76,7 @@ export const styles = StyleSheet.create({
 
   viewTabText: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#64748b",
   },
 
@@ -85,10 +85,10 @@ export const styles = StyleSheet.create({
   },
 
   filterButton: {
-    height: 38,
+    height: 44,
     minWidth: 58,
     paddingHorizontal: 14,
-    borderRadius: 19,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#eef2f7",
@@ -100,15 +100,15 @@ export const styles = StyleSheet.create({
     backgroundColor: "#0f172a",
     borderColor: "#0f172a",
     shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
 
   filterText: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#64748b",
   },
 
@@ -128,11 +128,13 @@ export const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 13,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#E8EDF3",
     shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    shadowOpacity: 0.025,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
   },
 
   carImage: {
@@ -156,7 +158,7 @@ export const styles = StyleSheet.create({
   carImageFallbackText: {
     color: "#ffffff",
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   cardContent: {
@@ -175,7 +177,7 @@ export const styles = StyleSheet.create({
 
   vehicleName: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#111827",
   },
 
@@ -233,7 +235,7 @@ export const styles = StyleSheet.create({
 
   statusText: {
     fontSize: 10,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#111827",
   },
 
@@ -278,12 +280,12 @@ export const styles = StyleSheet.create({
 
   paymentVerified: {
     color: "#22c55e",
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   paymentSubmitted: {
     color: "#f97316",
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   noteRow: {
@@ -321,7 +323,7 @@ export const styles = StyleSheet.create({
 
   actionButton: {
     flexGrow: 1,
-    minHeight: 40,
+    minHeight: 44,
     borderRadius: 14,
     backgroundColor: "#f97316",
     alignItems: "center",
@@ -337,12 +339,12 @@ export const styles = StyleSheet.create({
   actionButtonText: {
     color: "#ffffff",
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   secondaryActionButton: {
     flexGrow: 1,
-    minHeight: 40,
+    minHeight: 44,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: "#fdba74",
@@ -356,7 +358,7 @@ export const styles = StyleSheet.create({
   secondaryActionText: {
     color: "#c2410c",
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   paymentPanel: {
@@ -371,7 +373,7 @@ export const styles = StyleSheet.create({
   panelTitle: {
     color: "#111827",
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   panelText: {
@@ -382,7 +384,7 @@ export const styles = StyleSheet.create({
   },
 
   referenceInput: {
-    minHeight: 42,
+    minHeight: 44,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#fed7aa",
@@ -404,13 +406,13 @@ export const styles = StyleSheet.create({
   checkText: {
     color: "#9a3412",
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   cancelLink: {
     color: "#dc2626",
     fontSize: 11,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   centerBox: {
@@ -433,7 +435,7 @@ export const styles = StyleSheet.create({
 
   emptyTitle: {
     fontSize: 17,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#111827",
   },
 
@@ -449,11 +451,13 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingVertical: 11,
     borderRadius: 18,
+    minHeight: 44,
+    justifyContent: "center",
   },
 
   refreshText: {
     color: "#ffffff",
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   bottomNav: {

@@ -23,19 +23,19 @@ export const styles = StyleSheet.create({
     position: "relative",
     overflow: "hidden",
     backgroundColor: "#FFFCF7",
-    borderRadius: 22,
+    borderRadius: 18,
     minHeight: 156,
     paddingLeft: 18,
     paddingRight: 10,
     paddingVertical: 20,
-    marginBottom: 18,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: "#EFE5DA",
     shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.045,
-    shadowRadius: 14,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.02,
+    shadowRadius: 8,
+    elevation: 1,
   },
 
   heroHeaderAccent: {
@@ -62,7 +62,7 @@ export const styles = StyleSheet.create({
   header: {
     fontSize: 27,
     lineHeight: 33,
-    fontWeight: "900",
+    fontWeight: "700",
     color: colors.heading || "#0F172A",
     marginBottom: 8,
   },
@@ -90,16 +90,16 @@ export const styles = StyleSheet.create({
 
   filterCard: {
     backgroundColor: colors.card,
-    borderRadius: 22,
+    borderRadius: 18,
     padding: 16,
-    marginBottom: 18,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: "#F1E4D5",
     shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.05,
-    shadowRadius: 16,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.02,
+    shadowRadius: 8,
+    elevation: 1,
   },
 
   searchInputWrapper: {
@@ -143,7 +143,7 @@ export const styles = StyleSheet.create({
   filterButtonText: {
     color: colors.heading,
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   sortGroup: {
@@ -153,7 +153,7 @@ export const styles = StyleSheet.create({
   },
 
   sortButton: {
-    minHeight: 42,
+    minHeight: 44,
     borderRadius: 999,
     paddingHorizontal: 18,
     paddingVertical: 10,
@@ -214,11 +214,11 @@ export const styles = StyleSheet.create({
   clearAllInlineButtonText: {
     color: colors.accent,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   chip: {
-    minHeight: 42,
+    minHeight: 44,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 999,
@@ -260,16 +260,16 @@ export const styles = StyleSheet.create({
   card: {
     width: "100%",
     backgroundColor: colors.card,
-    borderRadius: 24,
+    borderRadius: 18,
     overflow: "hidden",
-    marginBottom: 18,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: "#F2E8DE",
+    borderColor: "#E8EDF3",
     shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.07,
-    shadowRadius: 18,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 1,
   },
 
   cardAccentBar: {
@@ -281,7 +281,7 @@ export const styles = StyleSheet.create({
     height: 205,
     marginHorizontal: 14,
     marginTop: 14,
-    borderRadius: 20,
+    borderRadius: 16,
     backgroundColor: "#FCFCFB",
     borderWidth: 1,
     borderColor: "#F6EEE7",
@@ -308,7 +308,7 @@ export const styles = StyleSheet.create({
   imageFallbackText: {
     color: colors.white,
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   cardBody: {
@@ -339,7 +339,7 @@ export const styles = StyleSheet.create({
   title: {
     color: colors.heading || colors.text,
     fontSize: 21,
-    fontWeight: "900",
+    fontWeight: "700",
     lineHeight: 27,
     marginBottom: 6,
   },
@@ -388,7 +388,7 @@ export const styles = StyleSheet.create({
     color: "#172033",
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   specLabel: {
@@ -421,7 +421,7 @@ export const styles = StyleSheet.create({
   colorValue: {
     color: "#172033",
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   colorLabel: {
@@ -455,7 +455,7 @@ export const styles = StyleSheet.create({
   price: {
     color: colors.accent,
     fontSize: 21,
-    fontWeight: "900",
+    fontWeight: "700",
     marginBottom: 13,
     textAlign: "center",
   },
@@ -474,7 +474,7 @@ export const styles = StyleSheet.create({
   viewDetailsButtonText: {
     color: colors.white,
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "600",
     marginRight: 6,
   },
 
@@ -490,7 +490,7 @@ export const styles = StyleSheet.create({
   tripSummaryTitle: {
     color: "#9A3412",
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "600",
     marginBottom: 4,
   },
 
@@ -522,7 +522,7 @@ export const styles = StyleSheet.create({
   emptyStateButtonText: {
     color: colors.white,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   nextPageLoader: {
@@ -543,13 +543,13 @@ export const styles = StyleSheet.create({
   nextPageRetryText: {
     color: colors.accent,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     textAlign: "center",
   },
 
   emptyTitle: {
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "600",
     color: colors.heading || colors.text,
     marginBottom: 6,
   },
@@ -595,7 +595,7 @@ export const styles = StyleSheet.create({
   filterSheetTitle: {
     color: colors.heading,
     fontSize: 20,
-    fontWeight: "900",
+    fontWeight: "700",
   },
 
   filterSheetClose: {
@@ -619,7 +619,7 @@ export const styles = StyleSheet.create({
   filterSectionTitle: {
     color: colors.heading,
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "600",
     marginBottom: 10,
   },
 
@@ -679,7 +679,7 @@ export const styles = StyleSheet.create({
   clearFilterButtonText: {
     color: colors.heading,
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   applyFilterButton: {
@@ -694,6 +694,6 @@ export const styles = StyleSheet.create({
   applyFilterButtonText: {
     color: colors.white,
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 });

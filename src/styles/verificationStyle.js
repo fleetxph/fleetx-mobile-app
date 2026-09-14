@@ -22,9 +22,9 @@ export const styles = StyleSheet.create({
     gap: 12,
   },
   headerButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#ffffff",
@@ -36,7 +36,7 @@ export const styles = StyleSheet.create({
   },
   title: {
     fontSize: 24,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#0f172a",
     marginBottom: 4,
   },
@@ -51,10 +51,12 @@ export const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: "#E8EDF3",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.02,
+    shadowRadius: 8,
+    elevation: 1,
   },
   highlightCard: {
     borderWidth: 1,
@@ -63,7 +65,7 @@ export const styles = StyleSheet.create({
   },
   cardTitle: {
     fontSize: 17,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#111827",
     marginBottom: 6,
   },
@@ -103,7 +105,7 @@ export const styles = StyleSheet.create({
   },
   badgeText: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   badgeTextNeutral: {
     color: "#475569",
@@ -132,14 +134,14 @@ export const styles = StyleSheet.create({
   },
   summaryLabel: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#64748b",
     marginBottom: 6,
   },
   summaryValue: {
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#0f172a",
   },
   levelRow: {
@@ -153,7 +155,7 @@ export const styles = StyleSheet.create({
   levelValue: {
     fontSize: 15,
     lineHeight: 20,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#0f172a",
   },
   summarySubvalue: {
@@ -192,7 +194,7 @@ export const styles = StyleSheet.create({
   },
   eligibilityValue: {
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#111827",
   },
   checklistRow: {
@@ -210,7 +212,7 @@ export const styles = StyleSheet.create({
   },
   checklistTitle: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#111827",
   },
   checklistSubtitle: {
@@ -238,7 +240,7 @@ export const styles = StyleSheet.create({
   },
   segmentTitle: {
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#111827",
     marginBottom: 4,
   },
@@ -252,7 +254,7 @@ export const styles = StyleSheet.create({
   },
   sectionHeader: {
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#111827",
     marginBottom: 10,
   },
@@ -261,7 +263,7 @@ export const styles = StyleSheet.create({
   },
   uploadGroupTitle: {
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#111827",
     marginBottom: 4,
   },
@@ -314,7 +316,7 @@ export const styles = StyleSheet.create({
   },
   uploadTitle: {
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#111827",
     marginBottom: 4,
   },
@@ -347,7 +349,7 @@ export const styles = StyleSheet.create({
     color: "#1d4ed8",
     fontSize: 12,
     lineHeight: 17,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   draftSummaryNotice: {
     flexDirection: "row",
@@ -403,17 +405,17 @@ export const styles = StyleSheet.create({
   uploadPrimaryText: {
     color: "#ffffff",
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   uploadSecondaryText: {
     color: "#c2410c",
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   uploadDangerText: {
     color: "#be123c",
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   slotHelperText: {
     fontSize: 12,
@@ -452,7 +454,7 @@ export const styles = StyleSheet.create({
   groupActionTitle: {
     color: "#1e3a8a",
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "700",
     marginBottom: 4,
   },
   groupActionText: {
@@ -464,7 +466,7 @@ export const styles = StyleSheet.create({
     color: "#1d4ed8",
     fontSize: 12,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "600",
     marginTop: 4,
   },
   groupActionRequirement: {
@@ -478,7 +480,7 @@ export const styles = StyleSheet.create({
     color: "#b91c1c",
     fontSize: 12,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "600",
     textAlign: "center",
   },
   noticeCard: {
@@ -539,7 +541,7 @@ export const styles = StyleSheet.create({
   submitButtonText: {
     color: "#ffffff",
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   submitButtonBusyContent: {
     flexDirection: "row",
@@ -579,7 +581,7 @@ export const styles = StyleSheet.create({
     color: "#0f172a",
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "600",
     textAlign: "right",
   },
   compactSummaryDetail: {
@@ -605,7 +607,7 @@ export const styles = StyleSheet.create({
     flex: 1,
     color: "#0f172a",
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   requiredMark: {
     color: "#dc2626",
@@ -613,7 +615,7 @@ export const styles = StyleSheet.create({
   exampleLink: {
     color: "#2563eb",
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   captureRowContent: {
     flexDirection: "row",
@@ -656,7 +658,7 @@ export const styles = StyleSheet.create({
   inlineDraftNoticeText: {
     color: "#1d4ed8",
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   captureRowActions: {
     flexDirection: "row",
@@ -664,7 +666,7 @@ export const styles = StyleSheet.create({
     marginTop: 12,
   },
   compactPrimaryAction: {
-    minHeight: 40,
+    minHeight: 44,
     borderRadius: 10,
     paddingHorizontal: 18,
     alignItems: "center",
@@ -674,10 +676,10 @@ export const styles = StyleSheet.create({
   compactPrimaryActionText: {
     color: "#ffffff",
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   compactSecondaryAction: {
-    minHeight: 40,
+    minHeight: 44,
     borderRadius: 10,
     paddingHorizontal: 18,
     alignItems: "center",
@@ -689,10 +691,10 @@ export const styles = StyleSheet.create({
   compactSecondaryActionText: {
     color: "#334155",
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   compactDangerAction: {
-    minHeight: 40,
+    minHeight: 44,
     borderRadius: 10,
     paddingHorizontal: 14,
     alignItems: "center",
@@ -701,7 +703,7 @@ export const styles = StyleSheet.create({
   compactDangerActionText: {
     color: "#be123c",
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   exampleModalBackdrop: {
     flex: 1,
@@ -723,7 +725,7 @@ export const styles = StyleSheet.create({
   exampleModalTitle: {
     color: "#0f172a",
     fontSize: 20,
-    fontWeight: "900",
+    fontWeight: "700",
     textTransform: "capitalize",
   },
   exampleModalSubtitle: {
@@ -814,11 +816,11 @@ export const styles = StyleSheet.create({
   exampleDoneButtonText: {
     color: "#ffffff",
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   refreshText: {
     fontSize: 13,
     color: "#f97316",
-    fontWeight: "800",
+    fontWeight: "600",
   },
 });

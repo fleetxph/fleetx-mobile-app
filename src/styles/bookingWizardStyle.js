@@ -29,20 +29,20 @@ export const styles = StyleSheet.create({
   headerEyebrow: {
     color: colors.accent,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     textTransform: "uppercase",
     marginBottom: 4,
   },
   header: {
     color: colors.heading,
     fontSize: 28,
-    fontWeight: "900",
+    fontWeight: "700",
     lineHeight: 34,
   },
   exitText: {
     color: colors.accent,
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "600",
     paddingTop: 6,
   },
   stepperCard: {
@@ -50,11 +50,13 @@ export const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 16,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#E8EDF3",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.02,
+    shadowRadius: 8,
+    elevation: 1,
   },
   stepperTop: {
     flexDirection: "row",
@@ -66,7 +68,7 @@ export const styles = StyleSheet.create({
   stepCount: {
     color: colors.heading,
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   stepHint: {
     flex: 1,
@@ -87,19 +89,21 @@ export const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.card,
-    borderRadius: 20,
-    padding: 18,
+    borderRadius: 18,
+    padding: 16,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#E8EDF3",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 14,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.025,
+    shadowRadius: 8,
+    elevation: 1,
   },
   cardTitle: {
     color: colors.heading,
     fontSize: 22,
-    fontWeight: "900",
+    fontWeight: "700",
     marginBottom: 8,
     lineHeight: 28,
   },
@@ -144,7 +148,7 @@ export const styles = StyleSheet.create({
   choiceTitle: {
     color: colors.heading,
     fontSize: 17,
-    fontWeight: "900",
+    fontWeight: "700",
     marginBottom: 4,
   },
   choiceDesc: {
@@ -162,7 +166,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   infoCard: {
     flexDirection: "row",
@@ -181,7 +185,7 @@ export const styles = StyleSheet.create({
   infoTitle: {
     color: colors.heading,
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
     marginBottom: 4,
   },
   infoText: {
@@ -192,7 +196,7 @@ export const styles = StyleSheet.create({
   label: {
     color: colors.heading,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
     marginTop: 12,
     marginBottom: 8,
   },
@@ -241,7 +245,7 @@ export const styles = StyleSheet.create({
   locationStatusText: {
     color: "#9A3412",
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     marginTop: 8,
   },
   locationStatusTextActive: {
@@ -271,10 +275,10 @@ export const styles = StyleSheet.create({
     marginTop: 10,
     overflow: "hidden",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.025,
+    shadowRadius: 8,
+    elevation: 1,
   },
   suggestionRow: {
     flexDirection: "row",
@@ -291,7 +295,7 @@ export const styles = StyleSheet.create({
   suggestionTitle: {
     color: colors.heading,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
     lineHeight: 18,
   },
   suggestionSubtitle: {
@@ -356,7 +360,7 @@ export const styles = StyleSheet.create({
   chipText: {
     color: colors.subtext,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   chipTextActive: {
     color: colors.accent,
@@ -447,13 +451,13 @@ export const styles = StyleSheet.create({
   calendarNavText: {
     color: colors.heading,
     fontSize: 20,
-    fontWeight: "800",
+    fontWeight: "600",
     lineHeight: 24,
   },
   calendarMonthText: {
     color: colors.heading,
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   calendarHint: {
     color: colors.subtext,
@@ -581,7 +585,7 @@ export const styles = StyleSheet.create({
   durationText: {
     color: "#166534",
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   durationTextError: {
     color: "#B91C1C",
@@ -678,12 +682,12 @@ export const styles = StyleSheet.create({
   controlTitle: {
     color: colors.heading,
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   controlValue: {
     color: colors.accent,
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   counterRow: {
     flexDirection: "row",
@@ -701,7 +705,7 @@ export const styles = StyleSheet.create({
   circleButtonText: {
     color: "#FFFFFF",
     fontSize: 20,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   counterTrack: {
     flex: 1,
@@ -737,7 +741,7 @@ export const styles = StyleSheet.create({
   compactOptionText: {
     color: colors.subtext,
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   compactOptionTextActive: {
     color: colors.accent,
@@ -787,7 +791,7 @@ export const styles = StyleSheet.create({
   pickupModeTitle: {
     color: colors.heading,
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "700",
     lineHeight: 20,
     marginBottom: 4,
   },
@@ -819,7 +823,7 @@ export const styles = StyleSheet.create({
   segmentText: {
     color: colors.subtext,
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   segmentTextActive: {
     color: "#FFFFFF",
@@ -845,7 +849,7 @@ export const styles = StyleSheet.create({
   purposeText: {
     color: colors.subtext,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   purposeTextActive: {
     color: colors.accent,
@@ -888,7 +892,7 @@ export const styles = StyleSheet.create({
   changeVehicleButtonText: {
     color: "#C2410C",
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   selectedVehicleImage: {
     width: 118,
@@ -906,7 +910,7 @@ export const styles = StyleSheet.create({
   selectedVehicleImageFallbackText: {
     color: "#FFFFFF",
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: "700",
     textAlign: "center",
   },
   selectedVehicleBody: {
@@ -929,7 +933,7 @@ export const styles = StyleSheet.create({
   vehicleImageFallbackText: {
     color: "#FFFFFF",
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   vehicleBody: {
     padding: 16,
@@ -944,7 +948,7 @@ export const styles = StyleSheet.create({
     flex: 1,
     color: colors.heading,
     fontSize: 17,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   statusPill: {
     color: "#166534",
@@ -954,7 +958,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 5,
     fontSize: 11,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   vehicleMeta: {
     color: colors.subtext,
@@ -965,7 +969,7 @@ export const styles = StyleSheet.create({
   vehicleRate: {
     color: colors.accent,
     fontSize: 16,
-    fontWeight: "900",
+    fontWeight: "700",
     marginTop: 10,
     marginBottom: 12,
   },
@@ -981,7 +985,7 @@ export const styles = StyleSheet.create({
   vehicleFitPrimary: {
     color: colors.heading,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     lineHeight: 18,
   },
   vehicleFitSecondary: {
@@ -999,7 +1003,7 @@ export const styles = StyleSheet.create({
   bookButtonText: {
     color: "#FFFFFF",
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   emptyCard: {
     backgroundColor: "#F8FAFC",
@@ -1009,7 +1013,7 @@ export const styles = StyleSheet.create({
   emptyTitle: {
     color: colors.heading,
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "700",
     marginBottom: 4,
   },
   emptyText: {
@@ -1031,7 +1035,7 @@ export const styles = StyleSheet.create({
   summaryValue: {
     color: colors.heading,
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   reviewList: {
     borderWidth: 1,
@@ -1049,13 +1053,13 @@ export const styles = StyleSheet.create({
   reviewLabel: {
     color: colors.subtext,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     marginBottom: 4,
   },
   reviewValue: {
     color: colors.heading,
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     lineHeight: 20,
   },
   paymentSection: {
@@ -1085,7 +1089,7 @@ export const styles = StyleSheet.create({
   paymentOptionText: {
     color: colors.heading,
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     marginBottom: 4,
   },
   paymentOptionTextSelected: {
@@ -1111,7 +1115,7 @@ export const styles = StyleSheet.create({
   promoLabel: {
     color: colors.heading,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
     marginBottom: 8,
   },
   promoRow: {
@@ -1148,7 +1152,7 @@ export const styles = StyleSheet.create({
   promoApplyButtonText: {
     color: "#FFFFFF",
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   promoHelperText: {
     color: colors.subtext,
@@ -1212,7 +1216,7 @@ export const styles = StyleSheet.create({
   primaryButtonText: {
     color: "#FFFFFF",
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   secondaryButton: {
     flex: 1,
@@ -1227,7 +1231,7 @@ export const styles = StyleSheet.create({
   secondaryButtonText: {
     color: colors.heading,
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   buttonDisabled: {
     opacity: 0.65,
@@ -1264,7 +1268,7 @@ export const styles = StyleSheet.create({
   optionPickerTitle: {
     color: colors.heading,
     fontSize: 22,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   optionPickerSubtitle: {
     color: colors.subtext,
@@ -1295,7 +1299,7 @@ export const styles = StyleSheet.create({
     flex: 1,
     color: colors.heading,
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   optionPickerItemTextSelected: {
     color: colors.accent,
@@ -1310,7 +1314,7 @@ export const styles = StyleSheet.create({
   modalCloseText: {
     color: colors.accent,
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   successIcon: {
     width: 58,
@@ -1324,7 +1328,7 @@ export const styles = StyleSheet.create({
   successTitle: {
     color: colors.heading,
     fontSize: 23,
-    fontWeight: "900",
+    fontWeight: "700",
     marginBottom: 6,
   },
   successSubtitle: {
