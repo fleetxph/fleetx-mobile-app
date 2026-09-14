@@ -20,14 +20,14 @@ export const styles = StyleSheet.create({
   profileTop: {
     alignItems: "center",
     paddingTop: 4,
-    marginBottom: 26,
+    marginBottom: 20,
   },
 
   avatarWrap: {
     width: 94,
     height: 94,
     borderRadius: 47,
-    borderWidth: 3,
+    borderWidth: 2,
     borderColor: "#fed7aa",
     alignItems: "center",
     justifyContent: "center",
@@ -52,7 +52,7 @@ export const styles = StyleSheet.create({
 
   avatarFallbackText: {
     fontSize: 28,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#f97316",
   },
 
@@ -72,7 +72,7 @@ export const styles = StyleSheet.create({
 
   profileName: {
     fontSize: 20,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#111827",
     marginBottom: 3,
   },
@@ -92,25 +92,22 @@ export const styles = StyleSheet.create({
 
   verifiedBadgeText: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#475569",
   },
 
   sectionCard: {
     backgroundColor: "#fff",
-    borderRadius: 18,
-    marginBottom: 10,
+    borderRadius: 16,
+    marginBottom: 12,
     overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: "#E8EDF3",
   },
 
   sectionLabel: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#94a3b8",
     paddingHorizontal: 16,
     paddingTop: 16,
@@ -222,7 +219,7 @@ export const styles = StyleSheet.create({
 
   diagnosticResultTitle: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#111827",
     marginBottom: 5,
   },
@@ -244,7 +241,7 @@ export const styles = StyleSheet.create({
 
   debugTokenLabel: {
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#9a3412",
     marginBottom: 7,
   },
@@ -271,7 +268,7 @@ export const styles = StyleSheet.create({
 
   diagnosticSecondaryButtonText: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#c2410c",
   },
 
@@ -297,7 +294,7 @@ export const styles = StyleSheet.create({
 
   diagnosticButtonText: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#fff",
   },
 
@@ -310,7 +307,7 @@ export const styles = StyleSheet.create({
 
   smallBadgeText: {
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#475569",
   },
 
@@ -381,7 +378,7 @@ export const styles = StyleSheet.create({
 
   verificationTitle: {
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#111827",
     marginBottom: 4,
   },
@@ -422,7 +419,7 @@ export const styles = StyleSheet.create({
 
   eligibilityPillValue: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#0f172a",
   },
 
@@ -446,7 +443,7 @@ export const styles = StyleSheet.create({
 
   verificationAction: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
     color: "#f97316",
   },
 
@@ -465,7 +462,7 @@ export const styles = StyleSheet.create({
   signOutText: {
     color: "#ef4444",
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "600",
   },
 
   bottomNav: {
