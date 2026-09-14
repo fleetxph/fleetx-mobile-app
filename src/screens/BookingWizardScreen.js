@@ -98,6 +98,7 @@ import {
   PENDING_GUEST_BOOKING_KEY,
   saveStoredBookingIntent,
 } from "../utils/bookingState";
+import { getBookingEligibility } from "../utils/verification";
 import { formatVehicleDailyRateLabel, getVehicleDailyRate } from "../utils/vehicleRate";
 
 const TRIP_TYPES = [
@@ -3177,8 +3178,14 @@ export default function BookingWizardScreen({ route, navigation }) {
     }
   };
 
-  const savePendingGuestBooking = async () => {
-    await saveStoredBookingIntent(buildPendingGuestBooking(), PENDING_GUEST_BOOKING_KEY);
+  const savePendingGuestBooking = async (currentStepOverride = "") => {
+    const pendingBooking = buildPendingGuestBooking();
+    await saveStoredBookingIntent(
+      currentStepOverride
+        ? { ...pendingBooking, currentStep: currentStepOverride }
+        : pendingBooking,
+      PENDING_GUEST_BOOKING_KEY
+    );
   };
 
   const resetBookingWizardState = async (reason) => {
@@ -3364,7 +3371,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     );
   };
 
-  const promptGuestSignIn = async () => {
+  const promptGuestSignIn = async (currentStepOverride = "") => {
     if (activeGate || submitLoading) return;
 
     const shouldRestoreReview = reviewVisible;
@@ -3372,7 +3379,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     setActiveGate("auth");
 
     try {
-      await savePendingGuestBooking();
+      await savePendingGuestBooking(currentStepOverride);
     } catch (err) {
       console.log("Save guest booking error:", err?.message || err);
     }
@@ -3431,6 +3438,120 @@ export default function BookingWizardScreen({ route, navigation }) {
         }
       );
     }, 250);
+  };
+
+  const promptVerificationRequired = async (message, currentStepOverride = "") => {
+    if (activeGate) return;
+
+    try {
+      await savePendingGuestBooking(currentStepOverride);
+    } catch (err) {
+      console.log("Save verification gate booking error:", err?.response?.data || err.message);
+    }
+
+    const shouldRestoreReview = reviewVisible;
+    const canOpenBookings = Boolean(incomingDraft?._id);
+    closeTransientBookingUi();
+    setActiveGate("verification");
+
+    let handled = false;
+    setTimeout(() => {
+      Alert.alert("Verification required", message, [
+        {
+          text: "Go to Verification",
+          onPress: () => {
+            handled = true;
+            closeGateAndNavigate("Verification", {
+              verificationType: isSelfDrive ? "self_drive" : "with_driver",
+              redirectAfterVerification: "ResumeBooking",
+              pendingBookingKey: PENDING_GUEST_BOOKING_KEY,
+            });
+          },
+        },
+        {
+          text: "View Bookings",
+          onPress: () => {
+            handled = true;
+            if (canOpenBookings) {
+              closeGateAndNavigate("Bookings");
+              return;
+            }
+
+            setActiveGate(null);
+            if (shouldRestoreReview) {
+              setTimeout(() => setReviewVisible(true), 250);
+            }
+          },
+        },
+        {
+          text: "Not now",
+          style: "cancel",
+          onPress: () => {
+            handled = true;
+            setActiveGate(null);
+            if (shouldRestoreReview) {
+              setTimeout(() => setReviewVisible(true), 250);
+            }
+          },
+        },
+      ], {
+        cancelable: true,
+        onDismiss: () => {
+          if (!handled) {
+            setActiveGate(null);
+            if (shouldRestoreReview) {
+              setTimeout(() => setReviewVisible(true), 250);
+            }
+          }
+        },
+      });
+    }, 250);
+  };
+
+  const canStartBooking = async () => {
+    const token = await readStorageItem("clientToken");
+    if (!token) {
+      await promptGuestSignIn("start");
+      return false;
+    }
+
+    try {
+      const rawUser = await AsyncStorage.getItem("clientUser");
+      const user = rawUser ? JSON.parse(rawUser) : null;
+      const verification = await getVerificationStatus();
+      const eligibility = getBookingEligibility(verification);
+      const canBook = isSelfDrive ? eligibility.selfDrive : eligibility.withDriver;
+      const statusLabel = isSelfDrive
+        ? eligibility.selfDriveLabel
+        : eligibility.withDriverLabel;
+
+      setVerificationLabel(normalizeVerificationLabel(verification, user));
+
+      if (canBook) return true;
+
+      const requirement = isSelfDrive
+        ? "Self-Drive bookings require approved Driver's License verification."
+        : "With Driver bookings require approved Basic/Valid ID verification.";
+      await promptVerificationRequired(
+        `${requirement} Current status: ${statusLabel}.`,
+        "start"
+      );
+      return false;
+    } catch (err) {
+      if (isUnauthorizedError(err)) {
+        await promptGuestSignIn("start");
+        return false;
+      }
+
+      Alert.alert(
+        "Verification unavailable",
+        getFriendlyApiErrorMessage(
+          err,
+          "We could not confirm your verification status. Please try again."
+        )
+      );
+      return false;
+    }
   };
 
   const updatePreference = (key, value) => {
@@ -3752,13 +3873,18 @@ export default function BookingWizardScreen({ route, navigation }) {
     return Object.keys(nextErrors).length === 0;
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (stepAdvanceLockRef.current || isStepAdvancing) return;
 
     stepAdvanceLockRef.current = true;
     setIsStepAdvancing(true);
 
     if (!validateStep()) {
+      releaseStepAdvanceLock();
+      return;
+    }
+
+    if (currentStep === 1 && !(await canStartBooking())) {
       releaseStepAdvanceLock();
       return;
     }
@@ -4278,69 +4404,7 @@ export default function BookingWizardScreen({ route, navigation }) {
         return;
       }
       if (err?.response?.status === 403 && err?.response?.data?.verificationStatus) {
-        try {
-          await savePendingGuestBooking();
-        } catch (draftErr) {
-          console.log("Save verification gate booking error:", draftErr?.response?.data || draftErr.message);
-        }
-
-        const shouldRestoreReview = reviewVisible;
-        const canOpenBookings = Boolean(incomingDraft?._id);
-        closeTransientBookingUi();
-        setActiveGate("verification");
-
-        let handled = false;
-        setTimeout(() => {
-          Alert.alert("Verification required", message, [
-            {
-              text: "Go to Verification",
-              onPress: () => {
-                handled = true;
-                closeGateAndNavigate("Verification", {
-                  verificationType: isSelfDrive ? "self_drive" : "with_driver",
-                  redirectAfterVerification: "ResumeBooking",
-                  pendingBookingKey: PENDING_GUEST_BOOKING_KEY,
-                });
-              },
-            },
-            {
-              text: "View Bookings",
-              onPress: () => {
-                handled = true;
-                if (canOpenBookings) {
-                  closeGateAndNavigate("Bookings");
-                  return;
-                }
-
-                setActiveGate(null);
-                if (shouldRestoreReview) {
-                  setTimeout(() => setReviewVisible(true), 250);
-                }
-              },
-            },
-            {
-              text: "Not now",
-              style: "cancel",
-              onPress: () => {
-                handled = true;
-                setActiveGate(null);
-                if (shouldRestoreReview) {
-                  setTimeout(() => setReviewVisible(true), 250);
-                }
-              },
-            },
-          ], {
-            cancelable: true,
-            onDismiss: () => {
-              if (!handled) {
-                setActiveGate(null);
-                if (shouldRestoreReview) {
-                  setTimeout(() => setReviewVisible(true), 250);
-                }
-              }
-            },
-          });
-        }, 250);
+        await promptVerificationRequired(message);
         return;
       }
 
