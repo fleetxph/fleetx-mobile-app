@@ -11,7 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getFriendlyApiErrorMessage, isUnauthorizedError } from "../api/api";
 import {
@@ -257,14 +257,6 @@ export default function MyBookings({ navigation }) {
         },
       },
     ]);
-  };
-
-  const goTo = (routeName) => {
-    try {
-      navigation?.navigate?.(routeName);
-    } catch (err) {
-      console.log("Navigation error:", err.message);
-    }
   };
 
   const openDocumentScreen = (type, booking) => {
@@ -583,27 +575,6 @@ export default function MyBookings({ navigation }) {
         )}
       </View>
 
-      <View style={styles.bottomNav}>
-        <TouchableOpacity style={styles.navItem} onPress={() => goTo("Home")}>
-          <Ionicons name="home-outline" size={21} color="#94a3b8" />
-          <Text style={styles.navText}>Home</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => goTo("Browse")}>
-          <Ionicons name="car-outline" size={21} color="#94a3b8" />
-          <Text style={styles.navText}>Browse</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.planButton} onPress={() => goTo("Plan")}>
-          <MaterialCommunityIcons name="map-outline" size={26} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="briefcase" size={21} color="#f97316" />
-          <Text style={[styles.navText, styles.activeNavText]}>Bookings</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => goTo("Profile")}>
-          <Ionicons name="person-outline" size={21} color="#94a3b8" />
-          <Text style={styles.navText}>Profile</Text>
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 }
