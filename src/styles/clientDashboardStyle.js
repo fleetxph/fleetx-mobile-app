@@ -280,7 +280,7 @@ export const styles = StyleSheet.create({
   },
 
   section: {
-    marginBottom: 20,
+    marginBottom: 24,
   },
 
   sectionHeaderRow: {
@@ -291,10 +291,10 @@ export const styles = StyleSheet.create({
   },
 
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 20,
+    fontWeight: "800",
     color: "#0f172a",
-    marginBottom: 12,
+    marginBottom: 14,
   },
 
   sectionTitleInline: {
@@ -315,35 +315,36 @@ export const styles = StyleSheet.create({
   },
 
   typeScrollContent: {
-    gap: 11,
-    paddingRight: 16,
+    gap: 12,
+    paddingRight: 18,
+    paddingBottom: 4,
   },
 
   typeChip: {
-    width: 90,
-    minHeight: 114,
-    borderRadius: 16,
+    width: 104,
+    minHeight: 122,
+    borderRadius: 20,
     backgroundColor: "#ffffff",
     borderWidth: 1,
-    borderColor: "#f3e2d3",
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    borderColor: "#EEF1F5",
+    paddingHorizontal: 9,
+    paddingVertical: 9,
     alignItems: "center",
     justifyContent: "space-between",
     shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.02,
-    shadowRadius: 6,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.045,
+    shadowRadius: 12,
+    elevation: 2,
   },
 
   typeChipImageWrap: {
     width: "100%",
-    height: 66,
-    borderRadius: 14,
-    backgroundColor: "#fffaf5",
+    height: 72,
+    borderRadius: 16,
+    backgroundColor: "#F8FAFC",
     borderWidth: 1,
-    borderColor: "#fed7aa",
+    borderColor: "#F1F5F9",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 5,
@@ -360,7 +361,7 @@ export const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     borderRadius: 16,
-    backgroundColor: "#fff7ed",
+    backgroundColor: "#FFF4EB",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -396,69 +397,73 @@ export const styles = StyleSheet.create({
   },
 
   typeLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#1e293b",
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#172033",
     textAlign: "center",
     lineHeight: 16,
   },
 
   quickAccessRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
     alignItems: "stretch",
   },
 
   quickAccessCard: {
     flex: 1,
-    borderRadius: 18,
-    minHeight: 96,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    borderRadius: 20,
+    minHeight: 88,
+    paddingHorizontal: 12,
+    paddingVertical: 13,
     justifyContent: "center",
     shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.045,
+    shadowRadius: 12,
+    elevation: 2,
   },
 
   quickAccessCardDark: {
-    backgroundColor: "#111827",
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#EEF1F5",
   },
 
   quickAccessCardLight: {
     backgroundColor: "#ffffff",
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#EEF1F5",
   },
 
   quickAccessCardContent: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 11,
+    gap: 10,
   },
 
   quickIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 15,
+    width: 46,
+    height: 46,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
   },
 
   quickIconBoxDark: {
-    backgroundColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "#FFF4EB",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "#FFE4D1",
   },
 
   quickIconBoxLight: {
-    backgroundColor: "#FFF1E6",
+    backgroundColor: "#FFF4EB",
+    borderWidth: 1,
+    borderColor: "#FFE4D1",
   },
 
   quickAccessCardDarkText: {
-    color: "#ffffff",
+    color: "#0f172a",
   },
 
   quickAccessCardLightText: {
@@ -467,9 +472,13 @@ export const styles = StyleSheet.create({
 
   quickAccessTitle: {
     flex: 1,
-    fontSize: 14,
-    fontWeight: "600",
-    lineHeight: 21,
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 20,
+  },
+
+  quickAccessChevron: {
+    marginLeft: "auto",
   },
 
   featuredRow: {

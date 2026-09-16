@@ -24,13 +24,6 @@ import { getProfileImageUrl, getVehicleImageUrl } from "../utils/imageUrl";
 import { formatVehicleDailyRateLabel } from "../utils/vehicleRate";
 import { getUnreadLocalNotificationCount } from "../services/notificationService";
 
-const vehicleTypes = [
-  { key: "suv", label: "SUV" },
-  { key: "sedan", label: "Sedan" },
-  { key: "van", label: "Van" },
-  { key: "pickup", label: "Pickup" },
-];
-
 const QUICK_ACCESS_ITEMS = [
   {
     key: "bookings",
@@ -263,16 +256,32 @@ export default function ClientDashboard({ navigation }) {
   };
 
   const categoryItems = useMemo(
-    () =>
-      vehicleTypes.map((type) => {
-        const sampleVehicle = dashboardVehicles.find(
-          (vehicle) => String(vehicle?.category || "").toLowerCase() === type.key
-        );
-        return {
-          ...type,
-          image: getVehicleImageUrl(sampleVehicle),
-        };
-      }),
+    () => {
+      const categories = new Map();
+
+      dashboardVehicles.forEach((vehicle) => {
+        const label = String(vehicle?.category || "").trim();
+        const key = label.toLowerCase();
+        if (!key) return;
+
+        const image = getVehicleImageUrl(vehicle);
+        const existingCategory = categories.get(key);
+        if (existingCategory) {
+          if (!existingCategory.image && image) {
+            categories.set(key, { ...existingCategory, image });
+          }
+          return;
+        }
+
+        categories.set(key, {
+          key,
+          label,
+          image,
+        });
+      });
+
+      return Array.from(categories.values());
+    },
     [dashboardVehicles]
   );
 
@@ -489,46 +498,48 @@ export default function ClientDashboard({ navigation }) {
           </View>
         ) : null}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Browse by Type</Text>
+        {categoryItems.length ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Browse by Type</Text>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.typeScrollContent}
-          >
-            {categoryItems.map((item) => (
-              <TouchableOpacity
-                key={item.key}
-                style={styles.typeChip}
-                activeOpacity={0.85}
-                onPress={() =>
-                  navigation.navigate("Browse", {
-                    screen: "BrowseMain",
-                    params: { selectedCategory: item.label },
-                  })
-                }
-              >
-                <View style={styles.typeChipImageWrap}>
-                  {item.image && !failedImages[`type-${item.key}`] ? (
-                    <Image
-                      key={`type-${item.key}-${item.image}`}
-                      source={{ uri: item.image }}
-                      style={styles.typeChipImage}
-                      resizeMode="contain"
-                      onError={() => markImageFailed(`type-${item.key}`)}
-                    />
-                  ) : (
-                    <View style={styles.typeChipFallback}>
-                      <Text style={styles.typeChipFallbackText}>{item.label.slice(0, 2)}</Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={styles.typeLabel}>{item.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.typeScrollContent}
+            >
+              {categoryItems.map((item) => (
+                <TouchableOpacity
+                  key={item.key}
+                  style={styles.typeChip}
+                  activeOpacity={0.85}
+                  onPress={() =>
+                    navigation.navigate("Browse", {
+                      screen: "BrowseMain",
+                      params: { selectedCategory: item.label },
+                    })
+                  }
+                >
+                  <View style={styles.typeChipImageWrap}>
+                    {item.image && !failedImages[`type-${item.key}`] ? (
+                      <Image
+                        key={`type-${item.key}-${item.image}`}
+                        source={{ uri: item.image }}
+                        style={styles.typeChipImage}
+                        resizeMode="contain"
+                        onError={() => markImageFailed(`type-${item.key}`)}
+                      />
+                    ) : (
+                      <View style={styles.typeChipFallback}>
+                        <Text style={styles.typeChipFallbackText}>{item.label.slice(0, 2)}</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.typeLabel}>{item.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Quick Access</Text>
@@ -556,8 +567,8 @@ export default function ClientDashboard({ navigation }) {
                     >
                       <Ionicons
                         name={item.icon}
-                        size={22}
-                        color={isDarkCard ? "#F8FAFC" : "#F97316"}
+                        size={23}
+                        color="#F97316"
                       />
                     </View>
 
@@ -571,6 +582,12 @@ export default function ClientDashboard({ navigation }) {
                     >
                       {item.title}
                     </Text>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={18}
+                      color="#94A3B8"
+                      style={styles.quickAccessChevron}
+                    />
                   </View>
                 </TouchableOpacity>
               );

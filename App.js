@@ -13,7 +13,7 @@ import {
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { Ionicons } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { configureNotifications } from "./src/services/notificationService";
@@ -113,6 +113,7 @@ function withAuth(Component, message) {
 
 function TabIcon({ routeName, focused, color }) {
   let iconName = "home-outline";
+  let IconComponent = Ionicons;
 
   switch (routeName) {
     case "Home":
@@ -122,7 +123,8 @@ function TabIcon({ routeName, focused, color }) {
       iconName = focused ? "car-sport" : "car-sport-outline";
       break;
     case "Plan":
-      iconName = focused ? "navigate" : "navigate-outline";
+      IconComponent = Feather;
+      iconName = "map";
       break;
     case "Bookings":
       iconName = focused ? "calendar" : "calendar-outline";
@@ -135,7 +137,7 @@ function TabIcon({ routeName, focused, color }) {
       break;
   }
 
-  return <Ionicons name={iconName} size={22} color={color} />;
+  return <IconComponent name={iconName} size={22} color={color} />;
 }
 
 function CustomPlanTabButton({ children, onPress }) {
@@ -225,7 +227,9 @@ function MainTabs() {
         options={{
           tabBarLabel: "Plan",
           tabBarButton: (props) => <CustomPlanTabButton {...props} />,
-          tabBarIcon: () => <Ionicons name="navigate" size={28} color="#FFFFFF" />,
+          tabBarIcon: () => (
+            <Feather name="map" size={28} color="#FFFFFF" style={styles.planIcon} />
+          ),
           tabBarLabelStyle: {
             fontSize: 11,
             fontWeight: "700",
@@ -412,6 +416,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 8,
     elevation: 8,
+  },
+  planIcon: {
+    width: 28,
+    height: 28,
+    lineHeight: 28,
+    textAlign: "center",
   },
   restoreSafe: {
     flex: 1,
