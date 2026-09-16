@@ -227,12 +227,17 @@ function needsFullBookingDetails(booking = {}) {
 
 function buildDisabledReason({
   hasRenderedContent,
+  contractStageEligible,
+  contractStageReason,
   contractAgreementChecked,
   signatureName,
   exactNameMatch,
   bookingIdPresent,
 }) {
   if (!hasRenderedContent) return "Contract details are still loading.";
+  if (!contractStageEligible) {
+    return contractStageReason || "The rental contract cannot be accepted at this stage.";
+  }
   if (!contractAgreementChecked) return "Please review and agree to the FleetX Rental Agreement.";
   if (!normalizeText(signatureName) || !exactNameMatch) {
     return "Please type your full name exactly as shown.";
@@ -307,9 +312,12 @@ export default function ContractReviewScreen({ navigation, route }) {
   const hasSignatureName = Boolean(normalizedTypedName);
   const bookingIdPresent = isLikelyMongoId(bookingId);
   const hasCheckedAgreement = reviewedFullAgreement && agreedToRentalAgreement;
+  const contractStageEligible = booking?.contractAcceptanceEligible === true;
+  const contractStageReason = booking?.contractAcceptanceIneligibleReason || '';
   const canSubmitContractAcceptance = Boolean(
     !contractAccepted &&
       hasRenderedContent &&
+      contractStageEligible &&
       hasCheckedAgreement &&
       hasSignatureName &&
       exactNameMatch &&
@@ -317,6 +325,8 @@ export default function ContractReviewScreen({ navigation, route }) {
   );
   const disabledReason = buildDisabledReason({
     hasRenderedContent,
+    contractStageEligible,
+    contractStageReason,
     contractAgreementChecked: hasCheckedAgreement,
     signatureName,
     exactNameMatch,

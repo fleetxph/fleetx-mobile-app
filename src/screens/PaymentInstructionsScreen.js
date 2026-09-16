@@ -175,7 +175,7 @@ function getPaymentProofEligibility(booking) {
   const isLocked =
     ["verified", "fully_paid", "downpayment_paid"].includes(paymentStatus) ||
     ["confirmed", "completed", "cancelled"].includes(statusMeta.key);
-  const isEligible =
+  const locallyEligible =
     !isUnderReview &&
     !isLocked &&
     (statusMeta.key === "awaiting_payment" ||
@@ -183,6 +183,10 @@ function getPaymentProofEligibility(booking) {
       ["invoice_issued", "pending_payment", "payment_pending", "rejected", "reupload_required"].includes(
         paymentStatus
       ));
+  const isEligible =
+    typeof booking?.paymentProofUploadEligible === "boolean"
+      ? booking.paymentProofUploadEligible
+      : locallyEligible;
 
   return {
     isEligible,
@@ -1185,10 +1189,12 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
           ) : null}
           {!paymentProofEligibility.isEligible &&
           !paymentProofEligibility.isUnderReview &&
-          !paymentProofEligibility.isLocked ? (
+          !paymentProofEligibility.isLocked &&
+          (contractAccepted || !showContractGateWarning) ? (
             <View style={styles.contractGateCard}>
               <Text style={styles.contractGateText}>
-                Payment proof upload will appear once your invoice is ready.
+                {booking?.paymentProofUploadReason ||
+                  "Payment proof upload will appear once your invoice is ready."}
               </Text>
             </View>
           ) : null}

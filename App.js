@@ -13,7 +13,7 @@ import {
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { Ionicons, Feather } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { configureNotifications } from "./src/services/notificationService";
@@ -113,7 +113,6 @@ function withAuth(Component, message) {
 
 function TabIcon({ routeName, focused, color }) {
   let iconName = "home-outline";
-  let IconComponent = Ionicons;
 
   switch (routeName) {
     case "Home":
@@ -123,8 +122,7 @@ function TabIcon({ routeName, focused, color }) {
       iconName = focused ? "car-sport" : "car-sport-outline";
       break;
     case "Plan":
-      IconComponent = Feather;
-      iconName = "map";
+      iconName = focused ? "navigate" : "navigate-outline";
       break;
     case "Bookings":
       iconName = focused ? "calendar" : "calendar-outline";
@@ -137,7 +135,7 @@ function TabIcon({ routeName, focused, color }) {
       break;
   }
 
-  return <IconComponent name={iconName} size={22} color={color} />;
+  return <Ionicons name={iconName} size={22} color={color} />;
 }
 
 function CustomPlanTabButton({ children, onPress }) {
@@ -227,7 +225,7 @@ function MainTabs() {
         options={{
           tabBarLabel: "Plan",
           tabBarButton: (props) => <CustomPlanTabButton {...props} />,
-          tabBarIcon: () => <Feather name="map" size={24} color="#FFFFFF" />,
+          tabBarIcon: () => <Ionicons name="navigate" size={28} color="#FFFFFF" />,
           tabBarLabelStyle: {
             fontSize: 11,
             fontWeight: "700",

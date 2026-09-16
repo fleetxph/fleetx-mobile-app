@@ -52,36 +52,6 @@ const QUICK_ACCESS_ITEMS = [
 ];
 const DASHBOARD_VEHICLE_CACHE_KEY = "fleetx_dashboard_vehicles_cache_v1";
 
-const HOME_CAMPAIGN_BANNER = {
-  label: "FLEETX PROMO",
-  discountLabel: "SAVE 10%",
-  title: "Weekend Ride",
-  subtitle: "Save 10% on your next trip.",
-  promoCode: "AMPOGINIMICO",
-  cta: "Book Now",
-};
-
-function getFallbackCampaignBanner() {
-  return {
-    id: "",
-    title: HOME_CAMPAIGN_BANNER.title,
-    subtitle: HOME_CAMPAIGN_BANNER.label,
-    description: HOME_CAMPAIGN_BANNER.subtitle,
-    promoCode: HOME_CAMPAIGN_BANNER.promoCode,
-    code: HOME_CAMPAIGN_BANNER.promoCode,
-    discountLabel: HOME_CAMPAIGN_BANNER.discountLabel,
-    discountValue: 0,
-    discountType: "none",
-    imageUrl: "",
-    ctaLabel: HOME_CAMPAIGN_BANNER.cta,
-    vehicleId: "",
-    vehicle: null,
-    isActive: false,
-    startsAt: null,
-    endsAt: null,
-  };
-}
-
 const getUnreadCountFromResponse = (notificationRes) => {
   const explicitCount = Number(
     notificationRes?.unreadCount ?? notificationRes?.count ?? Number.NaN
@@ -310,13 +280,14 @@ export default function ClientDashboard({ navigation }) {
     setFailedImages((prev) => ({ ...prev, [key]: true }));
   };
 
-  const promoBanner = activePromo || getFallbackCampaignBanner();
-  const promoVehicle = promoBanner.vehicle || null;
-  const promoDescription =
-    promoBanner.description || promoBanner.subtitle || HOME_CAMPAIGN_BANNER.subtitle;
-  const promoCode = promoBanner.promoCode || promoBanner.code || HOME_CAMPAIGN_BANNER.promoCode;
-  const promoButtonLabel = promoBanner.ctaLabel || HOME_CAMPAIGN_BANNER.cta;
+  const promoBanner = activePromo;
+  const promoVehicle = promoBanner?.vehicle || null;
+  const promoDescription = promoBanner?.description || "";
+  const promoCode = promoBanner?.promoCode || promoBanner?.code || "";
+  const promoButtonLabel = promoBanner?.ctaLabel || "";
   const openPromoTarget = (target = "banner") => {
+    if (!promoBanner) return;
+
     const hasVehicleTarget = Boolean(promoBanner.vehicleId || promoVehicle);
 
     if (__DEV__) {
@@ -458,63 +429,65 @@ export default function ClientDashboard({ navigation }) {
           </View>
         </View>
 
-        <View style={styles.campaignCard}>
-          {promoLoading ? (
-            <View style={styles.campaignContent}>
-              <Text style={styles.campaignLabel}>{HOME_CAMPAIGN_BANNER.label}</Text>
-              <View style={styles.campaignLoadingRow}>
-                <ActivityIndicator size="small" color="#F97316" />
-                <Text style={styles.campaignLoadingText}>Loading active promo...</Text>
-              </View>
-            </View>
-          ) : (
+        {!promoLoading && promoBanner ? (
+          <View style={styles.campaignCard}>
             <Pressable style={styles.campaignContent} onPress={() => openPromoTarget("banner")}>
               <View style={styles.campaignColumns}>
                 <View style={styles.campaignLeftColumn}>
                   <View style={styles.campaignEyebrowRow}>
-                    <Text style={styles.campaignLabel}>{HOME_CAMPAIGN_BANNER.label}</Text>
-                    <View style={styles.campaignBadge}>
-                      <Text style={styles.campaignBadgeText}>
-                        {promoBanner.discountLabel || HOME_CAMPAIGN_BANNER.discountLabel}
-                      </Text>
-                    </View>
+                    {promoBanner.subtitle ? (
+                      <Text style={styles.campaignLabel}>{promoBanner.subtitle}</Text>
+                    ) : null}
+                    {promoBanner.discountLabel ? (
+                      <View style={styles.campaignBadge}>
+                        <Text style={styles.campaignBadgeText}>{promoBanner.discountLabel}</Text>
+                      </View>
+                    ) : null}
                   </View>
                   <Text style={styles.campaignTitle} numberOfLines={2}>
-                    {promoBanner.title || HOME_CAMPAIGN_BANNER.title}
+                    {promoBanner.title}
                   </Text>
-                  <Text style={styles.campaignSubtitle} numberOfLines={2}>
-                    {promoDescription}
-                  </Text>
+                  {promoDescription ? (
+                    <Text style={styles.campaignSubtitle} numberOfLines={2}>
+                      {promoDescription}
+                    </Text>
+                  ) : null}
                 </View>
                 <View style={styles.campaignDivider} />
                 <View style={styles.campaignRightColumn}>
-                  <View style={styles.campaignCodeBlock}>
-                    <Text style={styles.campaignCodeLabel}>Promo code</Text>
-                    <Text style={styles.campaignCodeValue} numberOfLines={1} adjustsFontSizeToFit>
-                      {promoCode}
-                    </Text>
-                  </View>
+                  {promoCode ? (
+                    <View style={styles.campaignCodeBlock}>
+                      <Text style={styles.campaignCodeLabel}>Promo code</Text>
+                      <Text style={styles.campaignCodeValue} numberOfLines={1} adjustsFontSizeToFit>
+                        {promoCode}
+                      </Text>
+                    </View>
+                  ) : null}
                   <View style={styles.campaignActions}>
-                    <TouchableOpacity
-                      style={styles.campaignCodeButton}
-                      activeOpacity={0.9}
-                      onPress={handlePromoCodePress}
-                    >
-                      <Text style={styles.campaignCodeButtonText}>Use Code</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.campaignButton}
-                      activeOpacity={0.9}
-                      onPress={() => openPromoTarget("cta")}
-                    >
-                      <Text style={styles.campaignButtonText}>{promoButtonLabel}</Text>
-                    </TouchableOpacity>
+                    {promoCode ? (
+                      <TouchableOpacity
+                        style={styles.campaignCodeButton}
+                        activeOpacity={0.9}
+                        onPress={handlePromoCodePress}
+                      >
+                        <Text style={styles.campaignCodeButtonText}>Use Code</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {promoButtonLabel ? (
+                      <TouchableOpacity
+                        style={styles.campaignButton}
+                        activeOpacity={0.9}
+                        onPress={() => openPromoTarget("cta")}
+                      >
+                        <Text style={styles.campaignButtonText}>{promoButtonLabel}</Text>
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
                 </View>
               </View>
             </Pressable>
-          )}
-        </View>
+          </View>
+        ) : null}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Browse by Type</Text>
