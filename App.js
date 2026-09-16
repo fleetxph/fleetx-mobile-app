@@ -422,7 +422,7 @@ const styles = StyleSheet.create({
     height: 28,
     lineHeight: 28,
     textAlign: "center",
-    transform: [{ translateY: 2 }],
+    transform: [{ translateY: 4 }],
   },
   restoreSafe: {
     flex: 1,
