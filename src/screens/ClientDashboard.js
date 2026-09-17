@@ -72,6 +72,7 @@ export default function ClientDashboard({ navigation }) {
   const [dashboardVehicles, setDashboardVehicles] = useState([]);
   const [featuredVehicles, setFeaturedVehicles] = useState([]);
   const [vehiclesLoading, setVehiclesLoading] = useState(true);
+  const [vehicleLoadError, setVehicleLoadError] = useState(null);
   const [promoLoading, setPromoLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const [failedImages, setFailedImages] = useState({});
@@ -104,6 +105,7 @@ export default function ClientDashboard({ navigation }) {
   const refreshDashboardData = async () => {
     try {
       setVehiclesLoading(true);
+      setVehicleLoadError(null);
       setPromoLoading(true);
       if (__DEV__) {
         console.log("[PromoBanner][fetch:start]");
@@ -142,8 +144,6 @@ export default function ClientDashboard({ navigation }) {
 
       const profileRes =
         profileResult.status === "fulfilled" ? profileResult.value : null;
-      const vehicleRes =
-        vehicleResult.status === "fulfilled" ? vehicleResult.value : [];
       const notificationRes =
         notificationResult.status === "fulfilled"
           ? notificationResult.value
@@ -171,26 +171,47 @@ export default function ClientDashboard({ navigation }) {
         }
       }
 
-      const responseVehicles = Array.isArray(vehicleRes?.vehicles)
-        ? vehicleRes.vehicles
-        : Array.isArray(vehicleRes)
-        ? vehicleRes
-        : [];
-      const backendVehicles = responseVehicles.filter(
-        (vehicle) => vehicle?.isActive !== false
-      );
-      setDashboardVehicles(backendVehicles);
-      setFeaturedVehicles(backendVehicles.slice(0, 8));
-      if (Platform.OS === "web") {
-        window.localStorage.setItem(
-          DASHBOARD_VEHICLE_CACHE_KEY,
-          JSON.stringify(backendVehicles)
+      if (vehicleResult.status === "fulfilled") {
+        const vehicleRes = vehicleResult.value;
+        const responseVehicles = Array.isArray(vehicleRes?.vehicles)
+          ? vehicleRes.vehicles
+          : Array.isArray(vehicleRes)
+          ? vehicleRes
+          : [];
+        const backendVehicles = responseVehicles.filter(
+          (vehicle) => vehicle?.isActive !== false
         );
+        setVehicleLoadError(null);
+        setDashboardVehicles(backendVehicles);
+        setFeaturedVehicles(backendVehicles.slice(0, 8));
+        if (Platform.OS === "web") {
+          window.localStorage.setItem(
+            DASHBOARD_VEHICLE_CACHE_KEY,
+            JSON.stringify(backendVehicles)
+          );
+        } else {
+          await AsyncStorage.setItem(
+            DASHBOARD_VEHICLE_CACHE_KEY,
+            JSON.stringify(backendVehicles)
+          );
+        }
       } else {
-        await AsyncStorage.setItem(
-          DASHBOARD_VEHICLE_CACHE_KEY,
-          JSON.stringify(backendVehicles)
-        );
+        const vehicleError = vehicleResult.reason;
+        setVehicleLoadError({
+          message: getFriendlyApiErrorMessage(
+            vehicleError,
+            "Could not refresh vehicles. Please try again."
+          ),
+          code: vehicleError?.code || "",
+          status: vehicleError?.response?.status || null,
+        });
+        if (__DEV__) {
+          console.log("[Dashboard][vehicles:error]", {
+            code: vehicleError?.code || "",
+            status: vehicleError?.response?.status || null,
+            reachedResponse: Boolean(vehicleError?.response),
+          });
+        }
       }
       setUnreadCount(getUnreadCountFromResponse(notificationRes) + localUnreadCount);
       setActivePromo(promoRes || null);
@@ -692,6 +713,13 @@ export default function ClientDashboard({ navigation }) {
                 );
               })}
             </ScrollView>
+          ) : vehicleLoadError ? (
+            <View style={styles.featuredEmpty}>
+              <Text style={styles.featuredEmptyTitle}>Vehicles unavailable</Text>
+              <Text style={styles.featuredEmptyText}>
+                {vehicleLoadError.message}
+              </Text>
+            </View>
           ) : (
             <View style={styles.featuredEmpty}>
               <Text style={styles.featuredEmptyTitle}>No vehicles available</Text>

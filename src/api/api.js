@@ -19,7 +19,13 @@ export const API_BASE_URL = BASE_URL;
 export const BACKEND_ORIGIN = BASE_URL.replace(/\/api\/?$/, "");
 const DEFAULT_TIMEOUT_MESSAGE =
   "Server is starting. Please try again in a few seconds.";
+const RESILIENT_GET_TIMEOUT_MS = 35000;
+const GET_RETRY_DELAY_MS = 750;
+const NETWORK_DEBUG_ENABLED =
+  String(process.env.EXPO_PUBLIC_NETWORK_DEBUG || "").trim().toLowerCase() ===
+  "true";
 const sessionExpiredListeners = new Set();
+let warmUpPromise = null;
 
 function buildDebugUrl(config = {}) {
   const baseURL = String(config.baseURL || BASE_URL || "").replace(/\/+$/, "");
@@ -35,6 +41,46 @@ function shouldDebugRequest(config = {}) {
   if (!__DEV__) return false;
   const requestUrl = String(config.url || "");
   return requestUrl.includes("/public/vehicles") || requestUrl.includes("/client/login");
+}
+
+const PREVIEW_DIAGNOSTIC_PATHS = new Set([
+  "/health",
+  "/public/vehicles",
+  "/public/campaigns/active",
+  "/client/login",
+  "/client/profile",
+  "/client/bookings",
+  "/notifications",
+]);
+
+function shouldLogNetworkRequest(config = {}) {
+  if (shouldDebugRequest(config)) return true;
+  const requestPath = String(config.url || "").split("?")[0].replace(/\/+$/, "");
+  return NETWORK_DEBUG_ENABLED && PREVIEW_DIAGNOSTIC_PATHS.has(requestPath);
+}
+
+function isGetRequest(config = {}) {
+  return String(config.method || "get").toLowerCase() === "get";
+}
+
+function getElapsedMs(config = {}) {
+  const startedAt = Number(config._fleetxNetworkStartedAt || 0);
+  return startedAt > 0 ? Math.max(0, Date.now() - startedAt) : null;
+}
+
+function isRetryableGetNetworkError(error) {
+  if (error?.response || !isGetRequest(error?.config)) return false;
+  if (Number(error?.config?._fleetxNetworkRetryCount || 0) >= 1) return false;
+
+  const code = String(error?.code || "").toUpperCase();
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    code === "ECONNABORTED" ||
+    code === "ERR_NETWORK" ||
+    message.includes("timeout") ||
+    message.includes("network error") ||
+    message.includes("failed to fetch")
+  );
 }
 
 const PROTECTED_PREFIXES = [
@@ -156,13 +202,18 @@ api.interceptors.request.use(async (config) => {
   const url = String(config.url || "");
   const shouldAttachToken = PROTECTED_PREFIXES.some((prefix) => url.startsWith(prefix));
 
-  if (shouldDebugRequest(config)) {
+  if (isGetRequest(config) && Number(config.timeout || 0) <= api.defaults.timeout) {
+    config.timeout = RESILIENT_GET_TIMEOUT_MS;
+  }
+  config._fleetxNetworkStartedAt = Date.now();
+
+  if (shouldLogNetworkRequest(config)) {
     console.log("[API][request]", {
       platform: Platform.OS,
-      baseURL: config.baseURL || BASE_URL,
-      url: buildDebugUrl(config),
       method: String(config.method || "get").toUpperCase(),
+      url: buildDebugUrl(config),
       timeout: config.timeout || api.defaults.timeout,
+      attempt: Number(config._fleetxNetworkRetryCount || 0) + 1,
     });
   }
 
@@ -182,9 +233,13 @@ api.interceptors.request.use(async (config) => {
 
 api.interceptors.response.use(
   (response) => {
-    if (shouldDebugRequest(response?.config)) {
+    if (shouldLogNetworkRequest(response?.config)) {
       console.log("[API][response]", {
+        platform: Platform.OS,
+        method: String(response?.config?.method || "get").toUpperCase(),
         url: buildDebugUrl(response?.config),
+        timeout: response?.config?.timeout || api.defaults.timeout,
+        elapsedMs: getElapsedMs(response?.config),
         status: response?.status,
         reachedResponse: true,
       });
@@ -193,14 +248,33 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
-    if (shouldDebugRequest(error?.config)) {
+    if (shouldLogNetworkRequest(error?.config)) {
       console.log("[API][error]", {
+        platform: Platform.OS,
+        method: String(error?.config?.method || "get").toUpperCase(),
         url: buildDebugUrl(error?.config),
-        message: error?.message || "Unknown error",
+        timeout: error?.config?.timeout || api.defaults.timeout,
+        elapsedMs: getElapsedMs(error?.config),
         code: error?.code || "",
         status: error?.response?.status || null,
         reachedResponse: Boolean(error?.response),
       });
+    }
+
+    if (isRetryableGetNetworkError(error)) {
+      const retryConfig = error.config;
+      retryConfig._fleetxNetworkRetryCount = 1;
+      if (shouldLogNetworkRequest(retryConfig)) {
+        console.log("[API][retry]", {
+          platform: Platform.OS,
+          method: "GET",
+          url: buildDebugUrl(retryConfig),
+          timeout: retryConfig.timeout || RESILIENT_GET_TIMEOUT_MS,
+          nextAttempt: 2,
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, GET_RETRY_DELAY_MS));
+      return api.request(retryConfig);
     }
 
     if (isUnauthorizedError(error)) {
@@ -228,20 +302,33 @@ api.interceptors.response.use(
   }
 );
 
-export async function warmUpBackend() {
-  try {
-    await api.get("/health", {
-      timeout: 6000,
-      headers: { "Cache-Control": "no-cache" },
-    });
-  } catch (error) {
-    if (__DEV__) {
-      console.log("[API][warmup:warning]", {
-        message: error?.message || "Unknown warm-up error",
-        code: error?.code || "",
+export function warmUpBackend() {
+  if (warmUpPromise) return warmUpPromise;
+
+  warmUpPromise = (async () => {
+    try {
+      await api.get("/health", {
+        timeout: RESILIENT_GET_TIMEOUT_MS,
+        headers: { "Cache-Control": "no-cache" },
       });
+    } catch (error) {
+      if (__DEV__ || NETWORK_DEBUG_ENABLED) {
+        console.log("[API][warmup:warning]", {
+          platform: Platform.OS,
+          method: "GET",
+          url: `${BASE_URL}/health`,
+          timeout: RESILIENT_GET_TIMEOUT_MS,
+          code: error?.code || "",
+          status: error?.response?.status || null,
+          reachedResponse: Boolean(error?.response),
+        });
+      }
+    } finally {
+      warmUpPromise = null;
     }
-  }
+  })();
+
+  return warmUpPromise;
 }
 
 export default api;
