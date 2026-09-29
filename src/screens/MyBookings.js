@@ -4,19 +4,26 @@ import {
   Alert,
   FlatList,
   Image,
+  KeyboardAvoidingView,
+  Modal,
   Platform,
   RefreshControl,
   SafeAreaView,
+  ScrollView,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getFriendlyApiErrorMessage, isUnauthorizedError } from "../api/api";
 import {
   cancelClientBooking,
+  getAdditionalInvoicePdf,
   getClientBookings,
+  requestBookingExtension,
   resumeClientBooking,
 } from "../api/clientApi";
 import { styles } from "../styles/myBookingsStyle";
@@ -42,6 +49,15 @@ import {
 import {
   syncStoredBookingStatusSnapshot,
 } from "../services/notificationService";
+import { openPdf, showPdfError } from "../utils/pdfUtils";
+
+const ADDITIONAL_INVOICE_REASON_LABELS = {
+  extension: "Extension",
+  late_return: "Late Return",
+  penalty: "Penalty",
+  return_assessment: "Return Assessment",
+  manual_adjustment: "Manual Adjustment",
+};
 
 function getBookingId(item) {
   return item?._id || item?.id || "";
@@ -106,6 +122,143 @@ function shouldShowPaymentPanel(item) {
   );
 }
 
+function formatDateTime(value) {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not available";
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatTime(value) {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return "Select time";
+  return value.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatDateInput(value) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatTimeInput(value) {
+  const hours = String(value.getHours()).padStart(2, "0");
+  const minutes = String(value.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function getBookingReturnDateTime(item) {
+  const dateValue = item?.endDate || item?.returnDate || item?.dropoffDate;
+  if (!dateValue) return null;
+
+  const timeValue = String(item?.endTime || item?.returnTime || item?.dropoffTime || "");
+  const dateKey = String(dateValue).match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  const timeMatch = timeValue.match(/^(\d{1,2}):(\d{2})/);
+  const hasEmbeddedTime = /T\d{2}:\d{2}/.test(String(dateValue));
+  const parsed =
+    dateKey && timeMatch
+      ? new Date(`${dateKey}T${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}:00`)
+      : dateKey && !hasEmbeddedTime
+      ? new Date(`${dateKey}T00:00:00`)
+      : new Date(dateValue);
+
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  if (!dateKey && timeMatch) {
+    parsed.setHours(Number(timeMatch[1]), Number(timeMatch[2]), 0, 0);
+  }
+
+  return parsed;
+}
+
+function combineExtensionDateTime(dateValue, timeValue) {
+  if (!(dateValue instanceof Date) || !(timeValue instanceof Date)) return null;
+  const combined = new Date(dateValue);
+  combined.setHours(timeValue.getHours(), timeValue.getMinutes(), 0, 0);
+  return Number.isNaN(combined.getTime()) ? null : combined;
+}
+
+function normalizeStatus(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function formatStatusLabel(value) {
+  const normalized = normalizeStatus(value);
+  if (!normalized) return "";
+  return normalized
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function getExtensionState(item) {
+  const requests = Array.isArray(item?.extensionRequests) ? item.extensionRequests : [];
+  const pendingStatuses = ["pending", "submitted", "under_review"];
+  const pendingRequest = requests.find((request) =>
+    pendingStatuses.includes(normalizeStatus(request?.status || request?.requestStatus))
+  );
+  const latestRequest = requests.length ? requests[requests.length - 1] : null;
+  const directStatus = normalizeStatus(item?.extensionStatus);
+  const latestStatus = normalizeStatus(latestRequest?.status || latestRequest?.requestStatus);
+  const status = pendingRequest ? "pending" : directStatus || latestStatus;
+
+  return {
+    status,
+    isPending: Boolean(pendingRequest || pendingStatuses.includes(directStatus)),
+    label: status ? `Extension Request ${formatStatusLabel(status)}` : "",
+  };
+}
+
+function canRequestExtension(item) {
+  const extensionState = getExtensionState(item);
+
+  return Boolean(
+    getBookingId(item) &&
+      !extensionState.isPending &&
+      !String(item?.extensionRequestIneligibleReason || "").trim()
+  );
+}
+
+function getAdditionalPaymentDetails(item) {
+  const payment =
+    item?.additionalPayment && typeof item.additionalPayment === "object"
+      ? item.additionalPayment
+      : {};
+  const reasonKey = normalizeStatus(payment?.reason || payment?.reasonType || payment?.type);
+  const amount = [
+    payment?.totalAdditionalAmount,
+    payment?.totalAmountDue,
+    payment?.amountDue,
+  ]
+    .map(Number)
+    .find((value) => Number.isFinite(value) && value > 0) || 0;
+
+  return {
+    required: payment?.required === true,
+    invoiceReference:
+      payment?.invoiceReference || payment?.invoiceNumber || payment?.reference || "",
+    reason: ADDITIONAL_INVOICE_REASON_LABELS[reasonKey] || formatStatusLabel(reasonKey),
+    amount,
+    status: formatStatusLabel(
+      payment?.status || payment?.paymentStatus || item?.additionalPaymentStatus
+    ),
+    paymentDueAt: payment?.paymentDueAt || payment?.dueDate || payment?.deadline || "",
+    invoiceIssuedAt: payment?.invoiceIssuedAt || payment?.issuedAt || payment?.createdAt || "",
+    documentReference:
+      payment?.invoiceReference || payment?.invoiceNumber || payment?.reference || "",
+  };
+}
+
 export default function MyBookings({ navigation }) {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -114,6 +267,13 @@ export default function MyBookings({ navigation }) {
   const [activeView, setActiveView] = useState("active");
   const [activeFilter, setActiveFilter] = useState("all");
   const [failedImages, setFailedImages] = useState({});
+  const [extensionBooking, setExtensionBooking] = useState(null);
+  const [extensionDate, setExtensionDate] = useState(null);
+  const [extensionTime, setExtensionTime] = useState(null);
+  const [extensionReason, setExtensionReason] = useState("");
+  const [extensionPicker, setExtensionPicker] = useState("");
+  const [extensionSubmitting, setExtensionSubmitting] = useState(false);
+  const [additionalInvoiceOpeningId, setAdditionalInvoiceOpeningId] = useState("");
 
   const loadBookings = useCallback(
     async (mode = "load") => {
@@ -259,6 +419,110 @@ export default function MyBookings({ navigation }) {
     ]);
   };
 
+  const closeExtensionModal = () => {
+    if (extensionSubmitting) return;
+    setExtensionBooking(null);
+    setExtensionDate(null);
+    setExtensionTime(null);
+    setExtensionReason("");
+    setExtensionPicker("");
+  };
+
+  const openExtensionModal = (booking) => {
+    const currentReturn = getBookingReturnDateTime(booking);
+    const proposedReturn = new Date(currentReturn || Date.now());
+    proposedReturn.setDate(proposedReturn.getDate() + 1);
+
+    setExtensionBooking(booking);
+    setExtensionDate(proposedReturn);
+    setExtensionTime(proposedReturn);
+    setExtensionReason("");
+    setExtensionPicker("");
+  };
+
+  const currentExtensionEnd = extensionBooking
+    ? getBookingReturnDateTime(extensionBooking)
+    : null;
+  const selectedExtensionEnd = combineExtensionDateTime(extensionDate, extensionTime);
+  const extensionTimingError = extensionBooking
+    ? !currentExtensionEnd
+      ? "The current return schedule is unavailable. Refresh and try again."
+      : !selectedExtensionEnd || selectedExtensionEnd <= currentExtensionEnd
+      ? "New return date and time must be after the current return schedule."
+      : ""
+    : "";
+
+  const handleExtensionPickerChange = (event, value) => {
+    const activePicker = extensionPicker;
+    if (Platform.OS !== "ios") setExtensionPicker("");
+    if (event?.type === "dismissed" || !value) return;
+
+    if (activePicker === "date") {
+      setExtensionDate(value);
+      return;
+    }
+
+    if (activePicker === "time") {
+      setExtensionTime(value);
+    }
+  };
+
+  const submitExtensionRequest = async () => {
+    const bookingId = getBookingId(extensionBooking);
+    if (!bookingId || extensionTimingError || !selectedExtensionEnd) return;
+
+    try {
+      setExtensionSubmitting(true);
+      const response = await requestBookingExtension(bookingId, {
+        newEndDate: formatDateInput(selectedExtensionEnd),
+        newEndTime: formatTimeInput(selectedExtensionEnd),
+        reason: extensionReason.trim(),
+      });
+
+      setExtensionBooking(null);
+      setExtensionDate(null);
+      setExtensionTime(null);
+      setExtensionReason("");
+      setExtensionPicker("");
+      await loadBookings("refresh");
+      Alert.alert(
+        "Extension requested",
+        response?.message || "Your extension request has been submitted for review."
+      );
+    } catch (err) {
+      Alert.alert(
+        "Extension request failed",
+        getFriendlyApiErrorMessage(err, "Unable to submit the extension request. Please try again.")
+      );
+    } finally {
+      setExtensionSubmitting(false);
+    }
+  };
+
+  const openAdditionalInvoice = async (booking) => {
+    const bookingId = getBookingId(booking);
+    if (!bookingId || additionalInvoiceOpeningId) return;
+
+    const details = getAdditionalPaymentDetails(booking);
+    try {
+      setAdditionalInvoiceOpeningId(bookingId);
+      await openPdf({
+        source: getAdditionalInvoicePdf(bookingId),
+        fileName: `FleetX-Additional-Invoice-${
+          details.invoiceReference || getReferenceNo(booking) || bookingId
+        }.pdf`,
+        title: "Additional Invoice",
+        bookingReference: getReferenceNo(booking),
+        documentReference: details.documentReference,
+        type: "additional_invoice",
+      });
+    } catch (error) {
+      showPdfError(error, "Unable to open the additional invoice. Please try again.");
+    } finally {
+      setAdditionalInvoiceOpeningId("");
+    }
+  };
+
   const openDocumentScreen = (type, booking) => {
     const routeName = type === "invoice" ? "BookingInvoice" : "BookingReceipt";
     const params = { booking };
@@ -386,6 +650,99 @@ export default function MyBookings({ navigation }) {
     return null;
   };
 
+  const renderExtensionAction = (item) => {
+    const extensionState = getExtensionState(item);
+    const canRequest = canRequestExtension(item);
+
+    if (!extensionState.label && !canRequest) return null;
+
+    return (
+      <View style={styles.extensionPanel}>
+        {extensionState.label ? (
+          <View style={styles.extensionStatusRow}>
+            <Ionicons
+              name={extensionState.isPending ? "time-outline" : "information-circle-outline"}
+              size={16}
+              color={extensionState.isPending ? "#b45309" : "#0369a1"}
+            />
+            <Text
+              style={[
+                styles.extensionStatusText,
+                extensionState.isPending && styles.extensionStatusPending,
+              ]}
+            >
+              {extensionState.label}
+            </Text>
+          </View>
+        ) : null}
+        {canRequest ? (
+          <TouchableOpacity
+            style={styles.extensionButton}
+            onPress={() => openExtensionModal(item)}
+          >
+            <Text style={styles.extensionButtonText}>Request Extension</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    );
+  };
+
+  const renderAdditionalInvoicePanel = (item) => {
+    const details = getAdditionalPaymentDetails(item);
+    if (!details.required) return null;
+
+    const rows = [
+      details.invoiceReference
+        ? { label: "Invoice Reference", value: details.invoiceReference }
+        : null,
+      details.reason ? { label: "Reason", value: details.reason } : null,
+      details.amount > 0
+        ? {
+            label: "Additional Amount",
+            value: `PHP ${details.amount.toLocaleString()}`,
+          }
+        : null,
+      details.status ? { label: "Status", value: details.status } : null,
+      details.paymentDueAt
+        ? { label: "Payment Due", value: formatDateTime(details.paymentDueAt) }
+        : null,
+      details.invoiceIssuedAt
+        ? { label: "Invoice Issued", value: formatDateTime(details.invoiceIssuedAt) }
+        : null,
+    ].filter(Boolean);
+    const bookingId = getBookingId(item);
+    const isOpening = additionalInvoiceOpeningId === bookingId;
+
+    return (
+      <View style={styles.additionalInvoicePanel}>
+        <Text style={styles.additionalInvoiceTitle}>Additional Invoice</Text>
+        <Text style={styles.additionalInvoiceSubtitle}>
+          Review the additional charges and payment deadline separately from your original invoice.
+        </Text>
+        {rows.map((row) => (
+          <View key={row.label} style={styles.additionalInvoiceRow}>
+            <Text style={styles.additionalInvoiceLabel}>{row.label}</Text>
+            <Text style={styles.additionalInvoiceValue}>{row.value}</Text>
+          </View>
+        ))}
+        <TouchableOpacity
+          style={[
+            styles.additionalInvoiceButton,
+            isOpening && styles.actionButtonDisabled,
+          ]}
+          onPress={() => openAdditionalInvoice(item)}
+          disabled={isOpening}
+        >
+          {isOpening ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : (
+            <Text style={styles.additionalInvoiceButtonText}>View Additional Invoice</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   const renderBooking = ({ item }) => {
     const meta = getBookingStatusMeta(item);
     const historyBooking = isHistoryBooking(item);
@@ -472,6 +829,8 @@ export default function MyBookings({ navigation }) {
 
           <Text style={styles.statusSubtext}>{historyBooking ? meta.nextAction : nextAction}</Text>
           {renderActions(item)}
+          {renderExtensionAction(item)}
+          {renderAdditionalInvoicePanel(item)}
         </View>
       </View>
     );
@@ -574,6 +933,133 @@ export default function MyBookings({ navigation }) {
           />
         )}
       </View>
+
+      <Modal
+        visible={Boolean(extensionBooking)}
+        transparent
+        animationType="slide"
+        onRequestClose={closeExtensionModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.extensionModalSheet}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.extensionModalHeader}>
+                <View style={styles.extensionModalHeading}>
+                  <Text style={styles.extensionModalTitle}>Request Extension</Text>
+                  <Text style={styles.extensionModalSubtitle}>
+                    FleetX will review the new return schedule and issue additional charges if approved.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.extensionModalClose}
+                  onPress={closeExtensionModal}
+                  disabled={extensionSubmitting}
+                >
+                  <Ionicons name="close" size={22} color="#475569" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.currentReturnCard}>
+                <Text style={styles.extensionFieldLabel}>Current Return</Text>
+                <Text style={styles.currentReturnValue}>
+                  {formatDateTime(currentExtensionEnd)}
+                </Text>
+              </View>
+
+              <View style={styles.extensionFieldRow}>
+                <TouchableOpacity
+                  style={styles.extensionFieldButton}
+                  onPress={() => setExtensionPicker("date")}
+                >
+                  <Text style={styles.extensionFieldLabel}>New Return Date</Text>
+                  <Text style={styles.extensionFieldValue}>
+                    {extensionDate ? formatDate(extensionDate) : "Select date"}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.extensionFieldButton}
+                  onPress={() => setExtensionPicker("time")}
+                >
+                  <Text style={styles.extensionFieldLabel}>New Return Time</Text>
+                  <Text style={styles.extensionFieldValue}>{formatTime(extensionTime)}</Text>
+                </TouchableOpacity>
+              </View>
+
+              {extensionPicker ? (
+                <View style={styles.extensionPickerWrap}>
+                  <DateTimePicker
+                    value={extensionPicker === "date" ? extensionDate || new Date() : extensionTime || new Date()}
+                    mode={extensionPicker}
+                    display={Platform.OS === "ios" ? "spinner" : "default"}
+                    minimumDate={extensionPicker === "date" ? currentExtensionEnd || new Date() : undefined}
+                    minuteInterval={30}
+                    onChange={handleExtensionPickerChange}
+                  />
+                  {Platform.OS === "ios" ? (
+                    <TouchableOpacity
+                      style={styles.extensionPickerDone}
+                      onPress={() => setExtensionPicker("")}
+                    >
+                      <Text style={styles.extensionPickerDoneText}>Done</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ) : null}
+
+              <Text style={styles.extensionFieldLabel}>Reason (Optional)</Text>
+              <TextInput
+                style={styles.extensionReasonInput}
+                value={extensionReason}
+                onChangeText={setExtensionReason}
+                placeholder="Tell FleetX why you need more time"
+                placeholderTextColor="#94a3b8"
+                multiline
+                maxLength={500}
+                textAlignVertical="top"
+              />
+
+              {extensionTimingError ? (
+                <Text style={styles.extensionValidationText}>{extensionTimingError}</Text>
+              ) : (
+                <Text style={styles.extensionHelperText}>
+                  The new return schedule is after your current return time.
+                </Text>
+              )}
+
+              <View style={styles.extensionModalActions}>
+                <TouchableOpacity
+                  style={styles.extensionModalCancel}
+                  onPress={closeExtensionModal}
+                  disabled={extensionSubmitting}
+                >
+                  <Text style={styles.extensionModalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.extensionModalSubmit,
+                    (Boolean(extensionTimingError) || extensionSubmitting) &&
+                      styles.actionButtonDisabled,
+                  ]}
+                  onPress={submitExtensionRequest}
+                  disabled={Boolean(extensionTimingError) || extensionSubmitting}
+                >
+                  {extensionSubmitting ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Text style={styles.extensionModalSubmitText}>Submit Request</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
     </SafeAreaView>
   );
