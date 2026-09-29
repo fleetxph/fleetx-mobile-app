@@ -759,26 +759,26 @@ export default function MyBookings({ navigation }) {
 
     return (
       <View style={styles.card}>
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => openBookedVehicleDetails(item)}
-        >
-          {imageUrl && !failedImages[imageKey] ? (
-            <Image
-              key={`${bookingId || "booking"}-${imageUrl}`}
-              source={{ uri: imageUrl }}
-              style={styles.carImage}
-              onError={() => setFailedImages((prev) => ({ ...prev, [imageKey]: true }))}
-            />
-          ) : (
-            <View style={styles.carImageFallback}>
-              <Text style={styles.carImageFallbackText}>Car</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+        <View style={styles.cardTopRow}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => openBookedVehicleDetails(item)}
+          >
+            {imageUrl && !failedImages[imageKey] ? (
+              <Image
+                key={`${bookingId || "booking"}-${imageUrl}`}
+                source={{ uri: imageUrl }}
+                style={styles.carImage}
+                onError={() => setFailedImages((prev) => ({ ...prev, [imageKey]: true }))}
+              />
+            ) : (
+              <View style={styles.carImageFallback}>
+                <Text style={styles.carImageFallbackText}>Car</Text>
+              </View>
+            )}
+          </TouchableOpacity>
 
-        <View style={styles.cardContent}>
-          <View style={styles.cardHeader}>
+          <View style={styles.cardSummary}>
             <TouchableOpacity
               style={styles.vehicleInfo}
               activeOpacity={0.8}
@@ -790,48 +790,49 @@ export default function MyBookings({ navigation }) {
               <Text style={styles.bookingCode}>{getReferenceNo(item)}</Text>
             </TouchableOpacity>
 
-            <View style={[styles.statusBadge, styles[`statusBadge_${meta.tone}`]]}>
-              <Text style={styles.statusText}>{meta.label}</Text>
-            </View>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => openBookedVehicleDetails(item)}
+            >
+              <View style={styles.locationRow}>
+                <Ionicons name="location-outline" size={13} color="#f97316" />
+                <Text style={styles.locationText} numberOfLines={1}>
+                  {item?.destination || item?.vehicleId?.location || "No destination"}
+                </Text>
+              </View>
+
+              <Text style={styles.dateText}>
+                {formatDate(item?.startDate)} to {formatDate(item?.endDate)} - {getDays(item?.startDate, item?.endDate)}
+              </Text>
+            </TouchableOpacity>
           </View>
-
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={() => openBookedVehicleDetails(item)}
-          >
-            <View style={styles.locationRow}>
-              <Ionicons name="location-outline" size={13} color="#f97316" />
-              <Text style={styles.locationText} numberOfLines={1}>
-                {item?.destination || item?.vehicleId?.location || "No destination"}
-              </Text>
-            </View>
-
-            <Text style={styles.dateText}>
-              {formatDate(item?.startDate)} to {formatDate(item?.endDate)} - {getDays(item?.startDate, item?.endDate)}
-            </Text>
-          </TouchableOpacity>
-
-          <View style={styles.cardFooter}>
-            <View>
-              <Text style={styles.totalText}>
-                {amountLabel}: PHP {Number(amountValue || 0).toLocaleString()}
-              </Text>
-              <Text style={styles.paymentText}>
-                Payment: <Text style={styles.paymentSubmitted}>{getPaymentLabel(item)}</Text>
-              </Text>
-            </View>
-            {!historyBooking && canCancelBooking(item) ? (
-              <TouchableOpacity onPress={() => handleCancel(item)}>
-                <Text style={styles.cancelLink}>Cancel</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-
-          <Text style={styles.statusSubtext}>{historyBooking ? meta.nextAction : nextAction}</Text>
-          {renderActions(item)}
-          {renderExtensionAction(item)}
-          {renderAdditionalInvoicePanel(item)}
         </View>
+
+        <View style={styles.cardFooter}>
+          <View>
+            <Text style={styles.totalText}>
+              {amountLabel}: PHP {Number(amountValue || 0).toLocaleString()}
+            </Text>
+            <Text style={styles.paymentText}>
+              Payment: <Text style={styles.paymentSubmitted}>{getPaymentLabel(item)}</Text>
+            </Text>
+          </View>
+          {!historyBooking && canCancelBooking(item) ? (
+            <TouchableOpacity onPress={() => handleCancel(item)}>
+              <Text style={styles.cancelLink}>Cancel</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        <View style={styles.bookingStatusRow}>
+          <View style={[styles.statusBadge, styles[`statusBadge_${meta.tone}`]]}>
+            <Text style={styles.statusText}>{meta.label}</Text>
+          </View>
+          <Text style={styles.statusSubtext}>{historyBooking ? meta.nextAction : nextAction}</Text>
+        </View>
+        {renderActions(item)}
+        {renderExtensionAction(item)}
+        {renderAdditionalInvoicePanel(item)}
       </View>
     );
   };

@@ -123,7 +123,6 @@ export const styles = StyleSheet.create({
   },
 
   card: {
-    flexDirection: "row",
     backgroundColor: "#ffffff",
     borderRadius: 18,
     padding: 13,
@@ -135,6 +134,11 @@ export const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
     elevation: 1,
+  },
+
+  cardTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
   },
 
   carImage: {
@@ -161,18 +165,13 @@ export const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  cardContent: {
+  cardSummary: {
     flex: 1,
-  },
-
-  cardHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
+    minWidth: 0,
   },
 
   vehicleInfo: {
-    flex: 1,
-    paddingRight: 8,
+    minWidth: 0,
   },
 
   vehicleName: {
@@ -301,9 +300,16 @@ export const styles = StyleSheet.create({
   },
 
   statusSubtext: {
+    flex: 1,
     color: "#64748b",
     fontSize: 11,
     fontWeight: "700",
+  },
+
+  bookingStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     marginTop: 10,
   },
 
