@@ -9,7 +9,6 @@ import {
   Modal,
   PermissionsAndroid,
   Platform,
-  SafeAreaView,
   ScrollView,
   Text,
   TextInput,
@@ -21,7 +20,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { getFriendlyApiErrorMessage, isUnauthorizedError } from "../api/api";
 import {
   createBooking,
@@ -6129,7 +6128,7 @@ export default function BookingWizardScreen({ route, navigation }) {
   );
 
   return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === "ios" ? "padding" : "height"}

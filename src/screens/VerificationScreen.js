@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
-  SafeAreaView,
   ScrollView,
   Text,
   TouchableOpacity,
@@ -12,6 +11,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { SafeAreaView } from "react-native-safe-area-context";
 import DocumentCaptureModal from "../components/DocumentCaptureModal";
 import DocumentExampleModal from "../components/DocumentExampleModal";
 import FaceCaptureModal, {
@@ -1330,7 +1330,7 @@ export default function VerificationScreen({ navigation, route }) {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
           <ActivityIndicator size="large" color="#f97316" />
           <Text style={[styles.subtitle, { marginTop: 12 }]}>Loading verification...</Text>
@@ -1345,7 +1345,7 @@ export default function VerificationScreen({ navigation, route }) {
   const [badgeStyle, badgeToneStyle, badgeTextStyle, badgeTextToneStyle] = getBadgeStyles(summaryStatusTone);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.contentContainer}
