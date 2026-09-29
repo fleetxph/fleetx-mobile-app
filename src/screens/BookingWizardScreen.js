@@ -3579,25 +3579,6 @@ export default function BookingWizardScreen({ route, navigation }) {
     }));
   };
 
-  const applyDurationPreset = (days) => {
-    if (!schedule.startDate) {
-      setErrors((prev) => ({
-        ...prev,
-        startDate: "Select a start date first.",
-      }));
-      return;
-    }
-
-    const baseDate = parseDateOnly(schedule.startDate);
-    if (!baseDate) return;
-
-    const nextEndDate = toDateInput(addDays(baseDate, days));
-    updateSchedule("endDate", nextEndDate);
-    if (!schedule.endTime && schedule.startTime) {
-      updateSchedule("endTime", schedule.startTime);
-    }
-  };
-
   const releaseStepAdvanceLock = () => {
     setTimeout(() => {
       stepAdvanceLockRef.current = false;
@@ -5011,31 +4992,14 @@ export default function BookingWizardScreen({ route, navigation }) {
         ))}
       </View>
 
-      {!isDirectBooking ? (
-        <View>
-          <Text style={styles.label}>Quick Duration</Text>
-          <View style={styles.chipsWrap}>
-            {[
-              ["1 day", 1],
-              ["2 days", 2],
-              ["3 days", 3],
-              ["7 days", 7],
-            ].map(([label, days]) => (
-              <TouchableOpacity
-                key={label}
-                style={styles.chip}
-                onPress={() => applyDurationPreset(days)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.chipText}>{label}</Text>
-              </TouchableOpacity>
-            ))}
-            <View style={styles.chip}>
-              <Text style={styles.chipText}>Custom</Text>
-            </View>
-          </View>
-        </View>
-      ) : null}
+      <Text style={styles.label}>
+        Number of Days:{" "}
+        {selectedRentalDuration.isComplete && selectedRentalDuration.rentalDays > 0
+          ? `${selectedRentalDuration.rentalDays} ${
+              selectedRentalDuration.rentalDays === 1 ? "day" : "days"
+            }`
+          : "—"}
+      </Text>
 
       <View
         style={[
