@@ -142,14 +142,29 @@ function TabIcon({ routeName, focused, color }) {
   return <IconComponent name={iconName} size={22} color={color} />;
 }
 
-function CustomPlanTabButton({ children, onPress }) {
+function CustomPlanTabButton({
+  onPress,
+  onLongPress,
+  accessibilityLabel,
+  accessibilityState,
+  testID,
+  style,
+}) {
   return (
     <TouchableOpacity
-      style={styles.planButtonWrapper}
+      style={[style, styles.planButtonWrapper]}
       onPress={onPress}
+      onLongPress={onLongPress}
       activeOpacity={0.9}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={accessibilityState}
+      testID={testID}
     >
-      <View style={styles.planButton}>{children}</View>
+      <View style={styles.planButton}>
+        <Feather name="map" size={28} color="#FFFFFF" />
+      </View>
+      <Text style={styles.planLabel}>Plan</Text>
     </TouchableOpacity>
   );
 }
@@ -252,7 +267,7 @@ function MainTabs() {
           tabBarLabel: "Plan",
           tabBarButton: (props) => <CustomPlanTabButton {...props} />,
           tabBarIcon: () => (
-            <Feather name="map" size={28} color="#FFFFFF" style={styles.planIcon} />
+            <Feather name="map" size={28} color="#FFFFFF" />
           ),
           tabBarLabelStyle: {
             fontSize: 11,
@@ -425,7 +440,7 @@ export default function App() {
 const styles = StyleSheet.create({
   planButtonWrapper: {
     top: -14,
-    justifyContent: "center",
+    justifyContent: "flex-start",
     alignItems: "center",
   },
   planButton: {
@@ -441,12 +456,12 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-  planIcon: {
-    width: 28,
-    height: 28,
-    lineHeight: 28,
+  planLabel: {
+    marginTop: 2,
+    color: "#F47C20",
+    fontSize: 11,
+    fontWeight: "700",
     textAlign: "center",
-    transform: [{ translateY: 4 }],
   },
   restoreSafe: {
     flex: 1,
