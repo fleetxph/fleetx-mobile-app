@@ -257,6 +257,14 @@ export async function cancelClientBooking(bookingId, payload = {}) {
   return response.data;
 }
 
+export async function requestBookingExtension(bookingId, payload) {
+  const response = await api.post(
+    `/client/bookings/${bookingId}/extension-request`,
+    payload
+  );
+  return response.data;
+}
+
 export async function getClientBookings() {
   const response = await api.get("/client/bookings");
   return response.data;

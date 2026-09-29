@@ -7,13 +7,13 @@ import {
   Image,
   Platform,
   Alert,
-  SafeAreaView,
   ActivityIndicator,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons, Feather } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { styles } from "../styles/profileStyle";
 import { clearClientSession, isUnauthorizedError } from "../api/api";
 import {
@@ -400,7 +400,7 @@ export default function ProfileScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView style={styles.root} edges={["top"]}>
       {!hasToken && authChecked ? (
         <>
           <ScrollView

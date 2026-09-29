@@ -35,7 +35,9 @@ import ChangePasswordScreen from "./src/screens/ChangePasswordScreen";
 import ClientDashboard from "./src/screens/ClientDashboard";
 import BrowseVehicles from "./src/screens/BrowseVehicles";
 import VehicleDetails from "./src/screens/VehicleDetails";
-import BookingWizardScreen from "./src/screens/BookingWizardScreen";
+import BookingWizardScreen, {
+  getActiveBookingWizardTabGuard,
+} from "./src/screens/BookingWizardScreen";
 import MyBookings from "./src/screens/MyBookings";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import PlanScreen from "./src/screens/PlanScreen";
@@ -140,14 +142,29 @@ function TabIcon({ routeName, focused, color }) {
   return <IconComponent name={iconName} size={22} color={color} />;
 }
 
-function CustomPlanTabButton({ children, onPress }) {
+function CustomPlanTabButton({
+  onPress,
+  onLongPress,
+  accessibilityLabel,
+  accessibilityState,
+  testID,
+  style,
+}) {
   return (
     <TouchableOpacity
-      style={styles.planButtonWrapper}
+      style={[style, styles.planButtonWrapper]}
       onPress={onPress}
+      onLongPress={onLongPress}
       activeOpacity={0.9}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={accessibilityState}
+      testID={testID}
     >
-      <View style={styles.planButton}>{children}</View>
+      <View style={styles.planButton}>
+        <Feather name="map" size={28} color="#FFFFFF" />
+      </View>
+      <Text style={styles.planLabel}>Plan</Text>
     </TouchableOpacity>
   );
 }
@@ -165,6 +182,27 @@ function MainTabs() {
 
   return (
     <Tab.Navigator
+      screenListeners={({ navigation, route }) => ({
+        tabPress: (event) => {
+          if (event.defaultPrevented) return;
+
+          const state = navigation.getState();
+          const focusedRoute = state.routes[state.index];
+          const guard = getActiveBookingWizardTabGuard();
+
+          if (!guard || (focusedRoute?.key === route.key && route.name !== "Browse")) return;
+
+          event.preventDefault();
+          guard.requestNavigation(() => {
+            if (route.name === "Browse") {
+              navigation.navigate("Browse", { screen: "BrowseMain" });
+              return;
+            }
+
+            navigation.navigate(route.name, route.params);
+          });
+        },
+      })}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: true,
@@ -177,15 +215,16 @@ function MainTabs() {
         },
         tabBarStyle: {
           position: "absolute",
-          left: 12,
-          right: 12,
-          bottom: Math.max(8, insets.bottom),
-          height: 66,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 66 + insets.bottom,
           borderTopWidth: 0,
-          borderRadius: 22,
+          borderTopLeftRadius: 22,
+          borderTopRightRadius: 22,
           backgroundColor: "#FFFFFF",
           paddingTop: 8,
-          paddingBottom: 6,
+          paddingBottom: Math.max(6, insets.bottom),
           shadowColor: "#000",
           shadowOffset: { width: 0, height: 6 },
           shadowOpacity: 0.08,
@@ -213,7 +252,8 @@ function MainTabs() {
           popToTopOnBlur: true,
         }}
         listeners={({ navigation }) => ({
-          tabPress: () => {
+          tabPress: (event) => {
+            if (event.defaultPrevented) return;
             navigation.navigate("Browse", {
               screen: "BrowseMain",
             });
@@ -228,7 +268,7 @@ function MainTabs() {
           tabBarLabel: "Plan",
           tabBarButton: (props) => <CustomPlanTabButton {...props} />,
           tabBarIcon: () => (
-            <Feather name="map" size={28} color="#FFFFFF" style={styles.planIcon} />
+            <Feather name="map" size={28} color="#FFFFFF" />
           ),
           tabBarLabelStyle: {
             fontSize: 11,
@@ -401,7 +441,7 @@ export default function App() {
 const styles = StyleSheet.create({
   planButtonWrapper: {
     top: -14,
-    justifyContent: "center",
+    justifyContent: "flex-start",
     alignItems: "center",
   },
   planButton: {
@@ -417,12 +457,12 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-  planIcon: {
-    width: 28,
-    height: 28,
-    lineHeight: 28,
+  planLabel: {
+    marginTop: 2,
+    color: "#F47C20",
+    fontSize: 11,
+    fontWeight: "700",
     textAlign: "center",
-    transform: [{ translateY: 4 }],
   },
   restoreSafe: {
     flex: 1,

@@ -278,22 +278,42 @@ export const styles = StyleSheet.create({
   },
 
   imageWrap: {
-    height: 205,
+    height: 180,
     marginHorizontal: 14,
     marginTop: 14,
     borderRadius: 16,
+    overflow: "hidden",
     backgroundColor: "#FCFCFB",
     borderWidth: 1,
     borderColor: "#F6EEE7",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
   },
 
   image: {
     width: "100%",
     height: "100%",
+    zIndex: 1,
+  },
+
+  imageBackdrop: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    opacity: 0.28,
+  },
+
+  imageBackdropOverlay: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: "rgba(255, 255, 255, 0.32)",
   },
 
   imageFallback: {

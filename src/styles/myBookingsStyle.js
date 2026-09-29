@@ -21,9 +21,9 @@ export const styles = StyleSheet.create({
   },
 
   backButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#f1f5f9",
     alignItems: "center",
     justifyContent: "center",
@@ -123,7 +123,6 @@ export const styles = StyleSheet.create({
   },
 
   card: {
-    flexDirection: "row",
     backgroundColor: "#ffffff",
     borderRadius: 18,
     padding: 13,
@@ -135,6 +134,11 @@ export const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
     elevation: 1,
+  },
+
+  cardTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
   },
 
   carImage: {
@@ -161,18 +165,13 @@ export const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  cardContent: {
+  cardSummary: {
     flex: 1,
-  },
-
-  cardHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
+    minWidth: 0,
   },
 
   vehicleInfo: {
-    flex: 1,
-    paddingRight: 8,
+    minWidth: 0,
   },
 
   vehicleName: {
@@ -301,9 +300,16 @@ export const styles = StyleSheet.create({
   },
 
   statusSubtext: {
+    flex: 1,
     color: "#64748b",
     fontSize: 11,
     fontWeight: "700",
+  },
+
+  bookingStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     marginTop: 10,
   },
 
@@ -370,6 +376,106 @@ export const styles = StyleSheet.create({
     padding: 12,
   },
 
+  extensionPanel: {
+    marginTop: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#bae6fd",
+    backgroundColor: "#f0f9ff",
+    padding: 12,
+    gap: 10,
+  },
+
+  extensionStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+
+  extensionStatusText: {
+    flex: 1,
+    color: "#0369a1",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
+  extensionStatusPending: {
+    color: "#b45309",
+  },
+
+  extensionButton: {
+    minHeight: 42,
+    borderRadius: 12,
+    backgroundColor: "#0369a1",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+
+  extensionButtonText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  additionalInvoicePanel: {
+    marginTop: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#f8fafc",
+    padding: 12,
+  },
+
+  additionalInvoiceTitle: {
+    color: "#0f172a",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  additionalInvoiceSubtitle: {
+    color: "#64748b",
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+
+  additionalInvoiceRow: {
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+    paddingVertical: 7,
+  },
+
+  additionalInvoiceLabel: {
+    color: "#64748b",
+    fontSize: 10,
+    fontWeight: "600",
+  },
+
+  additionalInvoiceValue: {
+    color: "#0f172a",
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+
+  additionalInvoiceButton: {
+    minHeight: 42,
+    borderRadius: 12,
+    backgroundColor: "#0f172a",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    marginTop: 10,
+  },
+
+  additionalInvoiceButtonText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
   panelTitle: {
     color: "#111827",
     fontSize: 13,
@@ -407,6 +513,194 @@ export const styles = StyleSheet.create({
     color: "#9a3412",
     fontSize: 11,
     fontWeight: "600",
+  },
+
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(15, 23, 42, 0.48)",
+  },
+
+  extensionModalSheet: {
+    maxHeight: "90%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 28,
+  },
+
+  extensionModalHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 16,
+  },
+
+  extensionModalHeading: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
+  extensionModalTitle: {
+    color: "#0f172a",
+    fontSize: 20,
+    fontWeight: "700",
+  },
+
+  extensionModalSubtitle: {
+    color: "#64748b",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 5,
+  },
+
+  extensionModalClose: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#f1f5f9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  currentReturnCard: {
+    borderRadius: 14,
+    backgroundColor: "#f8fafc",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    padding: 12,
+    marginBottom: 14,
+  },
+
+  currentReturnValue: {
+    color: "#0f172a",
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 4,
+  },
+
+  extensionFieldRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 14,
+  },
+
+  extensionFieldButton: {
+    flex: 1,
+    minHeight: 68,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#ffffff",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+
+  extensionFieldLabel: {
+    color: "#64748b",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
+  extensionFieldValue: {
+    color: "#0f172a",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 5,
+  },
+
+  extensionPickerWrap: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#f8fafc",
+    padding: 10,
+    marginBottom: 14,
+  },
+
+  extensionPickerDone: {
+    minHeight: 40,
+    borderRadius: 12,
+    backgroundColor: "#e0f2fe",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 6,
+  },
+
+  extensionPickerDoneText: {
+    color: "#0369a1",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  extensionReasonInput: {
+    minHeight: 92,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#ffffff",
+    color: "#0f172a",
+    fontSize: 13,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginTop: 7,
+  },
+
+  extensionValidationText: {
+    color: "#b91c1c",
+    fontSize: 11,
+    fontWeight: "600",
+    lineHeight: 17,
+    marginTop: 8,
+  },
+
+  extensionHelperText: {
+    color: "#15803d",
+    fontSize: 11,
+    fontWeight: "600",
+    lineHeight: 17,
+    marginTop: 8,
+  },
+
+  extensionModalActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 18,
+  },
+
+  extensionModalCancel: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  extensionModalCancelText: {
+    color: "#475569",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  extensionModalSubmit: {
+    flex: 1.4,
+    minHeight: 46,
+    borderRadius: 14,
+    backgroundColor: "#f97316",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+
+  extensionModalSubmitText: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "700",
   },
 
   cancelLink: {

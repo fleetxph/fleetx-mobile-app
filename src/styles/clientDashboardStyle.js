@@ -414,7 +414,7 @@ export const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 20,
     minHeight: 88,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 13,
     justifyContent: "center",
     shadowColor: "#0f172a",
@@ -439,13 +439,13 @@ export const styles = StyleSheet.create({
   quickAccessCardContent: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 7,
   },
 
   quickIconBox: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -472,9 +472,11 @@ export const styles = StyleSheet.create({
 
   quickAccessTitle: {
     flex: 1,
-    fontSize: 15,
+    minWidth: 0,
+    flexShrink: 1,
+    fontSize: 13,
     fontWeight: "700",
-    lineHeight: 20,
+    lineHeight: 17,
   },
 
   quickAccessChevron: {

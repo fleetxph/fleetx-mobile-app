@@ -1329,7 +1329,7 @@ export const styles = StyleSheet.create({
     flex: 0,
   },
   bottomSpacer: {
-    height: 56,
+    height: 16,
   },
   primaryButton: {
     flex: 1,

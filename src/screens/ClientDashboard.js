@@ -600,6 +600,8 @@ export default function ClientDashboard({ navigation }) {
                           ? styles.quickAccessCardDarkText
                           : styles.quickAccessCardLightText,
                       ]}
+                      numberOfLines={2}
+                      ellipsizeMode="tail"
                     >
                       {item.title}
                     </Text>
