@@ -213,13 +213,15 @@ export default function ChangePasswordScreen({ navigation }) {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={authStyles.scrollContentTop}
         >
-          <TouchableOpacity
-            style={authStyles.backButton}
-            onPress={() => navigation.goBack()}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="chevron-back" size={22} color={authColors.primary} />
-          </TouchableOpacity>
+          <View style={localStyles.backButtonRow}>
+            <TouchableOpacity
+              style={authStyles.backButton}
+              onPress={() => navigation.goBack()}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="chevron-back" size={22} color={authColors.primary} />
+            </TouchableOpacity>
+          </View>
 
           <View style={authStyles.brandArea}>
             <View style={authStyles.logoWrapper}>
@@ -295,6 +297,10 @@ export default function ChangePasswordScreen({ navigation }) {
 const localStyles = StyleSheet.create({
   keyboard: {
     flex: 1,
+  },
+  backButtonRow: {
+    paddingHorizontal: 22,
+    paddingTop: 10,
   },
   fieldBlock: {
     marginBottom: 2,
