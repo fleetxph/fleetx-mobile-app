@@ -2,6 +2,43 @@ import { StyleSheet } from "react-native";
 import { colors } from "../theme/colors";
 
 export const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 10,
+  },
+
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+
+  headerTitle: {
+    flex: 1,
+    color: colors.heading,
+    fontSize: 18,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+
+  headerSideSpacer: {
+    width: 44,
+    height: 44,
+  },
+
   container: {
     flex: 1,
     backgroundColor: colors.background,

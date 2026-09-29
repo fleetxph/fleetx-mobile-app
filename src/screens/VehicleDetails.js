@@ -8,6 +8,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { getVehicleBookings, getVehicleById } from "../api/clientApi";
 import { styles } from "../styles/vehicleDetailsStyle";
 import {
@@ -389,11 +391,26 @@ export default function VehicleDetails({ route, navigation }) {
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.contentContainer, { paddingBottom: 140 }]}
-      showsVerticalScrollIndicator={false}
-    >
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+      <View style={styles.headerRow}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="chevron-back" size={22} color="#0F172A" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Vehicle Details</Text>
+        <View style={styles.headerSideSpacer} />
+      </View>
+
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[styles.contentContainer, { paddingBottom: 140 }]}
+        showsVerticalScrollIndicator={false}
+      >
       {vehicleLoading && !routeVehicle ? (
         <View style={styles.infoCard}>
           <ActivityIndicator size="small" color="#F47C20" />
@@ -732,12 +749,13 @@ export default function VehicleDetails({ route, navigation }) {
         </View>
       </View>
 
-      <TouchableOpacity
-        onPress={handleContinueBooking}
-        style={[styles.button, !canContinue && styles.buttonDisabled]}
-      >
-        <Text style={styles.buttonText}>Continue Booking</Text>
-      </TouchableOpacity>
-    </ScrollView>
+        <TouchableOpacity
+          onPress={handleContinueBooking}
+          style={[styles.button, !canContinue && styles.buttonDisabled]}
+        >
+          <Text style={styles.buttonText}>Continue Booking</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
