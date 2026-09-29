@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import MapView from "react-native-maps";
+import MapView from "./LocationPickerMap";
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import {
