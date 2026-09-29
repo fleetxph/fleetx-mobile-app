@@ -20,6 +20,7 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useIsFocused } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getFriendlyApiErrorMessage, isUnauthorizedError } from "../api/api";
 import {
@@ -214,6 +215,12 @@ const DEFAULT_ROUTE_GUIDANCE_MESSAGE =
   "Complete the route and schedule so we can validate the minimum trip duration.";
 const ROUTE_VALIDATION_FALLBACK_MESSAGE =
   "Route timing could not be verified right now. You can continue, but final duration may still be reviewed before invoice issuance.";
+
+let activeBookingWizardTabGuard = null;
+
+export function getActiveBookingWizardTabGuard() {
+  return activeBookingWizardTabGuard;
+}
 
 function formatPeso(value) {
   return `PHP ${Number(value || 0).toLocaleString()}`;
@@ -978,11 +985,14 @@ function normalizeVerificationLabel(data, user) {
 
 export default function BookingWizardScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
+  const isWizardFocused = useIsFocused();
   const scrollRef = useRef(null);
   const fieldLayouts = useRef({});
   const focusedFieldRef = useRef(null);
   const scrollTimeoutRef = useRef(null);
   const stepAdvanceLockRef = useRef(false);
+  const allowNavigationRef = useRef(false);
+  const discardConfirmationVisibleRef = useRef(false);
   const locationSearchRequestRef = useRef({ destination: 0, pickupLocation: 0 });
   const routeValidationRequestRef = useRef(0);
   const { width } = useWindowDimensions();
@@ -2962,13 +2972,22 @@ export default function BookingWizardScreen({ route, navigation }) {
     setOptionPicker("");
   };
 
+  const runWithNavigationGuardBypass = (navigate) => {
+    allowNavigationRef.current = true;
+    try {
+      navigate();
+    } finally {
+      allowNavigationRef.current = false;
+    }
+  };
+
   const closeGateAndNavigate = (routeName, params = {}) => {
     closeTransientBookingUi();
     setActiveGate(null);
 
     InteractionManager.runAfterInteractions(() => {
       setTimeout(() => {
-        navigation.navigate(routeName, params);
+        runWithNavigationGuardBypass(() => navigation.navigate(routeName, params));
       }, 250);
     });
   };
@@ -3307,16 +3326,61 @@ export default function BookingWizardScreen({ route, navigation }) {
     });
   };
 
+  const confirmDiscardBookingProgress = (onDiscard) => {
+    if (discardConfirmationVisibleRef.current) return;
+
+    discardConfirmationVisibleRef.current = true;
+    let handled = false;
+    const releaseConfirmation = () => {
+      discardConfirmationVisibleRef.current = false;
+    };
+
+    Alert.alert(
+      "Discard booking progress?",
+      "Your unsaved booking details will be cleared.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+          onPress: () => {
+            handled = true;
+            releaseConfirmation();
+          },
+        },
+        {
+          text: "Discard",
+          style: "destructive",
+          onPress: async () => {
+            handled = true;
+            try {
+              await onDiscard();
+            } finally {
+              releaseConfirmation();
+            }
+          },
+        },
+      ],
+      {
+        cancelable: true,
+        onDismiss: () => {
+          if (!handled) releaseConfirmation();
+        },
+      }
+    );
+  };
+
   const handleExitBookingWizard = (target = "Home") => {
     const leaveWizard = async () => {
       await resetBookingWizardState(`exit-to-${String(target || "home").toLowerCase()}`);
 
-      if (target === "Browse") {
-        openBrowseRoot();
-        return;
-      }
+      runWithNavigationGuardBypass(() => {
+        if (target === "Browse") {
+          openBrowseRoot();
+          return;
+        }
 
-      navigation.navigate("Home");
+        navigation.navigate("Home");
+      });
     };
 
     if (!hasUnsavedWizardInputs) {
@@ -3324,21 +3388,42 @@ export default function BookingWizardScreen({ route, navigation }) {
       return;
     }
 
-    Alert.alert(
-      "Discard booking progress?",
-      "Your unsaved booking details will be cleared.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Discard",
-          style: "destructive",
-          onPress: () => {
-            leaveWizard();
-          },
-        },
-      ]
-    );
+    confirmDiscardBookingProgress(leaveWizard);
   };
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", (event) => {
+      if (!hasUnsavedWizardInputs || success || allowNavigationRef.current) return;
+
+      event.preventDefault();
+      confirmDiscardBookingProgress(async () => {
+        await resetBookingWizardState("navigation-away");
+        runWithNavigationGuardBypass(() => navigation.dispatch(event.data.action));
+      });
+    });
+
+    return unsubscribe;
+  }, [hasUnsavedWizardInputs, navigation, success]);
+
+  useEffect(() => {
+    if (!isWizardFocused || !hasUnsavedWizardInputs || success) return undefined;
+
+    const guard = {
+      requestNavigation: (continueNavigation) => {
+        confirmDiscardBookingProgress(async () => {
+          await resetBookingWizardState("tab-navigation-away");
+          runWithNavigationGuardBypass(continueNavigation);
+        });
+      },
+    };
+
+    activeBookingWizardTabGuard = guard;
+    return () => {
+      if (activeBookingWizardTabGuard === guard) {
+        activeBookingWizardTabGuard = null;
+      }
+    };
+  }, [hasUnsavedWizardInputs, isWizardFocused, success]);
 
   const promptGuestSignIn = async (currentStepOverride = "") => {
     if (activeGate || submitLoading) return;
@@ -3681,33 +3766,35 @@ export default function BookingWizardScreen({ route, navigation }) {
     const planTripData = buildPlannerTripData();
     const pricingPreviewForVehicle = buildPlannerPricingPreview(vehicle);
 
-    navigation.navigate("Browse", {
-      screen: "BookingWizard",
-      params: {
-        vehicle,
-        vehicleId,
-        selectedVehicle: vehicle,
-        entryMode: "directVehicle",
-        mode: "direct",
-        fromPlanMyTrip: true,
-        source: "planTrip",
-        plannerSource: "planTrip",
-        pickupDate: schedule.startDate
-          ? new Date(`${schedule.startDate}T00:00:00`).toISOString()
-          : "",
-        returnDate: schedule.endDate
-          ? new Date(`${schedule.endDate}T00:00:00`).toISOString()
-          : "",
-        pricingPreview: pricingPreviewForVehicle,
-        tripData: {
-          ...planTripData,
-          estimatedTotal: pricingPreviewForVehicle.estimatedTotal,
-          downPayment: pricingPreviewForVehicle.downPayment,
-          remainingBalance: pricingPreviewForVehicle.remainingBalance,
-          totalHours: pricingPreviewForVehicle.totalHours,
-          billingLabel: pricingPreviewForVehicle.billingLabel,
+    runWithNavigationGuardBypass(() => {
+      navigation.navigate("Browse", {
+        screen: "BookingWizard",
+        params: {
+          vehicle,
+          vehicleId,
+          selectedVehicle: vehicle,
+          entryMode: "directVehicle",
+          mode: "direct",
+          fromPlanMyTrip: true,
+          source: "planTrip",
+          plannerSource: "planTrip",
+          pickupDate: schedule.startDate
+            ? new Date(`${schedule.startDate}T00:00:00`).toISOString()
+            : "",
+          returnDate: schedule.endDate
+            ? new Date(`${schedule.endDate}T00:00:00`).toISOString()
+            : "",
+          pricingPreview: pricingPreviewForVehicle,
+          tripData: {
+            ...planTripData,
+            estimatedTotal: pricingPreviewForVehicle.estimatedTotal,
+            downPayment: pricingPreviewForVehicle.downPayment,
+            remainingBalance: pricingPreviewForVehicle.remainingBalance,
+            totalHours: pricingPreviewForVehicle.totalHours,
+            billingLabel: pricingPreviewForVehicle.billingLabel,
+          },
         },
-      },
+      });
     });
   };
 
@@ -3719,20 +3806,22 @@ export default function BookingWizardScreen({ route, navigation }) {
 
     const parentNavigation = navigation.getParent?.();
 
-    navigation.reset?.({
-      index: 0,
-      routes: [{ name: "BrowseMain" }],
+    runWithNavigationGuardBypass(() => {
+      navigation.reset?.({
+        index: 0,
+        routes: [{ name: "BrowseMain" }],
+      });
     });
 
     if (parentNavigation?.navigate) {
       InteractionManager.runAfterInteractions(() => {
-        parentNavigation.navigate("Plan", params);
+        runWithNavigationGuardBypass(() => parentNavigation.navigate("Plan", params));
       });
       return;
     }
 
     InteractionManager.runAfterInteractions(() => {
-      navigation.navigate("Plan", params);
+      runWithNavigationGuardBypass(() => navigation.navigate("Plan", params));
     });
   };
 

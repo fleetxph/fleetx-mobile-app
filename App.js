@@ -35,7 +35,9 @@ import ChangePasswordScreen from "./src/screens/ChangePasswordScreen";
 import ClientDashboard from "./src/screens/ClientDashboard";
 import BrowseVehicles from "./src/screens/BrowseVehicles";
 import VehicleDetails from "./src/screens/VehicleDetails";
-import BookingWizardScreen from "./src/screens/BookingWizardScreen";
+import BookingWizardScreen, {
+  getActiveBookingWizardTabGuard,
+} from "./src/screens/BookingWizardScreen";
 import MyBookings from "./src/screens/MyBookings";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import PlanScreen from "./src/screens/PlanScreen";
@@ -165,6 +167,27 @@ function MainTabs() {
 
   return (
     <Tab.Navigator
+      screenListeners={({ navigation, route }) => ({
+        tabPress: (event) => {
+          if (event.defaultPrevented) return;
+
+          const state = navigation.getState();
+          const focusedRoute = state.routes[state.index];
+          const guard = getActiveBookingWizardTabGuard();
+
+          if (!guard || (focusedRoute?.key === route.key && route.name !== "Browse")) return;
+
+          event.preventDefault();
+          guard.requestNavigation(() => {
+            if (route.name === "Browse") {
+              navigation.navigate("Browse", { screen: "BrowseMain" });
+              return;
+            }
+
+            navigation.navigate(route.name, route.params);
+          });
+        },
+      })}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: true,
@@ -213,7 +236,8 @@ function MainTabs() {
           popToTopOnBlur: true,
         }}
         listeners={({ navigation }) => ({
-          tabPress: () => {
+          tabPress: (event) => {
+            if (event.defaultPrevented) return;
             navigation.navigate("Browse", {
               screen: "BrowseMain",
             });
