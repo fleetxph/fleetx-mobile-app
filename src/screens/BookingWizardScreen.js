@@ -207,7 +207,7 @@ const KEYBOARD_RESYNC_DELAY = 60;
 const TOP_RESERVED_SPACE = 80;
 const BOTTOM_RESERVED_SPACE = 24;
 const SMALL_HIT_SLOP = { top: 10, bottom: 10, left: 10, right: 10 };
-const BOOKING_BOTTOM_PADDING = 220;
+const BOOKING_BOTTOM_PADDING = 120;
 const BOOKING_BOTTOM_PADDING_WITH_KEYBOARD = 320;
 const ROUTE_VALIDATION_DEBOUNCE = 550;
 const DEFAULT_ROUTE_GUIDANCE_MESSAGE =
@@ -1592,10 +1592,14 @@ export default function BookingWizardScreen({ route, navigation }) {
     unavailableDateKeys,
   ]);
   const scrollBottomPadding =
-    Math.max(
-      keyboardHeight ? keyboardHeight + 160 : BOOKING_BOTTOM_PADDING,
-      keyboardHeight ? BOOKING_BOTTOM_PADDING_WITH_KEYBOARD : BOOKING_BOTTOM_PADDING
-    ) + insets.bottom;
+    (keyboardHeight
+      ? Platform.OS === "android"
+        ? 160
+        : Math.max(
+            keyboardHeight + 160,
+            BOOKING_BOTTOM_PADDING_WITH_KEYBOARD
+          )
+      : BOOKING_BOTTOM_PADDING) + insets.bottom;
 
   const handleFieldLayout = (key, event) => {
     const { y = 0, height = 0 } = event?.nativeEvent?.layout || {};
