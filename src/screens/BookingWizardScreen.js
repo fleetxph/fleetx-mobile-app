@@ -1498,6 +1498,68 @@ export default function BookingWizardScreen({ route, navigation }) {
     scheduleDateError,
   ]);
   const shouldDisableContinue = currentStep === 2 ? !step2ValidationState.canContinue : false;
+  const checkoutValidationState = useMemo(() => {
+    const effectiveReturnArrangement = isWithDriver
+      ? "return_to_office"
+      : normalizeReturnArrangementValue(returnArrangementType, {
+          vehicleHandoffOption,
+          allowPickupSameLocation: true,
+        });
+    const paymentMethodUnavailable = Boolean(paymentMethodsError) && !selectedPaymentMethodId;
+    const paymentMethodError =
+      paymentMethodsLoading || paymentMethodsError
+        ? ""
+        : !selectedPaymentMethodId || !paymentMethod
+        ? "Please select a payment method."
+        : "";
+    const paymentOptionError = !paymentOption ? "Please select a payment amount." : "";
+    const vehicleHandoffError = !normalizePickupOptionValue(vehicleHandoffOption)
+      ? "Please choose how you want to receive the vehicle."
+      : "";
+    const returnArrangementError =
+      isSelfDrive && !effectiveReturnArrangement
+        ? "Please select your return arrangement."
+        : "";
+    const returnPickupAddressError =
+      isSelfDrive &&
+      effectiveReturnArrangement === "pickup_different_location" &&
+      !String(returnPickupAddress || "").trim()
+        ? "Return pickup address is required when requesting vehicle pickup."
+        : "";
+    const termsError = !acceptedTerms
+      ? "Please accept the booking terms to submit."
+      : "";
+
+    return {
+      paymentMethodError,
+      paymentOptionError,
+      vehicleHandoffError,
+      returnArrangementError,
+      returnPickupAddressError,
+      termsError,
+      canSubmit:
+        !paymentMethodsLoading &&
+        !paymentMethodUnavailable &&
+        !paymentMethodError &&
+        !paymentOptionError &&
+        !vehicleHandoffError &&
+        !returnArrangementError &&
+        !returnPickupAddressError &&
+        !termsError,
+    };
+  }, [
+    acceptedTerms,
+    isSelfDrive,
+    isWithDriver,
+    paymentMethod,
+    paymentMethodsError,
+    paymentMethodsLoading,
+    paymentOption,
+    returnArrangementType,
+    returnPickupAddress,
+    selectedPaymentMethodId,
+    vehicleHandoffOption,
+  ]);
   const selectedStartDateValue = useMemo(
     () => (schedule.startDate ? toMidnight(new Date(`${schedule.startDate}T00:00:00`)) : null),
     [schedule.startDate]
@@ -4187,6 +4249,19 @@ export default function BookingWizardScreen({ route, navigation }) {
         return;
       }
 
+      if (!checkoutValidationState.canSubmit) {
+        setErrors((prev) => ({
+          ...prev,
+          paymentMethod: checkoutValidationState.paymentMethodError,
+          paymentOption: checkoutValidationState.paymentOptionError,
+          vehicleHandoffOption: checkoutValidationState.vehicleHandoffError,
+          returnArrangementType: checkoutValidationState.returnArrangementError,
+          returnPickupAddress: checkoutValidationState.returnPickupAddressError,
+          terms: checkoutValidationState.termsError,
+        }));
+        return;
+      }
+
       if (!paymentMethod || !selectedPaymentMethodId) {
         Alert.alert(
           "Payment option required",
@@ -5831,8 +5906,10 @@ export default function BookingWizardScreen({ route, navigation }) {
                 })
               )}
             </View>
-            {errors.vehicleHandoffOption ? (
-              <Text style={styles.errorText}>{errors.vehicleHandoffOption}</Text>
+            {errors.vehicleHandoffOption || checkoutValidationState.vehicleHandoffError ? (
+              <Text style={styles.errorText}>
+                {errors.vehicleHandoffOption || checkoutValidationState.vehicleHandoffError}
+              </Text>
             ) : null}
 
             <Text style={styles.reviewGroupTitle}>Return arrangement</Text>
@@ -5929,14 +6006,18 @@ export default function BookingWizardScreen({ route, navigation }) {
                     style={styles.promoInput}
                   />
                 </View>
-                {errors.returnPickupAddress ? (
-                  <Text style={styles.errorText}>{errors.returnPickupAddress}</Text>
+                {errors.returnPickupAddress || checkoutValidationState.returnPickupAddressError ? (
+                  <Text style={styles.errorText}>
+                    {errors.returnPickupAddress || checkoutValidationState.returnPickupAddressError}
+                  </Text>
                 ) : null}
               </View>
             ) : null}
 
-            {errors.returnArrangementType ? (
-              <Text style={styles.errorText}>{errors.returnArrangementType}</Text>
+            {errors.returnArrangementType || checkoutValidationState.returnArrangementError ? (
+              <Text style={styles.errorText}>
+                {errors.returnArrangementType || checkoutValidationState.returnArrangementError}
+              </Text>
             ) : null}
           </View>
         ) : null}
@@ -5970,11 +6051,17 @@ export default function BookingWizardScreen({ route, navigation }) {
                     onPress: () => {
                       setSelectedPaymentMethodId(methodSelectionKey);
                       setPaymentMethod(formatPaymentMethodName(method?.name || ""));
+                      setErrors((prev) => ({ ...prev, paymentMethod: "" }));
                     },
                   });
                 })
               : null}
           </View>
+          {errors.paymentMethod || checkoutValidationState.paymentMethodError ? (
+            <Text style={styles.errorText}>
+              {errors.paymentMethod || checkoutValidationState.paymentMethodError}
+            </Text>
+          ) : null}
 
           <Text style={styles.reviewSectionTitle}>Payment amount</Text>
           <View style={styles.paymentOptionGrid}>
@@ -5984,10 +6071,18 @@ export default function BookingWizardScreen({ route, navigation }) {
                 selected: paymentOption === option.value,
                 title: option.label,
                 description: option.description,
-                onPress: () => setPaymentOption(option.value),
+                onPress: () => {
+                  setPaymentOption(option.value);
+                  setErrors((prev) => ({ ...prev, paymentOption: "" }));
+                },
               })
             )}
           </View>
+          {errors.paymentOption || checkoutValidationState.paymentOptionError ? (
+            <Text style={styles.errorText}>
+              {errors.paymentOption || checkoutValidationState.paymentOptionError}
+            </Text>
+          ) : null}
 
           <View style={styles.promoSection}>
             <Text style={styles.promoLabel}>Have a promo code?</Text>
@@ -6068,7 +6163,10 @@ export default function BookingWizardScreen({ route, navigation }) {
         <TouchableOpacity
           style={styles.termsBox}
           activeOpacity={0.9}
-          onPress={() => setAcceptedTerms((value) => !value)}
+          onPress={() => {
+            setAcceptedTerms((value) => !value);
+            setErrors((prev) => ({ ...prev, terms: "" }));
+          }}
         >
           <Ionicons
             name={acceptedTerms ? "checkbox" : "square-outline"}
@@ -6079,6 +6177,11 @@ export default function BookingWizardScreen({ route, navigation }) {
             I agree to FleetX booking terms, verification review, payment deadlines, and cancellation rules.
           </Text>
         </TouchableOpacity>
+        {errors.terms || checkoutValidationState.termsError ? (
+          <Text style={styles.errorText}>
+            {errors.terms || checkoutValidationState.termsError}
+          </Text>
+        ) : null}
 
         <View style={styles.footer}>
           <TouchableOpacity
@@ -6094,10 +6197,11 @@ export default function BookingWizardScreen({ route, navigation }) {
             style={[
               styles.primaryButton,
               styles.reviewSubmitButton,
-              (submitLoading || !acceptedTerms || Boolean(activeGate)) && styles.buttonDisabled,
+              (submitLoading || !checkoutValidationState.canSubmit || Boolean(activeGate)) &&
+                styles.buttonDisabled,
             ]}
             onPress={submitBooking}
-            disabled={submitLoading || !acceptedTerms || Boolean(activeGate)}
+            disabled={submitLoading || !checkoutValidationState.canSubmit || Boolean(activeGate)}
             activeOpacity={0.9}
           >
             <Text style={styles.primaryButtonText}>
