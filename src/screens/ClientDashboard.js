@@ -546,7 +546,7 @@ export default function ClientDashboard({ navigation }) {
                         key={`type-${item.key}-${item.image}`}
                         source={{ uri: item.image }}
                         style={styles.typeChipImage}
-                        resizeMode="contain"
+                        resizeMode="cover"
                         onError={() => markImageFailed(`type-${item.key}`)}
                       />
                     ) : (

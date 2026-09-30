@@ -347,8 +347,7 @@ export const styles = StyleSheet.create({
     borderColor: "#F1F5F9",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 5,
-    paddingVertical: 4,
+    overflow: "hidden",
     marginBottom: 7,
   },
 
