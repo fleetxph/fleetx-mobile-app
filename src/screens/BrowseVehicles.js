@@ -145,7 +145,6 @@ export default function BrowseVehicles({ navigation, route }) {
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [failedImages, setFailedImages] = useState({});
-  const [imageAspectRatios, setImageAspectRatios] = useState({});
   const requestGenerationRef = useRef(0);
   const loadingNextPageRef = useRef(false);
   const serverParams = useMemo(() => {
@@ -554,14 +553,6 @@ export default function BrowseVehicles({ navigation, route }) {
     const vehicleId = item?._id || item?.id || item?.plateNo;
     const imageUrl = getVehicleImageUrl(item);
     const failedKey = `vehicle-${vehicleId}`;
-    const imageAspectKey = `${failedKey}-${imageUrl || "no-image"}`;
-    const imageAspectRatio = imageAspectRatios[imageAspectKey];
-    const foregroundImageScale =
-      imageAspectRatio > 0 && imageAspectRatio < 0.95
-        ? 1.45
-        : imageAspectRatio >= 0.95 && imageAspectRatio <= 1.15
-        ? 1.08
-        : 1;
     const vehicleName = `${item?.make || ""} ${item?.model || ""}`.trim() || "Vehicle";
     const vehicleFit = tripData ? getVehicleLuggageFit(item, tripData) : null;
     const seatCount = getSeatCount(item);
@@ -604,40 +595,13 @@ export default function BrowseVehicles({ navigation, route }) {
 
         <View style={styles.imageWrap}>
           {imageUrl && !failedImages[failedKey] ? (
-            <>
-              <Image
-                source={{ uri: imageUrl }}
-                style={styles.imageBackdrop}
-                resizeMode="cover"
-                blurRadius={12}
-                accessible={false}
-              />
-              <View pointerEvents="none" style={styles.imageBackdropOverlay} />
-              <Image
-                key={`${vehicleId || "vehicle"}-${imageUrl}`}
-                source={{ uri: imageUrl }}
-                style={[
-                  styles.image,
-                  foregroundImageScale !== 1 && {
-                    transform: [{ scale: foregroundImageScale }],
-                  },
-                ]}
-                resizeMode="contain"
-                onLoad={({ nativeEvent }) => {
-                  const width = Number(nativeEvent?.source?.width || 0);
-                  const height = Number(nativeEvent?.source?.height || 0);
-                  if (width <= 0 || height <= 0) return;
-
-                  const nextAspectRatio = Math.round((width / height) * 100) / 100;
-                  setImageAspectRatios((prev) =>
-                    prev[imageAspectKey] === nextAspectRatio
-                      ? prev
-                      : { ...prev, [imageAspectKey]: nextAspectRatio }
-                  );
-                }}
-                onError={() => setFailedImages((prev) => ({ ...prev, [failedKey]: true }))}
-              />
-            </>
+            <Image
+              key={`${vehicleId || "vehicle"}-${imageUrl}`}
+              source={{ uri: imageUrl }}
+              style={styles.image}
+              resizeMode="cover"
+              onError={() => setFailedImages((prev) => ({ ...prev, [failedKey]: true }))}
+            />
           ) : (
             <View style={styles.imageFallback}>
               <Text style={styles.imageFallbackText}>FleetDrive</Text>

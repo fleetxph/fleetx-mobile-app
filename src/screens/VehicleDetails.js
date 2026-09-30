@@ -424,6 +424,7 @@ export default function VehicleDetails({ route, navigation }) {
             key={`${vehicle?._id || vehicle?.id || "vehicle"}-${activeImage}`}
             source={{ uri: activeImage }}
             style={styles.mainImage}
+            resizeMode="cover"
             onError={() => setFailedImages((prev) => ({ ...prev, [activeImage]: true }))}
           />
         ) : (
@@ -448,6 +449,7 @@ export default function VehicleDetails({ route, navigation }) {
                     <Image
                       source={{ uri: imageUrl }}
                       style={styles.thumbnailImage}
+                      resizeMode="cover"
                       onError={() => setFailedImages((prev) => ({ ...prev, [imageUrl]: true }))}
                     />
                   ) : (
