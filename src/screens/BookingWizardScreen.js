@@ -1404,7 +1404,15 @@ export default function BookingWizardScreen({ route, navigation }) {
     const hasDestination = Boolean(schedule.destination.trim());
     const hasDestinationCoords = Boolean(normalizeCoordinatePayload(locationPins.destination));
     const hasPickupMode = isDirectBooking ? true : Boolean(normalizedPickupMode);
-    const hasPickup = requiresDeliveryAddress ? Boolean(schedule.pickupLocation.trim()) : true;
+    const requiresPickupLocation = isDirectBooking || requiresDeliveryAddress;
+    const hasPickup = requiresPickupLocation
+      ? Boolean(schedule.pickupLocation.trim())
+      : true;
+    const pickupLocationError = !hasPickup
+      ? isDirectBooking
+        ? "Pickup Location is required."
+        : "Delivery Address is required."
+      : "";
     const hasPickupCoords = requiresDeliveryAddress
       ? Boolean(normalizeCoordinatePayload(locationPins.pickup))
       : false;
@@ -1430,7 +1438,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     } else if (!hasDestination) {
       blockerReason = "Select a destination.";
     } else if (!hasPickup) {
-      blockerReason = "Enter your delivery address.";
+      blockerReason = pickupLocationError;
     } else if (!hasStartDate || !hasEndDate) {
       blockerReason = "Select your start and end dates.";
     } else if (!hasStartTime || !hasEndTime) {
@@ -1456,6 +1464,7 @@ export default function BookingWizardScreen({ route, navigation }) {
       hasDestinationCoords,
       hasPickup,
       hasPickupCoords,
+      pickupLocationError,
       hasStartDate,
       hasStartTime,
       hasEndDate,
@@ -1505,14 +1514,31 @@ export default function BookingWizardScreen({ route, navigation }) {
           vehicleHandoffOption,
           allowPickupSameLocation: true,
         });
-    const paymentMethodUnavailable = Boolean(paymentMethodsError) && !selectedPaymentMethodId;
+    const selectedPaymentMethod = paymentMethods.find((method) => {
+      const selectionKey =
+        String(method?._id || "") || getPaymentMethodSelectionKey(method);
+      return selectionKey === String(selectedPaymentMethodId || "");
+    });
+    const hasValidPaymentMethod = Boolean(
+      selectedPaymentMethod &&
+        selectedPaymentMethodId &&
+        paymentMethod &&
+        formatPaymentMethodName(selectedPaymentMethod?.name || "") ===
+          formatPaymentMethodName(paymentMethod)
+    );
+    const hasValidPaymentOption = PAYMENT_OPTIONS.some(
+      (option) => option.value === paymentOption
+    );
+    const paymentMethodUnavailable = Boolean(paymentMethodsError);
     const paymentMethodError =
       paymentMethodsLoading || paymentMethodsError
         ? ""
-        : !selectedPaymentMethodId || !paymentMethod
+        : !hasValidPaymentMethod
         ? "Please select a payment method."
         : "";
-    const paymentOptionError = !paymentOption ? "Please select a payment amount." : "";
+    const paymentOptionError = !hasValidPaymentOption
+      ? "Please select a payment amount."
+      : "";
     const vehicleHandoffError = !normalizePickupOptionValue(vehicleHandoffOption)
       ? "Please choose how you want to receive the vehicle."
       : "";
@@ -1554,6 +1580,7 @@ export default function BookingWizardScreen({ route, navigation }) {
     paymentMethod,
     paymentMethodsError,
     paymentMethodsLoading,
+    paymentMethods,
     paymentOption,
     returnArrangementType,
     returnPickupAddress,
@@ -1949,20 +1976,6 @@ export default function BookingWizardScreen({ route, navigation }) {
       }
       return;
     }
-
-    if (paymentMethod) {
-      const matchedMethod = paymentMethods.find(
-        (method) => String(method?.name || "").trim().toLowerCase() === String(paymentMethod).trim().toLowerCase()
-      );
-      if (matchedMethod) {
-        setSelectedPaymentMethodId(matchedMethod._id || getPaymentMethodSelectionKey(matchedMethod));
-        if (paymentMethod !== matchedMethod.name) {
-          setPaymentMethod(formatPaymentMethodName(matchedMethod.name));
-        }
-        return;
-      }
-    }
-
   }, [paymentMethod, paymentMethods, selectedPaymentMethodId]);
 
   useEffect(() => {
@@ -3910,8 +3923,10 @@ export default function BookingWizardScreen({ route, navigation }) {
       if (!step2ValidationState.hasDestination) {
         nextErrors.destination = "Destination is required.";
       }
-      if (requiresDeliveryAddress && !step2ValidationState.hasPickup) {
-        nextErrors.pickupLocation = "Delivery Address is required.";
+      if (!step2ValidationState.hasPickup) {
+        nextErrors.pickupLocation = isDirectBooking
+          ? "Pickup Location is required."
+          : "Delivery Address is required.";
       }
       if (!step2ValidationState.hasStartDate) nextErrors.startDate = "Start date is required.";
       if (!step2ValidationState.hasStartTime) nextErrors.startTime = "Start time is required.";
@@ -4961,10 +4976,15 @@ export default function BookingWizardScreen({ route, navigation }) {
         ) : null}
         <Text style={styles.locationHelperText}>
           {isDirectBooking
-            ? "Optional: type an address or use the pin button."
+            ? "Type an address or use the pin button."
             : "Type your address or use the pin button."}
         </Text>
-        {!!errors.pickupLocation && <Text style={styles.errorText}>{errors.pickupLocation}</Text>}
+        {errors.pickupLocation ||
+        (isDirectBooking ? step2ValidationState.pickupLocationError : "") ? (
+          <Text style={styles.errorText}>
+            {errors.pickupLocation || step2ValidationState.pickupLocationError}
+          </Text>
+        ) : null}
         {!!errors.pickupLocationRule && (
           <Text style={styles.errorText}>{errors.pickupLocationRule}</Text>
         )}
