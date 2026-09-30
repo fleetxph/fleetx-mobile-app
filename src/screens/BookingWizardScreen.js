@@ -1963,12 +1963,6 @@ export default function BookingWizardScreen({ route, navigation }) {
       }
     }
 
-    const fallbackMethod = paymentMethods[0];
-    const fallbackSelectionKey = fallbackMethod?._id || getPaymentMethodSelectionKey(fallbackMethod);
-    if (fallbackSelectionKey) {
-      setSelectedPaymentMethodId(fallbackSelectionKey);
-      setPaymentMethod(formatPaymentMethodName(fallbackMethod.name || ""));
-    }
   }, [paymentMethod, paymentMethods, selectedPaymentMethodId]);
 
   useEffect(() => {
