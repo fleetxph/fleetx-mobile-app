@@ -237,7 +237,7 @@ export const styles = StyleSheet.create({
 
   heroOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.44)",
+    backgroundColor: "rgba(0,0,0,0.30)",
   },
 
   heroContent: {
