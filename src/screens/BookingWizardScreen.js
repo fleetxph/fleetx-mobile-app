@@ -88,7 +88,9 @@ import {
 import {
   dedupePaymentMethods,
   formatPaymentMethodName,
+  getPaymentMethodKind,
   getPaymentMethodSelectionKey,
+  isPaymentMethodActive,
 } from "../utils/paymentMethods";
 import {
   syncStoredBookingStatusSnapshot,
@@ -154,6 +156,29 @@ const PAYMENT_OPTIONS = [
     value: "full_payment",
     label: "Full Payment",
     description: "Pay the full approved invoice amount in one payment.",
+  },
+];
+
+const PAYMENT_METHOD_CATEGORIES = [
+  {
+    kind: "e_wallet",
+    label: "E-Wallet",
+    description: "Wallet invoice instructions",
+  },
+  {
+    kind: "online_banking",
+    label: "Online Banking",
+    description: "Bank app or online transfer",
+  },
+  {
+    kind: "bank_deposit",
+    label: "Bank Deposit",
+    description: "Over-the-counter deposit",
+  },
+  {
+    kind: "payment_method",
+    label: "Other",
+    description: "Additional payment options",
   },
 ];
 
@@ -1076,6 +1101,7 @@ export default function BookingWizardScreen({ route, navigation }) {
   const [paymentMethods, setPaymentMethods] = useState([]);
   const [paymentMethodsLoading, setPaymentMethodsLoading] = useState(false);
   const [paymentMethodsError, setPaymentMethodsError] = useState("");
+  const [activePaymentCategory, setActivePaymentCategory] = useState("");
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState(
     incomingTrip?.selectedPaymentMethodId || route?.params?.selectedPaymentMethodId || ""
   );
@@ -1887,9 +1913,10 @@ export default function BookingWizardScreen({ route, navigation }) {
         setPaymentMethodsError("");
         const res = await getPublicPaymentMethods();
         if (!isMounted) return;
-        const normalizedMethods = dedupePaymentMethods(
-          Array.isArray(res?.paymentMethods) ? res.paymentMethods : []
+        const activeMethods = (Array.isArray(res?.paymentMethods) ? res.paymentMethods : []).filter(
+          isPaymentMethodActive
         );
+        const normalizedMethods = dedupePaymentMethods(activeMethods);
         setPaymentMethods(normalizedMethods);
       } catch (err) {
         if (!isMounted) return;
@@ -1974,9 +2001,12 @@ export default function BookingWizardScreen({ route, navigation }) {
       if (matchedMethod && paymentMethod !== matchedMethod.name) {
         setPaymentMethod(formatPaymentMethodName(matchedMethod.name));
       }
+      if (matchedMethod && !activePaymentCategory) {
+        setActivePaymentCategory(getPaymentMethodKind(matchedMethod));
+      }
       return;
     }
-  }, [paymentMethod, paymentMethods, selectedPaymentMethodId]);
+  }, [activePaymentCategory, paymentMethod, paymentMethods, selectedPaymentMethodId]);
 
   useEffect(() => {
     if (!tripType) return;
@@ -5768,7 +5798,14 @@ export default function BookingWizardScreen({ route, navigation }) {
     </View>
   );
 
-  const renderReviewOption = ({ key, selected, title, description, onPress }) => (
+  const renderReviewOption = ({
+    key,
+    selected,
+    title,
+    description,
+    onPress,
+    indicator = "radio",
+  }) => (
     <TouchableOpacity
       key={key}
       style={[styles.paymentOptionCard, selected && styles.paymentOptionCardSelected]}
@@ -5777,7 +5814,15 @@ export default function BookingWizardScreen({ route, navigation }) {
     >
       <View style={styles.reviewOptionHeader}>
         <Ionicons
-          name={selected ? "radio-button-on" : "ellipse-outline"}
+          name={
+            indicator === "disclosure"
+              ? selected
+                ? "chevron-up"
+                : "chevron-down"
+              : selected
+              ? "radio-button-on"
+              : "ellipse-outline"
+          }
           size={20}
           color={selected ? "#F47C20" : "#98A2B3"}
         />
@@ -5796,6 +5841,17 @@ export default function BookingWizardScreen({ route, navigation }) {
   );
 
   const renderDirectReview = () => {
+    const availablePaymentCategories = PAYMENT_METHOD_CATEGORIES.filter((category) =>
+      paymentMethods.some((method) => getPaymentMethodKind(method) === category.kind)
+    );
+    const visiblePaymentMethods = activePaymentCategory
+      ? paymentMethods.filter(
+          (method) => getPaymentMethodKind(method) === activePaymentCategory
+        )
+      : [];
+    const activePaymentCategoryLabel = PAYMENT_METHOD_CATEGORIES.find(
+      (category) => category.kind === activePaymentCategory
+    )?.label;
     const tripRows = [
       ["Trip Type", getTripTypeLabel(normalizedTripType || tripType)],
       ["Pickup", `${formatDate(schedule.startDate)} • ${formatTime(schedule.startTime)}`],
@@ -6054,7 +6110,33 @@ export default function BookingWizardScreen({ route, navigation }) {
               </View>
             ) : null}
             {!paymentMethodsLoading && !paymentMethodsError
-              ? paymentMethods.map((method) => {
+              ? availablePaymentCategories.map((category) =>
+                  renderReviewOption({
+                    key: category.kind,
+                    selected: activePaymentCategory === category.kind,
+                    title: category.label,
+                    description: category.description,
+                    indicator: "disclosure",
+                    onPress: () => setActivePaymentCategory(category.kind),
+                  })
+                )
+              : null}
+            {!paymentMethodsLoading &&
+            !paymentMethodsError &&
+            !availablePaymentCategories.length ? (
+              <View style={styles.paymentOptionCard}>
+                <Text style={styles.paymentOptionText}>No active payment methods available.</Text>
+              </View>
+            ) : null}
+          </View>
+
+          {activePaymentCategory && visiblePaymentMethods.length ? (
+            <>
+              <Text style={styles.reviewGroupTitle}>
+                {activePaymentCategoryLabel} options
+              </Text>
+              <View style={styles.paymentOptionGrid}>
+                {visiblePaymentMethods.map((method) => {
                   const methodSelectionKey =
                     String(method?._id || "") || getPaymentMethodSelectionKey(method);
                   return renderReviewOption({
@@ -6068,9 +6150,10 @@ export default function BookingWizardScreen({ route, navigation }) {
                       setErrors((prev) => ({ ...prev, paymentMethod: "" }));
                     },
                   });
-                })
-              : null}
-          </View>
+                })}
+              </View>
+            </>
+          ) : null}
           {errors.paymentMethod || checkoutValidationState.paymentMethodError ? (
             <Text style={styles.errorText}>
               {errors.paymentMethod || checkoutValidationState.paymentMethodError}

@@ -150,6 +150,37 @@ function isMethodEnabled(method = {}) {
   return true;
 }
 
+export function isPaymentMethodActive(method = {}) {
+  return isMethodEnabled(method);
+}
+
+export function getPaymentMethodKind(method = {}) {
+  const categoryAndName = normalizeLower(
+    `${method?.category || ""} ${method?.name || ""}`
+  );
+
+  if (categoryAndName.includes("deposit")) return "bank_deposit";
+  if (
+    categoryAndName.includes("e-wallet") ||
+    categoryAndName.includes("wallet") ||
+    categoryAndName.includes("gcash") ||
+    categoryAndName.includes("maya")
+  ) {
+    return "e_wallet";
+  }
+  if (
+    categoryAndName.includes("bank") ||
+    categoryAndName.includes("transfer") ||
+    categoryAndName.includes("bpi") ||
+    categoryAndName.includes("bdo") ||
+    categoryAndName.includes("china")
+  ) {
+    return "online_banking";
+  }
+
+  return "payment_method";
+}
+
 function getCompletenessScore(method = {}) {
   return [
     method?._id || method?.id,
