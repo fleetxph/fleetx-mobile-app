@@ -1167,6 +1167,9 @@ export default function MyBookings({ navigation }) {
                     value={extensionPicker === "date" ? extensionDate || new Date() : extensionTime || new Date()}
                     mode={extensionPicker}
                     display={Platform.OS === "ios" ? "spinner" : "default"}
+                    {...(Platform.OS === "ios"
+                      ? { themeVariant: "light", textColor: "#111827" }
+                      : {})}
                     minimumDate={extensionPicker === "date" ? currentExtensionEnd || new Date() : undefined}
                     minuteInterval={30}
                     onChange={handleExtensionPickerChange}
