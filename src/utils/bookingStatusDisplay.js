@@ -1,336 +1,118 @@
-import { getContractAcceptanceState } from "./bookingContractDisplay";
-
 export const BOOKING_STATUS_FILTERS = [
   { key: "all", label: "All", tone: "all" },
-  { key: "in_progress", label: "In Progress", tone: "progress" },
-  { key: "awaiting_payment", label: "Awaiting Payment", tone: "payment" },
-  { key: "under_review", label: "Under Review", tone: "review" },
+  { key: "final_balance_due", label: "Final Balance Due", tone: "balance-due" },
+  { key: "payment", label: "Payment", tone: "payment" },
   { key: "confirmed", label: "Confirmed", tone: "confirmed" },
   { key: "completed", label: "Completed", tone: "completed" },
   { key: "cancelled", label: "Cancelled", tone: "cancelled" },
-  { key: "rejected", label: "Rejected", tone: "cancelled" },
-  { key: "expired", label: "Expired", tone: "cancelled" },
-  { key: "archived", label: "Archived", tone: "cancelled" },
-  { key: "closed", label: "Closed", tone: "cancelled" },
-];
-
-export const BOOKING_VIEW_TABS = [
-  { key: "active", label: "Active" },
-  { key: "history", label: "History" },
+  { key: "open", label: "Drafts & Review", tone: "progress" },
 ];
 
 const BOOKING_STATUS_GROUPS = {
+  unknown: {
+    label: "Unknown status",
+    subtext: "Booking status is unavailable.",
+    tone: "neutral",
+    statuses: [],
+  },
   in_progress: {
     label: "In Progress",
+    subtext: "Finish your booking",
     tone: "progress",
-    nextAction: "Finish your booking.",
+    statuses: ["draft", "pending_verification", "ready_to_continue"],
+  },
+  booking_review: {
+    label: "Booking Review",
+    subtext: "We're reviewing your booking details. You'll be notified once there's an update.",
+    tone: "review",
+    statuses: ["pending_approval", "pending"],
   },
   awaiting_payment: {
     label: "Awaiting Payment",
+    subtext: "Your invoice is ready. Please upload your payment proof after sending payment.",
     tone: "payment",
-    nextAction: "Review your invoice and complete payment.",
+    statuses: ["pending_payment", "awaiting_payment", "invoice_issued"],
   },
   under_review: {
-    label: "Under Review",
+    label: "Payment under review",
+    subtext: "We received your payment proof. FleetX will check the transaction details and update your booking once reviewed.",
     tone: "review",
-    nextAction: "Your payment proof is being reviewed.",
+    statuses: [
+      "payment_submitted",
+      "payment_verification",
+      "payment_under_review",
+      "pending_payment_verification",
+      "payment_resubmitted",
+      "under_review",
+    ],
   },
   confirmed: {
     label: "Confirmed",
+    subtext: "Please keep your booking details and receipt available during your trip.",
     tone: "confirmed",
-    nextAction: "Your booking is secured.",
+    statuses: ["approved", "booked_confirmed", "confirmed", "payment_verified"],
+  },
+  active: {
+    label: "Active",
+    subtext: "Your trip is in progress. Keep your booking details and receipt available.",
+    tone: "confirmed",
+    statuses: ["active", "ongoing"],
   },
   completed: {
     label: "Completed",
+    subtext: "Trip completed successfully",
     tone: "completed",
-    nextAction: "Trip completed.",
+    statuses: ["completed"],
+  },
+  payment_rejected: {
+    label: "Payment Rejected",
+    subtext: "Your payment proof was rejected. Please upload a new proof of payment.",
+    tone: "cancelled",
+    statuses: ["payment_rejected"],
   },
   cancelled: {
     label: "Cancelled",
+    subtext: "This booking has been cancelled",
     tone: "cancelled",
-    nextAction: "Booking closed.",
-  },
-  rejected: {
-    label: "Rejected",
-    tone: "cancelled",
-    nextAction: "Booking closed.",
-  },
-  expired: {
-    label: "Expired",
-    tone: "cancelled",
-    nextAction: "Booking expired.",
-  },
-  archived: {
-    label: "Archived",
-    tone: "cancelled",
-    nextAction: "Booking archived.",
-  },
-  closed: {
-    label: "Closed",
-    tone: "cancelled",
-    nextAction: "Booking closed.",
-  },
-  processing: {
-    label: "Processing",
-    tone: "review",
-    nextAction: "We are updating your booking.",
+    statuses: ["rejected", "cancelled", "cancelled_conflict", "expired"],
   },
 };
 
-export const ACTIVE_BOOKING_STATUS_KEYS = [
-  "in_progress",
-  "awaiting_payment",
-  "under_review",
-  "confirmed",
-  "processing",
-];
+const FILTER_STATUS_GROUPS = {
+  open: ["draft", "pending_verification", "ready_to_continue", "pending", "pending_approval"],
+  payment: [
+    "invoice_issued",
+    "awaiting_payment",
+    "pending_payment",
+    "payment_submitted",
+    "payment_verification",
+    "payment_under_review",
+    "pending_payment_verification",
+    "payment_rejected",
+    "payment_resubmitted",
+    "under_review",
+  ],
+  confirmed: ["approved", "booked_confirmed", "confirmed", "active", "ongoing", "payment_verified"],
+  completed: ["completed"],
+  cancelled: ["cancelled", "rejected", "cancelled_conflict", "expired"],
+};
 
-export const HISTORY_BOOKING_STATUS_KEYS = [
-  "completed",
-  "cancelled",
-  "rejected",
-  "expired",
-  "archived",
-  "closed",
-];
+const CLOSED_STATUS_KEYS = ["completed", "cancelled"];
 
-const warnedUnknownStatuses = new Set();
-
-function normalizeText(value) {
-  return String(value || "").trim();
-}
-
-function normalizeLower(value) {
-  return normalizeText(value).toLowerCase();
-}
-
-function isObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function firstPresent(...values) {
-  for (const value of values) {
-    if (value !== undefined && value !== null && value !== "") {
-      return value;
-    }
-  }
-
-  return "";
-}
-
-function collectSignals(bookingOrStatus) {
-  if (!isObject(bookingOrStatus)) {
-    const status = normalizeLower(bookingOrStatus);
-    return {
-      booking: null,
-      status,
-      bookingStatus: "",
-      paymentStatus: "",
-      invoiceStatus: "",
-      contractStatus: "",
-      allValues: [status].filter(Boolean),
-    };
-  }
-
-  const booking = bookingOrStatus;
-  const status = normalizeLower(booking?.status);
-  const bookingStatus = normalizeLower(booking?.bookingStatus);
-  const paymentStatus = normalizeLower(booking?.paymentStatus);
-  const invoiceStatus = normalizeLower(booking?.invoiceStatus);
-  const contractStatus = normalizeLower(booking?.contractStatus);
-
-  return {
-    booking,
-    status,
-    bookingStatus,
-    paymentStatus,
-    invoiceStatus,
-    contractStatus,
-    allValues: [status, bookingStatus, paymentStatus, invoiceStatus, contractStatus].filter(Boolean),
-  };
-}
-
-function includesAny(values, candidates) {
-  return values.some((value) => candidates.includes(value));
-}
-
-function hasContractPending(booking) {
-  if (!isObject(booking)) return false;
-
-  const contractState = getContractAcceptanceState(booking);
-  return Boolean(contractState.requiresContract && !contractState.contractAccepted);
-}
-
-function warnUnknownStatus(signals) {
-  const warningKey = JSON.stringify({
-    status: signals.status,
-    bookingStatus: signals.bookingStatus,
-    paymentStatus: signals.paymentStatus,
-    invoiceStatus: signals.invoiceStatus,
-    contractStatus: signals.contractStatus,
-  });
-
-  if (warnedUnknownStatuses.has(warningKey)) return;
-  warnedUnknownStatuses.add(warningKey);
-
-  console.warn("[BookingStatus][unknown]", {
-    status: signals.status,
-    bookingStatus: signals.bookingStatus,
-    paymentStatus: signals.paymentStatus,
-    invoiceStatus: signals.invoiceStatus,
-    contractStatus: signals.contractStatus,
-  });
-}
-
-function resolveStatusKey(bookingOrStatus) {
-  const signals = collectSignals(bookingOrStatus);
-  const statusValues = signals.allValues;
-
-  if (
-    includesAny(statusValues, [
-      "completed",
-      "trip_completed",
-      "done",
-    ])
-  ) {
-    return "completed";
-  }
-
-  if (
-    includesAny(statusValues, [
-      "rejected",
-      "declined",
-      "denied",
-    ])
-  ) {
-    return "rejected";
-  }
-
-  if (
-    includesAny(statusValues, [
-      "expired",
-    ])
-  ) {
-    return "expired";
-  }
-
-  if (
-    includesAny(statusValues, [
-      "archived",
-    ])
-  ) {
-    return "archived";
-  }
-
-  if (
-    includesAny(statusValues, [
-      "closed",
-    ])
-  ) {
-    return "closed";
-  }
-
-  if (
-    includesAny(statusValues, [
-      "cancelled",
-      "canceled",
-      "cancelled_conflict",
-    ])
-  ) {
-    return "cancelled";
-  }
-
-  if (
-    includesAny([signals.paymentStatus], [
-      "payment_verified",
-      "verified",
-      "fully_paid",
-      "downpayment_paid",
-    ]) ||
-    includesAny([signals.status, signals.bookingStatus], [
-      "confirmed",
-      "booked_confirmed",
-      "payment_verified",
-    ])
-  ) {
-    return "confirmed";
-  }
-
-  if (
-    includesAny([signals.paymentStatus], [
-      "under_review",
-      "payment_submitted",
-      "submitted",
-      "proof_uploaded",
-      "pending_review",
-      "pending",
-    ]) ||
-    includesAny([signals.status, signals.bookingStatus], [
-      "under_review",
-      "pending_approval",
-      "pending_review",
-      "proof_uploaded",
-    ])
-  ) {
-    return "under_review";
-  }
-
-  if (
-    includesAny([signals.status, signals.bookingStatus], [
-      "approved",
-      "awaiting_payment",
-      "pending_payment",
-      "invoice_issued",
-      "payment_rejected",
-    ]) ||
-    includesAny([signals.paymentStatus, signals.invoiceStatus], [
-      "invoice_issued",
-      "pending_payment",
-      "payment_pending",
-      "awaiting_payment",
-      "reupload_required",
-      "issued",
-      "open",
-      "unpaid",
-    ])
-  ) {
-    return "awaiting_payment";
-  }
-
-  if (
-    includesAny([signals.status, signals.bookingStatus], [
-      "draft",
-      "pending",
-      "submitted",
-      "pending_draft",
-      "pending_verification",
-      "ready_to_continue",
-      "incomplete_booking",
-      "in_progress",
-      "started",
-    ]) ||
-    (!signals.status &&
-      !signals.bookingStatus &&
-      includesAny([signals.contractStatus], ["draft", "pending"]))
-  ) {
-    return "in_progress";
-  }
-
-  if (!statusValues.length) {
-    return "in_progress";
-  }
-
-  warnUnknownStatus(signals);
-  return "processing";
+function normalizeStatus(bookingOrStatus) {
+  const raw = bookingOrStatus && typeof bookingOrStatus === "object"
+    ? bookingOrStatus.status
+    : bookingOrStatus;
+  return String(raw || "").trim().toLowerCase();
 }
 
 export function getBookingStatusMeta(bookingOrStatus) {
-  const key = resolveStatusKey(bookingOrStatus);
-
-  return {
-    key,
-    ...BOOKING_STATUS_GROUPS[key],
-  };
+  const normalized = normalizeStatus(bookingOrStatus);
+  const key = Object.keys(BOOKING_STATUS_GROUPS).find((groupKey) =>
+    BOOKING_STATUS_GROUPS[groupKey].statuses.includes(normalized)
+  ) || "unknown";
+  const meta = BOOKING_STATUS_GROUPS[key];
+  return { key, ...meta, nextAction: meta.subtext };
 }
 
 export function getBookingStatusLabel(bookingOrStatus) {
@@ -341,36 +123,58 @@ export function getBookingStatusTone(bookingOrStatus) {
   return getBookingStatusMeta(bookingOrStatus).tone;
 }
 
-export function getBookingNextAction(bookingOrStatus) {
-  const booking = isObject(bookingOrStatus) ? bookingOrStatus : null;
-  const meta = getBookingStatusMeta(bookingOrStatus);
-
-  if (booking && hasContractPending(booking) && ["awaiting_payment", "under_review"].includes(meta.key)) {
-    return "Review and accept your rental contract.";
-  }
-
-  return meta.nextAction;
-}
-
-export function isActiveBooking(bookingOrStatus) {
-  return ACTIVE_BOOKING_STATUS_KEYS.includes(getBookingStatusMeta(bookingOrStatus).key);
-}
-
-export function isHistoryBooking(bookingOrStatus) {
-  return HISTORY_BOOKING_STATUS_KEYS.includes(getBookingStatusMeta(bookingOrStatus).key);
-}
-
 export function getBookingStatusSubtext(bookingOrStatus) {
-  return getBookingNextAction(bookingOrStatus);
+  return getBookingStatusMeta(bookingOrStatus).subtext;
+}
+
+export function getBookingStatusClass(bookingOrStatus) {
+  return `booking-status booking-status--${getBookingStatusTone(bookingOrStatus)}`;
+}
+
+export function getBookingNextAction(bookingOrStatus) {
+  return getBookingStatusSubtext(bookingOrStatus);
 }
 
 export function getBookingAmountLabel(bookingOrStatus) {
-  const meta = getBookingStatusMeta(bookingOrStatus);
-  return meta.key === "awaiting_payment" ? "Amount Due" : "Total";
+  return getBookingStatusMeta(bookingOrStatus).key === "awaiting_payment" ? "Amount Due" : "Total";
 }
 
-export function getBookingCanonicalStatusValue(booking) {
-  return normalizeText(
-    firstPresent(booking?.status, booking?.bookingStatus, booking?.paymentStatus, booking?.invoiceStatus)
+export function getBookingFilterGroup(bookingOrStatus) {
+  const status = normalizeStatus(bookingOrStatus);
+  return Object.keys(FILTER_STATUS_GROUPS).find((key) => FILTER_STATUS_GROUPS[key].includes(status)) || "unknown";
+}
+
+export function isFinalBalanceDue(booking) {
+  if (typeof booking?.finalBalanceDue === "boolean") return booking.finalBalanceDue;
+  const finalBalance = Number(booking?.financialSummary?.finalBalance);
+  const settlementUnderReview =
+    String(booking?.additionalPayment?.status || "").toLowerCase() === "under_review" &&
+    Boolean(booking?.additionalPayment?.proofUrl);
+  return normalizeStatus(booking) === "completed" &&
+    Number.isFinite(finalBalance) && finalBalance > 0 && !settlementUnderReview;
+}
+
+export function canRequestBookingExtension(booking) {
+  if (booking?.extensionRequestIneligibleReason) return false;
+  const status = String(booking?.status || "").toLowerCase();
+  if (![
+    "approved",
+    "confirmed",
+    "booked_confirmed",
+    "active",
+    "ongoing",
+    "payment_verified",
+  ].includes(status)) return false;
+  return !(booking.extensionRequests || []).some(
+    (request) => String(request.status || "").toLowerCase() === "pending"
   );
+}
+
+export function isActiveBooking(bookingOrStatus) {
+  return !CLOSED_STATUS_KEYS.includes(getBookingStatusMeta(bookingOrStatus).key) &&
+    getBookingStatusMeta(bookingOrStatus).key !== "unknown";
+}
+
+export function isHistoryBooking(bookingOrStatus) {
+  return CLOSED_STATUS_KEYS.includes(getBookingStatusMeta(bookingOrStatus).key);
 }

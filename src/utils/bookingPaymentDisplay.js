@@ -1,4 +1,5 @@
 import { getInvoicePdfSource, getReceiptPdfSource } from "./bookingDocuments";
+import { getBookingStatusMeta } from "./bookingStatusDisplay";
 
 function firstPresent(...values) {
   for (const value of values) {
@@ -76,6 +77,9 @@ export function isAwaitingPaymentBooking(booking) {
 }
 
 export function getBookingCustomerStatusCopy(booking) {
+  const statusMeta = getBookingStatusMeta(booking);
+  if (statusMeta.key !== "unknown") return statusMeta.subtext;
+
   const status = normalizeLower(booking?.status);
   const paymentStatus = normalizeLower(booking?.paymentStatus);
 

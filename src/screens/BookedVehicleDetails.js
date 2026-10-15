@@ -165,7 +165,7 @@ export default function BookedVehicleDetails({ navigation, route }) {
   const hasReceiptDocument = actionState.canViewReceipt;
   const statusCopy = getBookingCustomerStatusCopy(booking);
   const nextAction = getBookingNextAction(booking);
-  const showInvoiceActionCard = ["awaiting_payment", "under_review"].includes(meta.key);
+  const showInvoiceActionCard = ["awaiting_payment", "under_review", "payment_rejected"].includes(meta.key);
   const statusTitle = isClosedHistory
     ? "Booking no longer active"
     : meta.label;

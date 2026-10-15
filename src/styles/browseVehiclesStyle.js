@@ -54,14 +54,14 @@ export const styles = StyleSheet.create({
   },
 
   heroHeaderTextBlock: {
-    width: "57%",
+    width: "62%",
     paddingRight: 6,
     zIndex: 1,
   },
 
   header: {
-    fontSize: 27,
-    lineHeight: 33,
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: "700",
     color: colors.heading || "#0F172A",
     marginBottom: 8,

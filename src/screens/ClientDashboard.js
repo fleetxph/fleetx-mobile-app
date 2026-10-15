@@ -34,7 +34,7 @@ const QUICK_ACCESS_ITEMS = [
   },
   {
     key: "browse",
-    title: "Browse Cars",
+    title: "Browse Vehicles",
     icon: "car-sport-outline",
     cardStyle: "light",
     onPress: (navigation) =>
@@ -726,7 +726,7 @@ export default function ClientDashboard({ navigation }) {
             <View style={styles.featuredEmpty}>
               <Text style={styles.featuredEmptyTitle}>No vehicles available</Text>
               <Text style={styles.featuredEmptyText}>
-                Check Browse Cars for the latest FleetDrive inventory.
+                Check Browse Vehicles for the latest FleetDrive inventory.
               </Text>
             </View>
           )}

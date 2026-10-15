@@ -22,7 +22,7 @@ import { formatLuggageSummary, getVehicleLuggageFit } from "../utils/luggageFit"
 import { formatVehicleDailyRateLabel, getVehicleDailyRate } from "../utils/vehicleRate";
 
 const PAGE_SIZE = 10;
-const VEHICLE_TYPE_OPTIONS = ["All Types", "Sedan", "SUV", "Van", "Pickup", "MPV"];
+const VEHICLE_TYPE_OPTIONS = ["All Types", "Sedan", "SUV", "Van", "MPV"];
 const PRICE_RANGE_OPTIONS = [
   "All",
   "Under PHP 2,000",
@@ -40,11 +40,9 @@ const FEATURE_OPTIONS = [
   "Parking Sensors",
 ];
 const SORT_OPTIONS = [
-  "Recommended",
+  "Newest",
   "Price: Low to High",
   "Price: High to Low",
-  "Seats: Low to High",
-  "Seats: High to Low",
 ];
 const VEHICLE_CACHE_KEY = "fleetx_public_vehicles_cache_v1";
 
@@ -79,8 +77,30 @@ function normalizeText(value) {
 }
 
 function getSeatCount(vehicle) {
-  const rawSeats = Number(vehicle?.seater ?? vehicle?.seats ?? 0);
+  const rawSeats = Number(
+    vehicle?.seater ?? vehicle?.seats ?? vehicle?.capacity ??
+    vehicle?.passengerCapacity ?? vehicle?.maxPassengers ?? 0
+  );
   return Number.isFinite(rawSeats) ? rawSeats : 0;
+}
+
+function getTransmissionType(vehicle) {
+  const raw = String(
+    vehicle?.transmission || vehicle?.transmissionType || vehicle?.gearbox || ""
+  ).trim();
+  if (!raw) return "";
+  return normalizeText(raw).includes("manual") ? "Manual" : "Automatic";
+}
+
+function getFuelType(vehicle) {
+  const raw = String(vehicle?.fuel || vehicle?.fuelType || vehicle?.engineType || "").trim();
+  const value = normalizeText(raw);
+  if (!value) return "";
+  if (value.includes("diesel")) return "Diesel";
+  if (value.includes("gas") || value.includes("petrol")) return "Gasoline";
+  if (value.includes("hybrid")) return "Hybrid";
+  if (value.includes("electric") || value === "ev") return "Electric";
+  return raw;
 }
 
 function hasBudgetPreference(value) {
@@ -134,7 +154,7 @@ export default function BrowseVehicles({ navigation, route }) {
   const [nextPageMessage, setNextPageMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
-  const [sortOption, setSortOption] = useState("Recommended");
+  const [sortOption, setSortOption] = useState("Newest");
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [filters, setFilters] = useState(
     createDefaultFilters(normalizedRouteCategory || "All Types")
@@ -160,6 +180,8 @@ export default function BrowseVehicles({ navigation, route }) {
           ? tripData.transmission
           : undefined,
       fuel: filters.fuelType !== "All" ? filters.fuelType : undefined,
+      seats:
+        filters.seats !== "All" ? Number.parseInt(filters.seats.split("-")[0], 10) : undefined,
     };
 
     if (filters.priceRange === "Under PHP 2,000") {
@@ -178,10 +200,10 @@ export default function BrowseVehicles({ navigation, route }) {
       );
     }
 
-    if (sortOption === "Price: Low to High") params.sort = "price-asc";
+    if (sortOption === "Price: Low to High") {
+      params.sort = "price-asc";
+    }
     if (sortOption === "Price: High to Low") params.sort = "price-desc";
-    if (sortOption === "Seats: Low to High") params.sort = "capacity-asc";
-    if (sortOption === "Seats: High to Low") params.sort = "capacity-desc";
 
     return params;
   }, [
@@ -343,26 +365,23 @@ export default function BrowseVehicles({ navigation, route }) {
     }
 
     if (filters.seats !== "All") {
+      const minimumSeats = Number.parseInt(filters.seats.split("-")[0], 10);
       result = result.filter((vehicle) => {
         const seats = getSeatCount(vehicle);
-
-        if (filters.seats === "2-4") return seats >= 2 && seats <= 4;
-        if (filters.seats === "5-7") return seats >= 5 && seats <= 7;
-        if (filters.seats === "8-12+") return seats >= 8;
-        return true;
+        return seats >= minimumSeats;
       });
     }
 
     if (filters.transmission !== "All") {
       result = result.filter(
         (vehicle) =>
-          normalizeText(vehicle.transmission) === normalizeText(filters.transmission)
+          normalizeText(getTransmissionType(vehicle)) === normalizeText(filters.transmission)
       );
     }
 
     if (filters.fuelType !== "All") {
       result = result.filter(
-        (vehicle) => normalizeText(vehicle.fuel) === normalizeText(filters.fuelType)
+        (vehicle) => normalizeText(getFuelType(vehicle)) === normalizeText(filters.fuelType)
       );
     }
 
@@ -391,7 +410,7 @@ export default function BrowseVehicles({ navigation, route }) {
       if (tripData.transmission && tripData.transmission !== "any") {
         result = result.filter(
           (vehicle) =>
-            String(vehicle.transmission || "").toLowerCase() ===
+            normalizeText(getTransmissionType(vehicle)) ===
             String(tripData.transmission).toLowerCase()
         );
       }
@@ -401,10 +420,10 @@ export default function BrowseVehicles({ navigation, route }) {
       result.sort((a, b) => Number(getVehicleDailyRate(a) || 0) - Number(getVehicleDailyRate(b) || 0));
     } else if (sortOption === "Price: High to Low") {
       result.sort((a, b) => Number(getVehicleDailyRate(b) || 0) - Number(getVehicleDailyRate(a) || 0));
-    } else if (sortOption === "Seats: Low to High") {
-      result.sort((a, b) => getSeatCount(a) - getSeatCount(b));
-    } else if (sortOption === "Seats: High to Low") {
-      result.sort((a, b) => getSeatCount(b) - getSeatCount(a));
+    } else if (sortOption === "Newest") {
+      result.sort(
+        (a, b) => (new Date(b.createdAt).getTime() || 0) - (new Date(a.createdAt).getTime() || 0)
+      );
     }
 
     return result;
@@ -419,7 +438,7 @@ export default function BrowseVehicles({ navigation, route }) {
     filters.transmission !== "All" ||
     filters.fuelType !== "All" ||
     filters.features.length > 0 ||
-    sortOption !== "Recommended";
+    sortOption !== "Newest";
 
   const activeFilterChips = [
     filters.vehicleType !== "All Types" ? filters.vehicleType : null,
@@ -438,7 +457,7 @@ export default function BrowseVehicles({ navigation, route }) {
   const clearAllFilters = () => {
     const resetFilters = createDefaultFilters();
     setSearchQuery("");
-    setSortOption("Recommended");
+    setSortOption("Newest");
     setFilters(resetFilters);
     setDraftFilters(resetFilters);
   };
@@ -563,16 +582,16 @@ export default function BrowseVehicles({ navigation, route }) {
       seatCount > 0
         ? { key: "seats", icon: "people-outline", value: `${seatCount} Seats`, label: "Capacity" }
         : null,
-      item?.transmission
+      getTransmissionType(item)
         ? {
             key: "transmission",
             icon: "git-compare-outline",
-            value: item.transmission,
+            value: getTransmissionType(item),
             label: "Transmission",
           }
         : null,
-      item?.fuel
-        ? { key: "fuel", icon: "speedometer-outline", value: item.fuel, label: "Fuel Type" }
+      getFuelType(item)
+        ? { key: "fuel", icon: "speedometer-outline", value: getFuelType(item), label: "Fuel Type" }
         : null,
       engine
         ? { key: "engine", icon: "cog-outline", value: engine, label: "Engine" }
@@ -689,9 +708,9 @@ export default function BrowseVehicles({ navigation, route }) {
         <View style={styles.heroHeaderAccent} />
         <View style={styles.heroHeaderContentRow}>
           <View style={styles.heroHeaderTextBlock}>
-            <Text style={styles.header}>Browse Cars</Text>
+            <Text style={styles.header}>Browse Vehicles</Text>
             <Text style={styles.headerSubtext} numberOfLines={2}>
-              Find the right ride for your next trip.
+              Find the right vehicle for your next trip.
             </Text>
           </View>
 

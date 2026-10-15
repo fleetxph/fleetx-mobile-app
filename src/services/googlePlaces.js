@@ -30,36 +30,17 @@ const resolvedGoogleEnvEntry =
   GOOGLE_ENV_CANDIDATES.find(([, value]) => String(value || "").trim()) || null;
 
 const GOOGLE_API_KEY = String(resolvedGoogleEnvEntry?.[1] || "").trim();
-const GOOGLE_API_ENV_NAME = resolvedGoogleEnvEntry?.[0] || "";
 
 const GOOGLE_PLACES_BASE_URL = "https://maps.googleapis.com/maps/api/place";
 const GOOGLE_GEOCODE_BASE_URL = "https://maps.googleapis.com/maps/api/geocode/json";
 const GOOGLE_OK_STATUSES = new Set(["OK"]);
 const GOOGLE_EMPTY_STATUSES = new Set(["ZERO_RESULTS"]);
 let hasWarnedMissingGoogleKey = false;
-let hasLoggedGoogleConfig = false;
 
 function createGoogleApiError(status, message) {
   const error = new Error(message || "Google location service request failed.");
   error.code = status || "GOOGLE_API_ERROR";
   return error;
-}
-
-function getKeyPreview(key) {
-  const value = String(key || "").trim();
-  if (!value) return "";
-  if (value.length <= 12) return `${value.slice(0, 8)}...`;
-  return `${value.slice(0, 8)}...${value.slice(-4)}`;
-}
-
-function logGoogleConfig() {
-  if (!__DEV__ || hasLoggedGoogleConfig) return;
-  hasLoggedGoogleConfig = true;
-  console.log("[GooglePlaces][config]", {
-    hasKey: Boolean(GOOGLE_API_KEY),
-    keyPreview: getKeyPreview(GOOGLE_API_KEY),
-    usedEnvName: GOOGLE_API_ENV_NAME,
-  });
 }
 
 function logGoogleNetworkError(error) {
@@ -76,8 +57,6 @@ function normalizeGoogleStatus(status) {
 }
 
 function ensureGoogleApiKey() {
-  logGoogleConfig();
-
   if (GOOGLE_API_KEY) return GOOGLE_API_KEY;
 
   if (__DEV__ && !hasWarnedMissingGoogleKey) {
@@ -157,12 +136,10 @@ function normalizeGeocodeResult(result = {}) {
 }
 
 export function resolveGoogleMapsApiKey() {
-  logGoogleConfig();
   return GOOGLE_API_KEY;
 }
 
 export function hasGoogleMapsApiKey() {
-  logGoogleConfig();
   return Boolean(GOOGLE_API_KEY);
 }
 
@@ -171,10 +148,6 @@ export async function getPlacesPredictions(input) {
   if (query.length < 2) return [];
 
   const apiKey = ensureGoogleApiKey();
-  if (__DEV__) {
-    console.log("[GooglePlaces][autocomplete:start]", { input: query });
-  }
-
   try {
     const response = await axios.get(`${GOOGLE_PLACES_BASE_URL}/autocomplete/json`, {
       timeout: 15000,
@@ -191,15 +164,6 @@ export async function getPlacesPredictions(input) {
       ? response.data.predictions
       : [];
 
-    if (__DEV__) {
-      console.log("[GooglePlaces][autocomplete:response]", {
-        httpStatus: response?.status || null,
-        googleStatus: status || "",
-        errorMessage: response?.data?.error_message || "",
-        predictionCount: predictions.length,
-      });
-    }
-
     if (GOOGLE_EMPTY_STATUSES.has(status)) {
       return [];
     }
@@ -208,9 +172,6 @@ export async function getPlacesPredictions(input) {
 
     return predictions.map(normalizePrediction).filter((item) => item.description || item.place_id);
   } catch (error) {
-    if (!error?.response) {
-      logGoogleNetworkError(error);
-    }
     throw error;
   }
 }

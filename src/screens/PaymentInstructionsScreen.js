@@ -8,6 +8,7 @@ import {
   SafeAreaView,
   ScrollView,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -30,7 +31,8 @@ import {
   getReferenceNo,
 } from "../utils/bookingDocuments";
 import { getContractAcceptanceState } from "../utils/bookingContractDisplay";
-import { getBookingStatusLabel, getBookingStatusMeta } from "../utils/bookingStatusDisplay";
+import { getBookingStatusLabel } from "../utils/bookingStatusDisplay";
+import { getInitialPaymentProofEligibility } from "../utils/bookingPaymentEligibility";
 import { resolveImageUrl } from "../utils/imageUrl";
 import { dedupePaymentMethods, getPaymentMethodSelectionKey } from "../utils/paymentMethods";
 import { openPdf, showPdfError } from "../utils/pdfUtils";
@@ -138,62 +140,7 @@ function toBase64DataUri(asset) {
 }
 
 function getPaymentStatusDisplay(booking) {
-  const paymentStatus = String(booking?.paymentStatus || "").toLowerCase();
-  const status = String(booking?.status || "").toLowerCase();
-
-  if (
-    ["rejected", "reupload_required"].includes(paymentStatus) ||
-    status === "payment_rejected"
-  ) {
-    return "Awaiting Payment";
-  }
-
   return getBookingStatusLabel(booking);
-}
-
-function getPaymentProofEligibility(booking) {
-  const status = String(booking?.status || "").toLowerCase();
-  const paymentStatus = String(booking?.paymentStatus || "").toLowerCase();
-  const statusMeta = getBookingStatusMeta(booking);
-  const hasInvoiceOrPaymentDetails = Boolean(
-    booking?.invoiceReference ||
-      booking?.invoiceNumber ||
-      booking?.invoice?.invoiceNumber ||
-      booking?.invoice?.reference ||
-      booking?.amountDue ||
-      booking?.amountToPay ||
-      booking?.invoiceAmount ||
-      booking?.paymentMethod ||
-      booking?.paymentOption ||
-      booking?.paymentInstructions ||
-      booking?.paymentDetails
-  );
-
-  const isUnderReview =
-    ["submitted", "payment_submitted", "under_review", "pending"].includes(paymentStatus) ||
-    statusMeta.key === "under_review";
-  const isLocked =
-    ["verified", "fully_paid", "downpayment_paid"].includes(paymentStatus) ||
-    ["confirmed", "completed", "cancelled"].includes(statusMeta.key);
-  const locallyEligible =
-    !isUnderReview &&
-    !isLocked &&
-    (statusMeta.key === "awaiting_payment" ||
-      (status === "approved" && hasInvoiceOrPaymentDetails) ||
-      ["invoice_issued", "pending_payment", "payment_pending", "rejected", "reupload_required"].includes(
-        paymentStatus
-      ));
-  const isEligible =
-    typeof booking?.paymentProofUploadEligible === "boolean"
-      ? booking.paymentProofUploadEligible
-      : locallyEligible;
-
-  return {
-    isEligible,
-    isUnderReview,
-    isLocked,
-    hasInvoiceOrPaymentDetails,
-  };
 }
 
 function getCountdownText(deadline) {
@@ -509,6 +456,7 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
   const [paymentMethods, setPaymentMethods] = useState([]);
   const [loadingMethods, setLoadingMethods] = useState(false);
   const [paymentAsset, setPaymentAsset] = useState(null);
+  const [paymentReference, setPaymentReference] = useState("");
   const [isSubmittingProof, setIsSubmittingProof] = useState(false);
   const [qrPreviewVisible, setQrPreviewVisible] = useState(false);
   const [proofSuccessVisible, setProofSuccessVisible] = useState(false);
@@ -716,7 +664,7 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
     getInvoicePdfSource(booking, false) ||
     (bookingId ? getClientInvoiceUrl(bookingId, true) : "");
   const paymentProofEligibility = useMemo(
-    () => getPaymentProofEligibility(booking),
+    () => getInitialPaymentProofEligibility(booking),
     [booking]
   );
   const canUploadPaymentProof = !contractGateRequired || contractAccepted;
@@ -879,6 +827,16 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
       return;
     }
 
+    const mimeType = String(asset.mimeType || "image/jpeg").toLowerCase();
+    if (!["image/jpeg", "image/jpg", "image/png", "image/webp"].includes(mimeType)) {
+      Alert.alert("Unsupported image", "Payment proof must be a JPG, PNG, or WEBP image.");
+      return;
+    }
+    if (Number(asset.fileSize || 0) > 2 * 1024 * 1024) {
+      Alert.alert("Image too large", "Payment proof must be 2MB or smaller.");
+      return;
+    }
+
     setPaymentAsset(asset);
     setProofError("");
   };
@@ -929,8 +887,12 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
       }
 
       const response = await submitPaymentProof(bookingId, {
+        paymentReference: paymentReference.trim(),
         paymentProof,
-        replaceExisting: Boolean(booking?.paymentProof),
+        replaceExisting:
+          Boolean(booking?.paymentProof) ||
+          ["rejected", "reupload_required"].includes(String(booking?.paymentStatus || "").toLowerCase()) ||
+          String(booking?.status || "").toLowerCase() === "payment_rejected",
       });
 
       const updatedBooking =
@@ -940,7 +902,7 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
         : {
             ...booking,
             paymentStatus: "submitted",
-            status: "pending_approval",
+            status: "payment_submitted",
           };
 
       if (updatedBooking) {
@@ -949,12 +911,13 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
         setBooking((prev) => ({
           ...prev,
           paymentStatus: "submitted",
-          status: "pending_approval",
+          status: "payment_submitted",
         }));
       }
 
       await syncStoredBookingStatusSnapshot([nextBooking]);
       setPaymentAsset(null);
+      setPaymentReference("");
       setProofSuccessVisible(true);
     } catch (error) {
       const message = String(error?.response?.data?.message || error?.message || "");
@@ -1212,6 +1175,18 @@ export default function PaymentInstructionsScreen({ navigation, route }) {
             <Text style={styles.inlineErrorText}>{contractAcceptError}</Text>
           ) : null}
           {proofError ? <Text style={styles.inlineErrorText}>{proofError}</Text> : null}
+
+          {paymentProofEligibility.isEligible ? (
+            <TextInput
+              style={styles.paymentReferenceInput}
+              value={paymentReference}
+              onChangeText={setPaymentReference}
+              placeholder="Payment reference (optional)"
+              placeholderTextColor="#94a3b8"
+              editable={!isSubmittingProof && canSelectOrSubmitPaymentProof}
+              autoCapitalize="characters"
+            />
+          ) : null}
 
           {paymentProofEligibility.isEligible && paymentAsset?.uri ? (
             <View style={styles.proofPreviewCard}>

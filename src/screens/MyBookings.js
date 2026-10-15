@@ -5,6 +5,7 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   RefreshControl,
@@ -15,6 +16,7 @@ import {
   View,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -25,18 +27,18 @@ import {
   getClientBookings,
   requestBookingExtension,
   resumeClientBooking,
+  uploadAdditionalPaymentProof,
 } from "../api/clientApi";
 import { styles } from "../styles/myBookingsStyle";
 import { canCancelBooking } from "../utils/bookingActions";
 import {
-  ACTIVE_BOOKING_STATUS_KEYS,
-  BOOKING_VIEW_TABS,
   BOOKING_STATUS_FILTERS,
-  HISTORY_BOOKING_STATUS_KEYS,
+  canRequestBookingExtension,
   getBookingAmountLabel,
+  getBookingFilterGroup,
   getBookingNextAction,
   getBookingStatusMeta,
-  isActiveBooking,
+  isFinalBalanceDue,
   isHistoryBooking,
 } from "../utils/bookingStatusDisplay";
 import { getInvoicePdfSource, getReceiptPdfSource } from "../utils/bookingDocuments";
@@ -47,16 +49,20 @@ import {
   isAwaitingPaymentBooking,
 } from "../utils/bookingPaymentDisplay";
 import {
+  buildAdditionalPaymentProofPayload,
+  getAdditionalPaymentProofEligibility,
+} from "../utils/bookingPaymentEligibility";
+import {
   syncStoredBookingStatusSnapshot,
 } from "../services/notificationService";
 import { openPdf, showPdfError } from "../utils/pdfUtils";
 
 const ADDITIONAL_INVOICE_REASON_LABELS = {
-  extension: "Extension",
-  late_return: "Late Return",
+  extension: "Approved extension",
+  late_return: "Late return",
   penalty: "Penalty",
-  return_assessment: "Return Assessment",
-  manual_adjustment: "Manual Adjustment",
+  return_assessment: "Return assessment",
+  manual_adjustment: "Manual adjustment",
 };
 
 function getBookingId(item) {
@@ -98,6 +104,7 @@ function getReferenceNo(item) {
 }
 
 function getPaymentLabel(item) {
+  if (normalizeStatus(item?.status) === "payment_rejected") return "Payment Rejected";
   const value = String(item?.paymentStatus || "").toLowerCase();
   if (["verified", "fully_paid", "downpayment_paid"].includes(value)) return "Verified";
   if (["submitted", "payment_submitted", "under_review", "pending"].includes(value)) {
@@ -187,6 +194,21 @@ function combineExtensionDateTime(dateValue, timeValue) {
   return Number.isNaN(combined.getTime()) ? null : combined;
 }
 
+function getExtensionDurationPreview(current, requested) {
+  if (!current || !requested) return "Select a valid return date and time.";
+  const minutes = Math.round((requested.getTime() - current.getTime()) / 60000);
+  if (minutes <= 0) return "New return date and time must be after the current return schedule.";
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const remainingMinutes = minutes % 60;
+  const parts = [
+    days ? `${days} day${days === 1 ? "" : "s"}` : "",
+    hours ? `${hours} hr${hours === 1 ? "" : "s"}` : "",
+    remainingMinutes ? `${remainingMinutes} min` : "",
+  ].filter(Boolean);
+  return `Extension duration: ${parts.join(" ")}`;
+}
+
 function normalizeStatus(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -203,7 +225,7 @@ function formatStatusLabel(value) {
 
 function getExtensionState(item) {
   const requests = Array.isArray(item?.extensionRequests) ? item.extensionRequests : [];
-  const pendingStatuses = ["pending", "submitted", "under_review"];
+  const pendingStatuses = ["pending"];
   const pendingRequest = requests.find((request) =>
     pendingStatuses.includes(normalizeStatus(request?.status || request?.requestStatus))
   );
@@ -219,39 +241,30 @@ function getExtensionState(item) {
   };
 }
 
-function canRequestExtension(item) {
-  const extensionState = getExtensionState(item);
-
-  return Boolean(
-    getBookingId(item) &&
-      !extensionState.isPending &&
-      !String(item?.extensionRequestIneligibleReason || "").trim()
-  );
-}
-
 function getAdditionalPaymentDetails(item) {
   const payment =
     item?.additionalPayment && typeof item.additionalPayment === "object"
       ? item.additionalPayment
       : {};
   const reasonKey = normalizeStatus(payment?.reason || payment?.reasonType || payment?.type);
-  const amount = [
-    payment?.totalAdditionalAmount,
-    payment?.totalAmountDue,
-    payment?.amountDue,
-  ]
-    .map(Number)
-    .find((value) => Number.isFinite(value) && value > 0) || 0;
+  const eligibility = getAdditionalPaymentProofEligibility(item);
+  const status = eligibility.status || normalizeStatus(payment?.paymentStatus || item?.additionalPaymentStatus);
+  const amount = Number(item?.totalAdditionalPaymentDue ?? eligibility.amountDue);
 
   return {
-    required: payment?.required === true,
+    required: payment?.required === true || item?.finalBalanceDue === true,
     invoiceReference:
       payment?.invoiceReference || payment?.invoiceNumber || payment?.reference || "",
     reason: ADDITIONAL_INVOICE_REASON_LABELS[reasonKey] || formatStatusLabel(reasonKey),
     amount,
-    status: formatStatusLabel(
-      payment?.status || payment?.paymentStatus || item?.additionalPaymentStatus
-    ),
+    status: formatStatusLabel(status),
+    statusKey: status,
+    canUpload: eligibility.eligible,
+    proofReason: item?.additionalPaymentProofReason || "",
+    paymentMethod: item?.paymentMethod || item?.selectedPaymentMethodName || "",
+    accountName: item?.selectedPaymentAccountName || "",
+    accountNumber: item?.selectedPaymentAccountNumber || "",
+    paymentInstructions: item?.selectedPaymentInstructions || "",
     paymentDueAt: payment?.paymentDueAt || payment?.dueDate || payment?.deadline || "",
     invoiceIssuedAt: payment?.invoiceIssuedAt || payment?.issuedAt || payment?.createdAt || "",
     documentReference:
@@ -261,10 +274,10 @@ function getAdditionalPaymentDetails(item) {
 
 export default function MyBookings({ navigation }) {
   const [bookings, setBookings] = useState([]);
+  const [finalBalanceDueCount, setFinalBalanceDueCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [hasToken, setHasToken] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeView, setActiveView] = useState("active");
   const [activeFilter, setActiveFilter] = useState("all");
   const [failedImages, setFailedImages] = useState({});
   const [extensionBooking, setExtensionBooking] = useState(null);
@@ -274,6 +287,11 @@ export default function MyBookings({ navigation }) {
   const [extensionPicker, setExtensionPicker] = useState("");
   const [extensionSubmitting, setExtensionSubmitting] = useState(false);
   const [additionalInvoiceOpeningId, setAdditionalInvoiceOpeningId] = useState("");
+  const [additionalPaymentAssets, setAdditionalPaymentAssets] = useState({});
+  const [additionalPaymentReferences, setAdditionalPaymentReferences] = useState({});
+  const [additionalPaymentAmounts, setAdditionalPaymentAmounts] = useState({});
+  const [additionalPaymentErrors, setAdditionalPaymentErrors] = useState({});
+  const [additionalPaymentSubmittingId, setAdditionalPaymentSubmittingId] = useState("");
 
   const loadBookings = useCallback(
     async (mode = "load") => {
@@ -287,13 +305,25 @@ export default function MyBookings({ navigation }) {
         if (!token) {
           setHasToken(false);
           setBookings([]);
+          setFinalBalanceDueCount(0);
           return;
         }
 
         setHasToken(true);
-        const res = await getClientBookings();
-        const nextBookings = Array.isArray(res?.bookings) ? res.bookings : [];
+        const limit = 50;
+        const firstPage = await getClientBookings({ page: 1, limit, filter: "all" });
+        const pageNumbers = Array.from(
+          { length: Math.max(0, Number(firstPage?.totalPages || 0) - 1) },
+          (_, index) => index + 2
+        );
+        const remainingPages = await Promise.all(
+          pageNumbers.map((page) => getClientBookings({ page, limit, filter: "all" }))
+        );
+        const nextBookings = [firstPage, ...remainingPages].flatMap((page) =>
+          Array.isArray(page?.bookings) ? page.bookings : []
+        );
         setBookings(nextBookings);
+        setFinalBalanceDueCount(Number(firstPage?.finalBalanceDueCount) || 0);
       } catch (err) {
         if (isUnauthorizedError(err)) {
           navigation.replace("ClientLogin");
@@ -304,6 +334,7 @@ export default function MyBookings({ navigation }) {
           getFriendlyApiErrorMessage(err, "Please try again.")
         );
         setBookings([]);
+        setFinalBalanceDueCount(0);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -318,41 +349,17 @@ export default function MyBookings({ navigation }) {
     return unsubscribe;
   }, [loadBookings, navigation]);
 
-  const scopedBookings = useMemo(() => {
-    return bookings.filter((item) => (activeView === "history" ? isHistoryBooking(item) : isActiveBooking(item)));
-  }, [activeView, bookings]);
-
-  const activeBookingsCount = useMemo(
-    () => bookings.filter((item) => isActiveBooking(item)).length,
-    [bookings]
-  );
-  const historyBookingsCount = useMemo(
-    () => bookings.filter((item) => isHistoryBooking(item)).length,
-    [bookings]
-  );
-
-  const viewTabs = useMemo(
-    () =>
-      BOOKING_VIEW_TABS.map((item) => ({
-        ...item,
-        label: `${item.label} (${item.key === "history" ? historyBookingsCount : activeBookingsCount})`,
-      })),
-    [activeBookingsCount, historyBookingsCount]
-  );
-
   const availableFilters = useMemo(() => {
-    const allowedKeys =
-      activeView === "history"
-        ? ["all", ...HISTORY_BOOKING_STATUS_KEYS]
-        : ["all", ...ACTIVE_BOOKING_STATUS_KEYS.filter((key) => key !== "processing")];
-
-    return BOOKING_STATUS_FILTERS.filter((item) => allowedKeys.includes(item.key));
-  }, [activeView]);
+    return BOOKING_STATUS_FILTERS.filter(
+      (item) => item.key !== "final_balance_due" || finalBalanceDueCount > 0
+    );
+  }, [finalBalanceDueCount]);
 
   const filteredBookings = useMemo(() => {
-    if (activeFilter === "all") return scopedBookings;
-    return scopedBookings.filter((item) => getBookingStatusMeta(item).key === activeFilter);
-  }, [activeFilter, scopedBookings]);
+    if (activeFilter === "all") return bookings;
+    if (activeFilter === "final_balance_due") return bookings.filter(isFinalBalanceDue);
+    return bookings.filter((item) => getBookingFilterGroup(item) === activeFilter);
+  }, [activeFilter, bookings]);
 
   useEffect(() => {
     const filterIsAvailable = availableFilters.some((item) => item.key === activeFilter);
@@ -360,16 +367,6 @@ export default function MyBookings({ navigation }) {
       setActiveFilter("all");
     }
   }, [activeFilter, availableFilters]);
-
-  useEffect(() => {
-    if (!__DEV__) return;
-
-    console.log("[BookingsFilter][mobile]", {
-      total: bookings.length,
-      activeCount: activeBookingsCount,
-      historyCount: historyBookingsCount,
-    });
-  }, [activeBookingsCount, bookings.length, historyBookingsCount]);
 
   const handleResume = async (booking) => {
     const bookingId = getBookingId(booking);
@@ -451,6 +448,10 @@ export default function MyBookings({ navigation }) {
       ? "New return date and time must be after the current return schedule."
       : ""
     : "";
+  const extensionDurationPreview = getExtensionDurationPreview(
+    currentExtensionEnd,
+    selectedExtensionEnd
+  );
 
   const handleExtensionPickerChange = (event, value) => {
     const activePicker = extensionPicker;
@@ -520,6 +521,96 @@ export default function MyBookings({ navigation }) {
       showPdfError(error, "Unable to open the additional invoice. Please try again.");
     } finally {
       setAdditionalInvoiceOpeningId("");
+    }
+  };
+
+  const chooseAdditionalPaymentProof = async (booking) => {
+    const bookingId = getBookingId(booking);
+    const details = getAdditionalPaymentDetails(booking);
+    if (!bookingId || !details.canUpload || additionalPaymentSubmittingId) return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission needed", "Please allow access to upload payment proof.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.85,
+        base64: true,
+      });
+      if (result.canceled) return;
+      const asset = result.assets?.[0];
+      if (!asset?.uri || !asset?.base64) {
+        Alert.alert("Upload failed", "Could not prepare the selected image.");
+        return;
+      }
+      const mimeType = String(asset.mimeType || "image/jpeg").toLowerCase();
+      if (!["image/jpeg", "image/jpg", "image/png", "image/webp"].includes(mimeType)) {
+        Alert.alert("Unsupported image", "Payment proof must be a JPG, PNG, or WEBP image.");
+        return;
+      }
+      if (Number(asset.fileSize || 0) > 2 * 1024 * 1024) {
+        Alert.alert("Image too large", "Payment proof must be 2MB or smaller.");
+        return;
+      }
+      setAdditionalPaymentAssets((prev) => ({ ...prev, [bookingId]: asset }));
+      setAdditionalPaymentErrors((prev) => ({ ...prev, [bookingId]: "" }));
+    } catch (error) {
+      Alert.alert("Upload failed", getFriendlyApiErrorMessage(error, "Unable to select payment proof."));
+    }
+  };
+
+  const submitAdditionalPayment = async (booking) => {
+    const bookingId = getBookingId(booking);
+    const details = getAdditionalPaymentDetails(booking);
+    const asset = additionalPaymentAssets[bookingId];
+    const amountValue = additionalPaymentAmounts[bookingId];
+    const paymentAmount = Number(amountValue);
+    const setError = (message) =>
+      setAdditionalPaymentErrors((prev) => ({ ...prev, [bookingId]: message }));
+
+    if (!bookingId || additionalPaymentSubmittingId) return;
+    if (!details.canUpload) {
+      setError(details.proofReason || "Additional payment proof cannot be uploaded at this stage.");
+      return;
+    }
+    if (!asset?.base64) {
+      setError("Please upload your additional payment proof first.");
+      return;
+    }
+    const completed = normalizeStatus(booking?.status) === "completed";
+    if (completed &&
+        (amountValue === undefined || amountValue === "" || !Number.isFinite(paymentAmount) ||
+          paymentAmount <= 0 || paymentAmount > details.amount)) {
+      setError("Enter the amount paid, up to the remaining balance.");
+      return;
+    }
+
+    try {
+      setAdditionalPaymentSubmittingId(bookingId);
+      setError("");
+      const paymentProof = `data:${asset.mimeType || "image/jpeg"};base64,${asset.base64}`;
+      await uploadAdditionalPaymentProof(
+        bookingId,
+        buildAdditionalPaymentProofPayload({
+          booking,
+          paymentProof,
+          paymentReference: additionalPaymentReferences[bookingId] || "",
+          ...(completed ? { paymentAmount } : {}),
+        })
+      );
+      setAdditionalPaymentAssets((prev) => ({ ...prev, [bookingId]: null }));
+      setAdditionalPaymentReferences((prev) => ({ ...prev, [bookingId]: "" }));
+      setAdditionalPaymentAmounts((prev) => ({ ...prev, [bookingId]: "" }));
+      await loadBookings("refresh");
+      Alert.alert("Payment proof submitted", "Your additional payment proof has been sent for review.");
+    } catch (error) {
+      const message = error?.response?.data?.message ||
+        getFriendlyApiErrorMessage(error, "Unable to submit additional payment proof. Please try again.");
+      setError(message);
+    } finally {
+      setAdditionalPaymentSubmittingId("");
     }
   };
 
@@ -652,7 +743,7 @@ export default function MyBookings({ navigation }) {
 
   const renderExtensionAction = (item) => {
     const extensionState = getExtensionState(item);
-    const canRequest = canRequestExtension(item);
+    const canRequest = Boolean(getBookingId(item) && canRequestBookingExtension(item));
 
     if (!extensionState.label && !canRequest) return null;
 
@@ -703,6 +794,9 @@ export default function MyBookings({ navigation }) {
           }
         : null,
       details.status ? { label: "Status", value: details.status } : null,
+      details.paymentMethod ? { label: "Payment method", value: details.paymentMethod } : null,
+      details.accountName ? { label: "Account name", value: details.accountName } : null,
+      details.accountNumber ? { label: "Account number", value: details.accountNumber } : null,
       details.paymentDueAt
         ? { label: "Payment Due", value: formatDateTime(details.paymentDueAt) }
         : null,
@@ -725,6 +819,9 @@ export default function MyBookings({ navigation }) {
             <Text style={styles.additionalInvoiceValue}>{row.value}</Text>
           </View>
         ))}
+        {details.paymentInstructions ? (
+          <Text style={styles.additionalInvoiceSubtitle}>{details.paymentInstructions}</Text>
+        ) : null}
         <TouchableOpacity
           style={[
             styles.additionalInvoiceButton,
@@ -739,6 +836,95 @@ export default function MyBookings({ navigation }) {
             <Text style={styles.additionalInvoiceButtonText}>View Additional Invoice</Text>
           )}
         </TouchableOpacity>
+        {item?.additionalPayment?.proofUrl ? (
+          <TouchableOpacity
+            style={styles.additionalInvoiceButton}
+            onPress={() =>
+              Linking.openURL(item.additionalPayment.proofUrl).catch(() =>
+                Alert.alert("Unable to open proof", "Please try again later.")
+              )
+            }
+          >
+            <Text style={styles.additionalInvoiceButtonText}>View Payment Proof</Text>
+          </TouchableOpacity>
+        ) : null}
+        {details.statusKey === "under_review" || details.statusKey === "submitted" ? (
+          <Text style={styles.additionalInvoiceSubtitle}>
+            Additional payment is under review. You cannot submit another proof until review is complete.
+          </Text>
+        ) : null}
+        {details.statusKey === "verified" ? (
+          <Text style={styles.additionalInvoiceSubtitle}>Additional payment verified.</Text>
+        ) : null}
+        {details.statusKey === "rejected" ? (
+          <Text style={styles.additionalPaymentError}>
+            Additional payment was rejected. Upload a new proof to resubmit.
+            {item?.additionalPayment?.rejectionRemarks
+              ? ` ${item.additionalPayment.rejectionRemarks}`
+              : ""}
+          </Text>
+        ) : null}
+        {details.canUpload ? (
+          <View style={styles.additionalPaymentForm}>
+            <TextInput
+              style={styles.additionalPaymentInput}
+              value={additionalPaymentReferences[bookingId] || ""}
+              onChangeText={(value) =>
+                setAdditionalPaymentReferences((prev) => ({ ...prev, [bookingId]: value }))
+              }
+              placeholder="Transaction reference (optional)"
+              placeholderTextColor="#94a3b8"
+              editable={additionalPaymentSubmittingId !== bookingId}
+            />
+            {normalizeStatus(item?.status) === "completed" ? (
+              <TextInput
+                style={styles.additionalPaymentInput}
+                value={additionalPaymentAmounts[bookingId] || ""}
+                onChangeText={(value) =>
+                  setAdditionalPaymentAmounts((prev) => ({ ...prev, [bookingId]: value }))
+                }
+                placeholder={`Amount paid (up to PHP ${details.amount.toLocaleString()})`}
+                placeholderTextColor="#94a3b8"
+                keyboardType="decimal-pad"
+                editable={additionalPaymentSubmittingId !== bookingId}
+              />
+            ) : null}
+            {additionalPaymentAssets[bookingId]?.uri ? (
+              <Image
+                source={{ uri: additionalPaymentAssets[bookingId].uri }}
+                style={styles.additionalPaymentProofPreview}
+                resizeMode="cover"
+              />
+            ) : null}
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={styles.secondaryActionButton}
+                onPress={() => chooseAdditionalPaymentProof(item)}
+                disabled={additionalPaymentSubmittingId === bookingId}
+              >
+                <Text style={styles.secondaryActionText}>
+                  {additionalPaymentAssets[bookingId]?.uri ? "Replace Proof" : "Upload Payment Proof"}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() => submitAdditionalPayment(item)}
+                disabled={additionalPaymentSubmittingId === bookingId}
+              >
+                {additionalPaymentSubmittingId === bookingId ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.actionButtonText}>Submit Payment Proof</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : details.proofReason ? (
+          <Text style={styles.additionalPaymentError}>{details.proofReason}</Text>
+        ) : null}
+        {additionalPaymentErrors[bookingId] ? (
+          <Text style={styles.additionalPaymentError}>{additionalPaymentErrors[bookingId]}</Text>
+        ) : null}
       </View>
     );
   };
@@ -748,11 +934,13 @@ export default function MyBookings({ navigation }) {
     const historyBooking = isHistoryBooking(item);
     const nextAction = getBookingNextAction(item);
     const invoiceDetails = getBookingInvoicePaymentDetails(item);
-    const amountValue =
-      meta.key === "awaiting_payment" && invoiceDetails.amountDue > 0
-        ? invoiceDetails.amountDue
-        : Number(item?.totalPrice || invoiceDetails.bookingTotal || 0);
-    const amountLabel = getBookingAmountLabel(item);
+    const finalBalanceDue = isFinalBalanceDue(item);
+    const amountValue = finalBalanceDue
+      ? Number(item?.financialSummary?.finalBalance || 0)
+      : meta.key === "awaiting_payment" && invoiceDetails.amountDue > 0
+      ? invoiceDetails.amountDue
+      : Number(item?.totalPrice || invoiceDetails.bookingTotal || 0);
+    const amountLabel = finalBalanceDue ? "Final Balance Due" : getBookingAmountLabel(item);
     const bookingId = getBookingId(item);
     const imageUrl = getVehicleImageUrl(item);
     const imageKey = `booking-${bookingId}`;
@@ -828,7 +1016,7 @@ export default function MyBookings({ navigation }) {
           <View style={[styles.statusBadge, styles[`statusBadge_${meta.tone}`]]}>
             <Text style={styles.statusText}>{meta.label}</Text>
           </View>
-          <Text style={styles.statusSubtext}>{historyBooking ? meta.nextAction : nextAction}</Text>
+          <Text style={styles.statusSubtext}>{nextAction}</Text>
         </View>
         {renderActions(item)}
         {renderExtensionAction(item)}
@@ -846,25 +1034,6 @@ export default function MyBookings({ navigation }) {
           </TouchableOpacity>
           <Text style={styles.title}>My Bookings</Text>
         </View>
-
-        <FlatList
-          style={styles.filterList}
-          horizontal
-          data={viewTabs}
-          keyExtractor={(item) => item.key}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.viewTabsContent}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={[styles.viewTab, activeView === item.key && styles.viewTabActive]}
-              onPress={() => setActiveView(item.key)}
-            >
-              <Text style={[styles.viewTabText, activeView === item.key && styles.viewTabTextActive]}>
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          )}
-        />
 
         <FlatList
           style={styles.filterList}
@@ -919,12 +1088,12 @@ export default function MyBookings({ navigation }) {
             ListEmptyComponent={
               <View style={styles.emptyBox}>
                 <Text style={styles.emptyTitle}>
-                  {activeView === "history" ? "No booking history yet." : "No active bookings yet."}
+                  {activeFilter === "all" ? "No bookings yet." : `No ${activeFilter.replace(/_/g, " ")} bookings.`}
                 </Text>
                 <Text style={styles.emptyText}>
-                  {activeView === "history"
-                    ? "Completed and cancelled bookings will appear here."
-                    : "Plan a trip or browse vehicles to start a booking."}
+                  {activeFilter === "all"
+                    ? "Plan a trip or browse vehicles to start a booking."
+                    : "Try another booking filter or refresh your bookings."}
                 </Text>
                 <TouchableOpacity style={styles.refreshButton} onPress={() => loadBookings("refresh")}>
                   <Text style={styles.refreshText}>Refresh</Text>
@@ -1012,6 +1181,10 @@ export default function MyBookings({ navigation }) {
                   ) : null}
                 </View>
               ) : null}
+
+              <Text style={extensionTimingError ? styles.extensionValidationText : styles.extensionHelperText}>
+                {extensionDurationPreview}
+              </Text>
 
               <Text style={styles.extensionFieldLabel}>Reason (Optional)</Text>
               <TextInput

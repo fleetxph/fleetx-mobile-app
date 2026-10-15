@@ -167,6 +167,17 @@ export const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "900",
   },
+  paymentReferenceInput: {
+    minHeight: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    backgroundColor: "#FFFFFF",
+    color: "#0F172A",
+    paddingHorizontal: 12,
+    marginVertical: 10,
+    fontSize: 13,
+  },
   infoCard: {
     borderRadius: 18,
     borderWidth: 1,

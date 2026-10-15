@@ -476,6 +476,36 @@ export const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
+  additionalPaymentForm: {
+    marginTop: 10,
+    gap: 9,
+  },
+
+  additionalPaymentInput: {
+    minHeight: 44,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#ffffff",
+    color: "#0f172a",
+    paddingHorizontal: 11,
+    fontSize: 12,
+  },
+
+  additionalPaymentProofPreview: {
+    width: "100%",
+    height: 160,
+    borderRadius: 12,
+    backgroundColor: "#e2e8f0",
+  },
+
+  additionalPaymentError: {
+    color: "#b91c1c",
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 8,
+  },
+
   panelTitle: {
     color: "#111827",
     fontSize: 13,

@@ -260,7 +260,9 @@ export function getPaymentProofState(booking) {
   const isLocked =
     ["confirmed", "completed", "cancelled"].includes(statusMeta.key) ||
     ["verified", "fully_paid", "downpayment_paid", "payment_verified"].includes(paymentStatus);
-  const isResubmissionAllowed = ["rejected", "reupload_required"].includes(paymentStatus);
+  const isResubmissionAllowed =
+    statusMeta.key === "payment_rejected" ||
+    ["rejected", "reupload_required"].includes(paymentStatus);
 
   return {
     hasInvoiceContext,
@@ -288,6 +290,9 @@ export function canReviewContract(booking) {
 }
 
 export function canUploadPaymentProof(booking) {
+  if (typeof booking?.paymentProofUploadEligible === "boolean") {
+    return booking.paymentProofUploadEligible;
+  }
   const contractState = getContractAcceptanceState(booking);
   const proofState = getPaymentProofState(booking);
   const statusMeta = getBookingStatusMeta(booking);
@@ -296,7 +301,8 @@ export function canUploadPaymentProof(booking) {
   if (!proofState.hasInvoiceContext && statusMeta.key !== "awaiting_payment") return false;
   if (contractState.requiresContract && !contractState.contractAccepted) return false;
 
-  return ["awaiting_payment"].includes(statusMeta.key) || proofState.isResubmissionAllowed;
+  return ["awaiting_payment", "payment_rejected"].includes(statusMeta.key) ||
+    proofState.isResubmissionAllowed;
 }
 
 export function canViewReceipt(booking) {

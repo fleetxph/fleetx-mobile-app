@@ -265,8 +265,16 @@ export async function requestBookingExtension(bookingId, payload) {
   return response.data;
 }
 
-export async function getClientBookings() {
-  const response = await api.get("/client/bookings");
+export async function getClientBookings(options = {}) {
+  const params = options?.page !== undefined || options?.limit !== undefined || options?.filter
+    ? {
+        ...(options.page !== undefined ? { page: options.page } : {}),
+        ...(options.limit !== undefined ? { limit: options.limit } : {}),
+        ...(options.filter ? { filter: options.filter } : {}),
+        ...(options.focusBookingId ? { focusBookingId: options.focusBookingId } : {}),
+      }
+    : undefined;
+  const response = await api.get("/client/bookings", params ? { params } : undefined);
   return response.data;
 }
 
